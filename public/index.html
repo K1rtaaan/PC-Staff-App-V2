@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#0d9488"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>PCR Staff — Paradise Cove Resort</title>
+<link rel="manifest" href="manifest.json"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        navy: { 950: '#060d18', 900: '#0a1628', 800: '#0f2137', 700: '#16304d' },
+        teal: { 400: '#2dd4bf', 500: '#14b8a6', 600: '#0d9488', 700: '#0f766e' },
+        sand: { 100: '#f5f0e6', 200: '#e8dfd0' }
+      },
+      fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }
+    }
+  }
+}
+</script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+:root { color-scheme: dark; }
+* { -webkit-tap-highlight-color: transparent; }
+body {
+  background: radial-gradient(ellipse at 20% 0%, #0f766e33 0%, transparent 50%),
+              radial-gradient(ellipse at 80% 100%, #0d948833 0%, transparent 40%),
+              #060d18;
+  min-height: 100dvh;
+  font-family: Inter, system-ui, sans-serif;
+}
+.glass {
+  background: rgba(15, 33, 55, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(45, 212, 191, 0.15);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+}
+.glass-strong {
+  background: rgba(10, 22, 40, 0.85);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(45, 212, 191, 0.2);
+}
+.btn-primary {
+  background: linear-gradient(135deg, #0d9488, #0f766e);
+  transition: transform .15s, box-shadow .15s;
+}
+.btn-primary:active { transform: scale(0.97); }
+.btn-primary:disabled { opacity: .5; }
+.nav-item.active { color: #2dd4bf; }
+.nav-item.active i { transform: translateY(-2px); }
+.safe-bottom { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
+.modal-bg { background: rgba(6,13,24,0.75); backdrop-filter: blur(4px); }
+input, select, textarea {
+  background: rgba(6,13,24,0.6) !important;
+  border: 1px solid rgba(45,212,191,0.2) !important;
+  color: #e8dfd0 !important;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #14b8a6 !important;
+  box-shadow: 0 0 0 2px rgba(20,184,166,0.25);
+}
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:none;} }
+.fade-in { animation: fadeIn .25s ease; }
+.badge { font-size: .65rem; padding: .15rem .45rem; border-radius: 999px; }
+@media print {
+  body * { visibility: hidden; }
+  #print-area, #print-area * { visibility: visible; }
+  #print-area { position: absolute; left: 0; top: 0; width: 100%; background: white; color: black; }
+  .no-print { display: none !important; }
+}
+</style>
+</head>
+<body class="text-sand-100 antialiased">
+
+<!-- ========== CONFIG — paste Apps Script Web App URL after deploy ========== -->
+<script>
+const SCRIPT_URL = ''; // e.g. 'https://script.google.com/macros/s/XXXX/exec'
+const API_URL = SCRIPT_URL;
+const APP_VERSION = '2.1.0';
+const CACHE_USERS_KEY = 'pcr_users_cache_v1';
+const SESSION_KEY = 'pcr_session_v1';
+const DEMO_KEY = 'pcr_demo_db_v1';
+</script>
+
+<div id="app" class="min-h-dvh flex flex-col">
+  <div id="view-login" class="flex-1 flex items-center justify-center p-4">
+    <div class="glass rounded-2xl p-6 w-full max-w-md fade-in">
+      <div class="text-center mb-6">
+        <div class="w-16 h-16 mx-auto rounded-2xl bg-teal-600/30 border border-teal-500/40 flex items-center justify-center mb-3">
+          <i class="fa-solid fa-umbrella-beach text-2xl text-teal-400"></i>
+        </div>
+        <h1 class="text-xl font-bold tracking-tight">Paradise Cove Resort</h1>
+        <p class="text-sm text-sand-200/60 mt-1">Staff Portal · Fiji</p>
+        <p id="demo-badge" class="hidden mt-2 text-xs text-amber-300/90"><i class="fa-solid fa-flask"></i> Demo mode</p>
+      </div>
+      <form id="login-form" class="space-y-3">
+        <div>
+          <label class="text-xs text-sand-200/70 mb-1 block">Email</label>
+          <input type="email" id="login-email" required class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="you@paradisecoveresortfiji.com" autocomplete="username"/>
+        </div>
+        <div>
+          <label class="text-xs text-sand-200/70 mb-1 block">Password</label>
+          <input type="password" id="login-password" required class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="••••••••" autocomplete="current-password"/>
+        </div>
+        <p id="login-error" class="text-red-400 text-sm hidden"></p>
+        <button type="submit" class="btn-primary w-full rounded-xl py-2.5 font-semibold text-white text-sm">
+          <i class="fa-solid fa-right-to-bracket mr-2"></i>Sign in
+        </button>
+      </form>
+      <div id="verify-panel" class="hidden mt-4 pt-4 border-t border-teal-500/20 space-y-2">
+        <p class="text-sm text-sand-200/80">Enter the verification code emailed to you.</p>
+        <input id="verify-code" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="6-digit code"/>
+        <button type="button" id="btn-verify" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Verify</button>
+        <button type="button" id="btn-resend-code" class="w-full text-xs text-teal-400 py-1">Resend code</button>
+      </div>
+      <p class="text-[10px] text-center text-sand-200/40 mt-4">v<span id="ui-version"></span> · Fiji time UTC+12</p>
+    </div>
+  </div>
+
+  <div id="view-main" class="hidden flex-1 flex flex-col safe-bottom">
+    <header class="glass-strong sticky top-0 z-40 px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
+      <div>
+        <p class="text-xs text-teal-400/80 font-medium">Paradise Cove</p>
+        <h2 id="header-title" class="text-sm font-semibold">Home</h2>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="fiji-clock" class="text-[10px] text-sand-200/50 hidden sm:inline"></span>
+        <button id="btn-logout" class="text-sand-200/60 hover:text-teal-400 text-sm px-2 py-1" title="Sign out">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i>
+        </button>
+      </div>
+    </header>
+    <main id="main-content" class="flex-1 overflow-y-auto p-4"></main>
+    <nav class="fixed bottom-0 inset-x-0 glass-strong border-t border-teal-500/15 px-1 pt-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] z-50 no-print">
+      <div class="flex justify-around max-w-lg mx-auto" id="bottom-nav"></div>
+    </nav>
+  </div>
+</div>
+
+<div id="modal" class="fixed inset-0 z-[100] hidden items-center justify-center p-4 modal-bg">
+  <div class="glass-strong rounded-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto p-5 fade-in" id="modal-body"></div>
+</div>
+<div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-[200] hidden px-4 py-2 rounded-xl text-sm font-medium shadow-lg"></div>
+<div id="print-area" class="hidden"></div>
+
+<script>
+
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+
+let state = {
+  user: null, tab: 'home', demo: false, backendVersion: null,
+  usersCache: [], usersError: null, usersLoading: false
+};
+
+/* Fiji time UTC+12 — never use device local for cutoffs/dates */
+const FIJI_OFFSET_MS = 12 * 60 * 60 * 1000;
+function getFijiNow() { return new Date(Date.now() + FIJI_OFFSET_MS); }
+function pad2(n){ return String(n).padStart(2,'0'); }
+function fijiDateString(d=getFijiNow()) {
+  return d.getUTCFullYear()+'-'+pad2(d.getUTCMonth()+1)+'-'+pad2(d.getUTCDate());
+}
+function formatFiji(d=getFijiNow()) {
+  return fijiDateString(d)+' '+pad2(d.getUTCHours())+':'+pad2(d.getUTCMinutes())+' FJT';
+}
+function addFijiDays(d, days) { return new Date(d.getTime() + days * 86400000); }
+/** Dinner: closes 8pm Fiji today for tomorrow service */
+function dinnerCutoffInfo(now=getFijiNow()) {
+  return { open: now.getUTCHours() < 20, serviceDate: fijiDateString(addFijiDays(now,1)),
+    cutoffLabel: '8:00 PM Fiji (today for tomorrow dinner)', meal:'dinner', fijiNow: formatFiji(now) };
+}
+/** Lunch/Duty: closes 10am Fiji same day */
+function lunchCutoffInfo(now=getFijiNow()) {
+  return { open: now.getUTCHours() < 10, serviceDate: fijiDateString(now),
+    cutoffLabel: '10:00 AM Fiji (same day)', meal:'lunch', fijiNow: formatFiji(now) };
+}
+
+function defaultDemoDb() {
+  return {
+    users: [
+      { id:'usr_super', email:'it@paradisecoveresortfiji.com', password:'21slands', firstName:'IT', lastName:'Admin', department:'IT', contact:'9999999', role:'super_admin', roster:'Mon-Fri', village:'Malolo', active:true, verified:true },
+      { id:'usr_hod', email:'hod.fb@pcr.com', password:'staff123', firstName:'Sera', lastName:'Nabua', department:'F&B', contact:'8888888', role:'hod', roster:'Roster A', village:'Nadi', active:false, verified:false },
+      { id:'usr_kit', email:'kitchen@paradisecoveresortfiji.com', password:'staff123', firstName:'Cesare', lastName:'Chef', department:'Kitchen', contact:'7777777', role:'kitchen', roster:'AM', village:'Resort', active:true, verified:true },
+      { id:'usr_st1', email:'ana.tui@paradisecoveresortfiji.com', password:'staff123', firstName:'Ana', lastName:'Tui', department:'Housekeeping', contact:'6666666', role:'staff', roster:'Roster B', village:'Navini', active:true, verified:true },
+      { id:'usr_boat', email:'boat@paradisecoveresortfiji.com', password:'staff123', firstName:'Jone', lastName:'Waqa', department:'Boat', contact:'5555555', role:'boat', roster:'Daily', village:'Resort', active:true, verified:true }
+    ],
+    boatRuns: [
+      { id:'run1', date: fijiDateString(), time:'07:00', route:'Denarau → Resort', capacity:24, notes:'Morning', active:true },
+      { id:'run2', date: fijiDateString(), time:'16:30', route:'Resort → Denarau', capacity:24, notes:'Afternoon', active:true },
+      { id:'run3', date: fijiDateString(addFijiDays(getFijiNow(),1)), time:'07:00', route:'Denarau → Resort', capacity:20, notes:'', active:true }
+    ],
+    boatBookings: [], dinnerOrders: [], lunchOrders: [], reminders: [],
+    suggestions: [{ id:'sug1', userEmail:'ana.tui@paradisecoveresortfiji.com', userName:'Ana Tui', title:'More shade at jetty', body:'Umbrellas for afternoon boats', votes:3, voters:'a,b,c', createdAt:formatFiji(), status:'open' }],
+    leaveRequests: [],
+    alertEmails: [
+      'leanne@paradisecoveresortfiji.com','agm@paradisecoveresortfiji.com','cesare@paradisecoveresortfiji.com',
+      'wood.nicolas@gmail.com','pranav619kumar@gmail.com'
+    ].map((email,i)=>({ email, label:'Default '+(i+1), active:true })),
+    verificationCodes: []
+  };
+}
+function loadDemo() {
+  try { const raw = localStorage.getItem(DEMO_KEY); if (raw) return JSON.parse(raw); } catch(e){}
+  const db = defaultDemoDb(); saveDemo(db); return db;
+}
+function saveDemo(db){ localStorage.setItem(DEMO_KEY, JSON.stringify(db)); }
+function uid(p){ return p + '_' + Math.random().toString(36).slice(2,10); }
+function publicUser(u){
+  if(!u) return null;
+  return { id:u.id, email:u.email, firstName:u.firstName||'', lastName:u.lastName||'',
+    department:u.department||'', contact:u.contact||'', role:u.role||'staff',
+    roster:u.roster||'', village:u.village||'', active:!!u.active, verified:!!u.verified,
+    needsProfile: !(u.firstName && u.lastName && u.department) };
+}
+function isDemoMode(){
+  const params = new URLSearchParams(location.search);
+  return !API_URL || !API_URL.trim() || params.get('demo') === '1';
+}
+
+async function api(action, payload={}) {
+  if (state.demo) return demoApi(action, payload);
+  const body = { action, ...payload };
+  if (state.user) {
+    body.requesterEmail = state.user.email;
+    body.userEmail = body.userEmail || state.user.email;
+  }
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(body),
+    redirect: 'follow'
+  });
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch(e) {
+    throw new Error('Non-JSON response from API. Check SCRIPT_URL and redeploy Apps Script as Web App (Execute as: Me, Anyone).');
+  }
+}
+
+function demoApi(action, p) {
+  const db = loadDemo();
+  const ok = (data) => ({ success:true, data });
+  const fail = (error) => ({ success:false, error });
+  switch(action) {
+    case 'getVersion': case 'health':
+      return Promise.resolve({ success:true, ok:true, version: APP_VERSION+'-demo', sheetId:'DEMO', fijiNow: formatFiji() });
+    case 'login': {
+      const email = String(p.email||'').toLowerCase().trim();
+      const u = db.users.find(x => x.email === email);
+      if (!u || u.password !== p.password) return Promise.resolve(fail('Invalid email or password'));
+      const isPcr = email.includes('@pcr.com');
+      const isSuper = email === 'it@paradisecoveresortfiji.com';
+      if (!isSuper && isPcr && !u.active) return Promise.resolve(fail('Your account is pending approval. Contact your HOD or IT.'));
+      if (!isSuper && !isPcr && !u.verified) return Promise.resolve({ success:false, error:'Email not verified', needsVerification:true, email });
+      if (!isSuper && !u.active) return Promise.resolve(fail('Account inactive'));
+      return Promise.resolve(ok({ user: publicUser(u), token:'demo' }));
+    }
+    case 'requestVerification': {
+      const code = String(Math.floor(100000+Math.random()*900000));
+      db.verificationCodes.push({ email:p.email, code, expiresAt: Date.now()+1.8e6, used:false });
+      saveDemo(db);
+      return Promise.resolve(ok({ emailed:false, code, message:'Demo: code returned' }));
+    }
+    case 'verifyEmail': {
+      const c = db.verificationCodes.find(x => x.email===p.email && x.code===p.code && !x.used);
+      if (!c) return Promise.resolve(fail('Invalid code'));
+      c.used = true;
+      const u = db.users.find(x => x.email === p.email);
+      if (u) { u.verified = true; u.active = true; }
+      saveDemo(db);
+      return Promise.resolve(ok({ verified:true, user: publicUser(u) }));
+    }
+    case 'getUsers': {
+      let list = db.users.map(publicUser);
+      if (p.activeOnly !== false && p.activeOnly !== 'false') list = list.filter(u => u.active);
+      if (p.department) list = list.filter(u => u.department === p.department);
+      if (p.role) list = list.filter(u => u.role === p.role);
+      if (p.search) {
+        const q = p.search.toLowerCase();
+        list = list.filter(u => (u.email+u.firstName+u.lastName+u.department+u.contact).toLowerCase().includes(q));
+      }
+      return Promise.resolve(ok({ users:list, total:list.length, version:APP_VERSION+'-demo', fijiNow:formatFiji() }));
+    }
+    case 'updateProfile': case 'updateUser': {
+      const email = (p.targetEmail||p.email||'').toLowerCase();
+      const u = db.users.find(x => x.email === email);
+      if (!u) return Promise.resolve(fail('User not found'));
+      ['firstName','lastName','contact','department','roster','village','role','password'].forEach(k => {
+        if (p[k] !== undefined) u[k] = p[k];
+      });
+      if (p.active !== undefined) u.active = p.active===true || p.active==='true';
+      saveDemo(db);
+      return Promise.resolve(ok({ user: publicUser(u) }));
+    }
+    case 'addUser': {
+      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('Admin passcode required'));
+      const email = String(p.email||'').toLowerCase();
+      if (db.users.find(x=>x.email===email)) return Promise.resolve(fail('User already exists'));
+      const isPcr = email.includes('@pcr.com');
+      const row = {
+        id:uid('usr'), email, password:p.password, firstName:p.firstName||'', lastName:p.lastName||'',
+        department:p.department||'', contact:p.contact||'', role:p.role||'staff', roster:p.roster||'',
+        village:p.village||'', active: p.active!==undefined ? !!p.active : !isPcr, verified: !isPcr
+      };
+      if (p.active === true || p.active === 'true') row.active = true;
+      db.users.push(row); saveDemo(db);
+      return Promise.resolve(ok({ user: publicUser(row) }));
+    }
+    case 'importUsersCSV': {
+      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('Admin passcode required'));
+      const lines = String(p.csv||'').split(/\r?\n/).filter(l=>l.trim());
+      let imported=0, skipped=[];
+      lines.forEach((line,idx)=>{
+        if (idx===0 && /email/i.test(line)) return;
+        const parts = line.split(',').map(s=>s.trim());
+        const email = (parts[0]||'').toLowerCase();
+        if (!email || !parts[1]) { skipped.push({line:idx+1}); return; }
+        if (db.users.find(x=>x.email===email)) { skipped.push({email,reason:'exists'}); return; }
+        db.users.push({
+          id:uid('usr'), email, password:parts[1], firstName:parts[2]||'', lastName:parts[3]||'',
+          department:parts[4]||'', contact:parts[5]||'', role:'staff', roster:'', village:'',
+          active:true, verified:true
+        });
+        imported++;
+      });
+      saveDemo(db);
+      return Promise.resolve(ok({ imported, skipped }));
+    }
+    case 'getPendingApprovals': {
+      const users = db.users.filter(u => u.email.includes('@pcr.com') && !u.active).map(publicUser);
+      return Promise.resolve(ok({ users }));
+    }
+    case 'approveUser': {
+      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('passcode'));
+      const u = db.users.find(x => x.email === (p.targetEmail||'').toLowerCase());
+      if (!u) return Promise.resolve(fail('not found'));
+      u.active = true; u.verified = true; saveDemo(db);
+      return Promise.resolve(ok({ user: publicUser(u) }));
+    }
+    case 'getAlertEmails':
+      return Promise.resolve(ok({ emails: db.alertEmails }));
+    case 'saveAlertEmails': {
+      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('passcode'));
+      let emails = p.emails;
+      if (typeof emails === 'string') emails = emails.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
+      db.alertEmails = emails.map((e,i)=>({ email: typeof e==='string'?e:e.email, label:'Alert '+(i+1), active:true }));
+      saveDemo(db);
+      return Promise.resolve(ok({ emails: db.alertEmails }));
+    }
+
+    case 'getBoatRuns':
+      return Promise.resolve(ok({ runs: db.boatRuns.filter(r=>r.active!==false) }));
+    case 'saveBoatRun': {
+      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('passcode'));
+      if (p.id) {
+        const r = db.boatRuns.find(x=>x.id===p.id);
+        Object.assign(r, { date:p.date, time:p.time, route:p.route, capacity:p.capacity, notes:p.notes });
+        saveDemo(db); return Promise.resolve(ok({ run:r }));
+      }
+      const run = { id:uid('run'), date:p.date||fijiDateString(), time:p.time, route:p.route, capacity:p.capacity||20, notes:p.notes||'', active:true };
+      db.boatRuns.push(run); saveDemo(db); return Promise.resolve(ok({ run }));
+    }
+    case 'bookBoat': {
+      const run = db.boatRuns.find(r=>r.id===p.runId);
+      if (!run) return Promise.resolve(fail('Run not found'));
+      const used = db.boatBookings.filter(b=>b.runId===p.runId && b.status!=='cancelled').reduce((s,b)=>s+Number(b.seats||1),0);
+      const seats = Number(p.seats||1);
+      if (used+seats > Number(run.capacity)) return Promise.resolve(fail('Not enough seats'));
+      const u = db.users.find(x=>x.email===(p.userEmail||state.user.email));
+      const booking = { id:uid('bb'), runId:p.runId, userEmail:u.email, userName:u.firstName+' '+u.lastName, seats, status:'confirmed', notes:p.notes||'', createdAt:formatFiji() };
+      db.boatBookings.push(booking); saveDemo(db); return Promise.resolve(ok({ booking }));
+    }
+    case 'cancelBoatBooking': {
+      const b = db.boatBookings.find(x=>x.id===p.id);
+      if (b) b.status='cancelled'; saveDemo(db); return Promise.resolve(ok({ booking:b }));
+    }
+    case 'myBoatBookings': {
+      const email = (p.userEmail||state.user.email).toLowerCase();
+      const bookings = db.boatBookings.filter(b=>b.userEmail===email).map(b=>({...b, run: db.boatRuns.find(r=>r.id===b.runId)}));
+      return Promise.resolve(ok({ bookings }));
+    }
+    case 'getBoatBookings':
+      return Promise.resolve(ok({ bookings: db.boatBookings.filter(b => !p.runId || b.runId===p.runId) }));
+    case 'placeDinnerOrder': {
+      const info = dinnerCutoffInfo();
+      const late = !info.open;
+      if (late && !p.allowLate) return Promise.resolve({ success:false, error:'Dinner closed at 8pm Fiji', cutoff:info });
+      const email = (p.userEmail||state.user.email).toLowerCase();
+      const u = db.users.find(x=>x.email===email);
+      let o = db.dinnerOrders.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled');
+      if (o) { o.mealChoice=p.mealChoice; o.notes=p.notes||''; o.late=late; }
+      else {
+        o = { id:uid('din'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:u.firstName+' '+u.lastName, department:u.department, mealChoice:p.mealChoice||'Standard', notes:p.notes||'', status:'ordered', late, createdAt:formatFiji() };
+        db.dinnerOrders.push(o);
+      }
+      saveDemo(db); return Promise.resolve(ok({ order:o, late, cutoff:info }));
+    }
+    case 'placeLunchOrder': {
+      const info = lunchCutoffInfo();
+      const late = !info.open;
+      if (late && !p.allowLate) return Promise.resolve({ success:false, error:'Lunch closed at 10am Fiji', cutoff:info });
+      const email = (p.userEmail||state.user.email).toLowerCase();
+      const u = db.users.find(x=>x.email===email);
+      let o = db.lunchOrders.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled');
+      if (o) { o.mealChoice=p.mealChoice; o.notes=p.notes||''; o.late=late; }
+      else {
+        o = { id:uid('lun'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:u.firstName+' '+u.lastName, department:u.department, mealChoice:p.mealChoice||'Duty Meal', notes:p.notes||'', status:'ordered', late, createdAt:formatFiji() };
+        db.lunchOrders.push(o);
+      }
+      saveDemo(db); return Promise.resolve(ok({ order:o, late, cutoff:info }));
+    }
+    case 'getDinnerOrders': {
+      let orders = db.dinnerOrders;
+      if (p.serviceDate) orders = orders.filter(o=>o.serviceDate===p.serviceDate);
+      if (p.userEmail) orders = orders.filter(o=>o.userEmail===p.userEmail);
+      return Promise.resolve(ok({ orders, cutoff: dinnerCutoffInfo() }));
+    }
+    case 'getLunchOrders': {
+      let orders = db.lunchOrders;
+      if (p.serviceDate) orders = orders.filter(o=>o.serviceDate===p.serviceDate);
+      if (p.userEmail) orders = orders.filter(o=>o.userEmail===p.userEmail);
+      return Promise.resolve(ok({ orders, cutoff: lunchCutoffInfo() }));
+    }
+    case 'getKitchenDashboard': {
+      const di = dinnerCutoffInfo(), li = lunchCutoffInfo();
+      const dinnerDate = p.dinnerDate || di.serviceDate;
+      const lunchDate = p.lunchDate || li.serviceDate;
+      const dinners = db.dinnerOrders.filter(o=>o.serviceDate===dinnerDate && o.status!=='cancelled');
+      const lunches = db.lunchOrders.filter(o=>o.serviceDate===lunchDate && o.status!=='cancelled');
+      const tally = (arr) => arr.reduce((m,o)=>{ const k=o.mealChoice||'Standard'; m[k]=(m[k]||0)+1; return m; },{});
+      return Promise.resolve(ok({
+        dinnerDate, lunchDate,
+        dinner:{ orders:dinners, late:dinners.filter(o=>o.late), tally:tally(dinners), cutoff:di },
+        lunch:{ orders:lunches, late:lunches.filter(o=>o.late), tally:tally(lunches), cutoff:li },
+        fijiNow: formatFiji()
+      }));
+    }
+    case 'markOrderStatus': {
+      const list = p.meal==='lunch' ? db.lunchOrders : db.dinnerOrders;
+      const o = list.find(x=>x.id===p.id); if(o) o.status=p.status||'prepared';
+      saveDemo(db); return Promise.resolve(ok({ order:o }));
+    }
+    case 'getReminders': {
+      const email = (p.userEmail||state.user.email).toLowerCase();
+      return Promise.resolve(ok({ reminders: db.reminders.filter(r=>r.userEmail===email) }));
+    }
+    case 'addReminder': {
+      const row = { id:uid('rem'), userEmail:state.user.email, title:p.title, body:p.body||'', dueDate:p.dueDate||'', done:false, createdAt:formatFiji() };
+      db.reminders.push(row); saveDemo(db); return Promise.resolve(ok({ reminder:row }));
+    }
+    case 'completeReminder': {
+      const r = db.reminders.find(x=>x.id===p.id); if(r) r.done=true; saveDemo(db); return Promise.resolve(ok({ reminder:r }));
+    }
+    case 'deleteReminder': {
+      db.reminders = db.reminders.filter(x=>x.id!==p.id); saveDemo(db); return Promise.resolve(ok({}));
+    }
+    case 'getSuggestions':
+      return Promise.resolve(ok({ suggestions: [...db.suggestions].sort((a,b)=>b.votes-a.votes) }));
+    case 'addSuggestion': {
+      const row = { id:uid('sug'), userEmail:state.user.email, userName:state.user.firstName+' '+state.user.lastName, title:p.title, body:p.body||'', votes:0, voters:'', createdAt:formatFiji(), status:'open' };
+      db.suggestions.push(row); saveDemo(db); return Promise.resolve(ok({ suggestion:row }));
+    }
+    case 'voteSuggestion': {
+      const s = db.suggestions.find(x=>x.id===p.id);
+      if (!s) return Promise.resolve(fail('not found'));
+      const voters = (s.voters||'').split(',').filter(Boolean);
+      if (voters.includes(state.user.email)) return Promise.resolve(fail('Already voted'));
+      voters.push(state.user.email); s.voters=voters.join(','); s.votes=Number(s.votes||0)+1;
+      saveDemo(db); return Promise.resolve(ok({ votes:s.votes }));
+    }
+    case 'getLeaveRequests': {
+      let rows = db.leaveRequests;
+      if (p.userEmail) rows = rows.filter(r=>r.userEmail===p.userEmail);
+      return Promise.resolve(ok({ requests: rows }));
+    }
+    case 'requestLeave': {
+      const row = { id:uid('lv'), userEmail:state.user.email, userName:state.user.firstName+' '+state.user.lastName, department:state.user.department, startDate:p.startDate, endDate:p.endDate, reason:p.reason||'', status:'pending', reviewedBy:'', createdAt:formatFiji() };
+      db.leaveRequests.push(row); saveDemo(db); return Promise.resolve(ok({ request:row }));
+    }
+    case 'reviewLeave': {
+      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('passcode'));
+      const r = db.leaveRequests.find(x=>x.id===p.id);
+      if (r) { r.status = p.status==='approved'?'approved':'rejected'; r.reviewedBy=state.user.email; }
+      saveDemo(db); return Promise.resolve(ok({ request:r }));
+    }
+    case 'getMySchedule': {
+      const u = db.users.find(x=>x.email===state.user.email);
+      return Promise.resolve(ok({ user:publicUser(u), roster:u && u.roster || '', leave: db.leaveRequests.filter(r=>r.userEmail===state.user.email), fijiNow:formatFiji() }));
+    }
+    case 'getCutoffInfo':
+      return Promise.resolve(ok({ fijiNow:formatFiji(), dinner:dinnerCutoffInfo(), lunch:lunchCutoffInfo() }));
+    case 'deleteUser': {
+      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('passcode'));
+      db.users = db.users.filter(u => u.email !== (p.targetEmail||'').toLowerCase());
+      saveDemo(db); return Promise.resolve(ok({ deleted: p.targetEmail }));
+    }
+    default:
+      return Promise.resolve(fail('Unknown action: '+action));
+  }
+}
+
+/* UI helpers */
+function toast(msg, type='info') {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.className = 'fixed top-4 left-1/2 -translate-x-1/2 z-[200] px-4 py-2 rounded-xl text-sm font-medium shadow-lg ' +
+    (type==='error' ? 'bg-red-600 text-white' : type==='ok' ? 'bg-teal-600 text-white' : 'bg-navy-800 text-sand-100 border border-teal-500/30');
+  el.classList.remove('hidden');
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>el.classList.add('hidden'), 3200);
+}
+function openModal(html) {
+  $('#modal-body').innerHTML = html;
+  $('#modal').classList.remove('hidden');
+  $('#modal').classList.add('flex');
+}
+function closeModal() {
+  $('#modal').classList.add('hidden');
+  $('#modal').classList.remove('flex');
+}
+$('#modal').addEventListener('click', e => { if (e.target.id==='modal') closeModal(); });
+
+function askPasscode() {
+  return new Promise(resolve => {
+    openModal('<h3 class="font-semibold mb-2"><i class="fa-solid fa-key text-teal-400 mr-2"></i>Admin passcode</h3><p class="text-xs text-sand-200/60 mb-3">Required for admin actions</p><input id="pc-input" type="password" class="w-full rounded-xl px-3 py-2 text-sm mb-3" placeholder="Passcode"/><div class="flex gap-2"><button class="flex-1 rounded-xl py-2 text-sm bg-navy-700" id="pc-cancel">Cancel</button><button class="flex-1 btn-primary rounded-xl py-2 text-sm text-white" id="pc-ok">Confirm</button></div>');
+    $('#pc-cancel').onclick = () => { closeModal(); resolve(null); };
+    $('#pc-ok').onclick = () => { const v=$('#pc-input').value; closeModal(); resolve(v); };
+    setTimeout(()=>{ const i=$('#pc-input'); if(i) i.focus(); }, 50);
+  });
+}
+function roleLabel(r){
+  return ({ super_admin:'Super Admin', admin:'Admin', hod:'HOD', kitchen:'Kitchen', boat:'Boat', staff:'Staff' })[r]||r;
+}
+function canAdmin(){ return ['super_admin','admin','hod'].includes(state.user && state.user.role); }
+function canKitchen(){ return ['super_admin','admin','kitchen','hod'].includes(state.user && state.user.role); }
+function saveSession(){ localStorage.setItem(SESSION_KEY, JSON.stringify(state.user)); }
+function loadSession(){ try { return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); } catch(e){ return null; } }
+function cacheUsers(users){ try { localStorage.setItem(CACHE_USERS_KEY, JSON.stringify({ at:Date.now(), users })); } catch(e){} }
+function readUsersCache(){ try { const o = JSON.parse(localStorage.getItem(CACHE_USERS_KEY)||'null'); return (o && o.users) || []; } catch(e){ return []; } }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+function navItems(){
+  return [
+    { id:'home', icon:'fa-house', label:'Home' },
+    { id:'meals', icon:'fa-utensils', label:'Meals' },
+    { id:'boat', icon:'fa-ship', label:'Boat' },
+    { id:'schedule', icon:'fa-calendar', label:'Schedule' },
+    { id:'more', icon:'fa-ellipsis', label:'More' }
+  ];
+}
+function renderNav(){
+  $('#bottom-nav').innerHTML = navItems().map(n =>
+    '<button class="nav-item flex flex-col items-center gap-0.5 px-2 py-1 text-[10px] '+(state.tab===n.id?'active text-teal-400':'text-sand-200/50')+'" data-tab="'+n.id+'"><i class="fa-solid '+n.icon+' text-base transition-transform"></i><span>'+n.label+'</span></button>'
+  ).join('');
+  $$('#bottom-nav .nav-item').forEach(b => b.onclick = () => navigate(b.dataset.tab));
+}
+function navigate(tab){
+  state.tab = tab;
+  const titles = { home:'Home', meals:'Meals', boat:'Boat Schedule', schedule:'My Schedule', more:'More', users:'Staff Directory', kitchen:'Kitchen', reminders:'Reminders', suggestions:'Suggestions', bookings:'My Bookings', admin:'Admin' };
+  $('#header-title').textContent = titles[tab] || tab;
+  renderNav();
+  const map = {
+    home: renderHome, meals: renderMeals, boat: renderBoat, schedule: renderSchedule,
+    more: renderMore, users: renderUsers, kitchen: renderKitchen, reminders: renderReminders,
+    suggestions: renderSuggestions, bookings: renderMyBookings, admin: renderAdmin
+  };
+  (map[tab]||renderHome)();
+}
+function quickBtn(tab, icon, label){
+  return '<button onclick="navigate(\''+tab+'\')" class="glass rounded-xl p-3 text-left hover:border-teal-500/40 transition"><i class="fa-solid '+icon+' text-teal-400 mb-1"></i><p class="text-xs font-medium">'+label+'</p></button>';
+}
+function renderHome(){
+  const u = state.user;
+  const di = dinnerCutoffInfo(), li = lunchCutoffInfo();
+  $('#main-content').innerHTML =
+  '<div class="fade-in space-y-4 max-w-lg mx-auto">'+
+    '<div class="glass rounded-2xl p-4"><p class="text-xs text-teal-400/80">Bula, '+esc(u.firstName||'Staff')+'!</p>'+
+    '<p class="font-semibold">'+esc(u.firstName)+' '+esc(u.lastName)+'</p>'+
+    '<p class="text-xs text-sand-200/50 mt-1">'+esc(roleLabel(u.role))+' · '+esc(u.department||'—')+' · '+esc(u.village||'')+'</p>'+
+    '<p class="text-[10px] text-sand-200/40 mt-2"><i class="fa-regular fa-clock mr-1"></i>'+formatFiji()+'</p></div>'+
+    '<div class="grid grid-cols-2 gap-3">'+
+      '<div class="glass rounded-xl p-3"><p class="text-[10px] uppercase tracking-wide text-sand-200/50">Dinner</p>'+
+      '<p class="text-sm font-medium mt-1">'+(di.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
+      '<p class="text-[10px] text-sand-200/40">Service '+di.serviceDate+'</p><p class="text-[10px] text-sand-200/40">'+di.cutoffLabel+'</p></div>'+
+      '<div class="glass rounded-xl p-3"><p class="text-[10px] uppercase tracking-wide text-sand-200/50">Lunch</p>'+
+      '<p class="text-sm font-medium mt-1">'+(li.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
+      '<p class="text-[10px] text-sand-200/40">Service '+li.serviceDate+'</p><p class="text-[10px] text-sand-200/40">'+li.cutoffLabel+'</p></div></div>'+
+    '<div class="grid grid-cols-2 gap-2">'+
+      quickBtn('meals','fa-utensils','Order meals')+quickBtn('boat','fa-ship','Boat runs')+
+      quickBtn('bookings','fa-ticket','My bookings')+quickBtn('schedule','fa-calendar-check','Leave & roster')+
+      quickBtn('suggestions','fa-lightbulb','Suggestions')+quickBtn('reminders','fa-bell','Reminders')+
+      (canKitchen()?quickBtn('kitchen','fa-fire-burner','Kitchen'):'')+
+      (canAdmin()?quickBtn('users','fa-users','Staff directory'):'')+
+    '</div>'+
+    '<p class="text-[10px] text-center text-sand-200/30">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p></div>';
+}
+
+async function renderMeals(){
+  const di = dinnerCutoffInfo(), li = lunchCutoffInfo();
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="meals-root"><p class="text-sm text-sand-200/50">Loading…</p></div>';
+  let myDinner=[], myLunch=[];
+  try {
+    const [d,l] = await Promise.all([
+      api('getDinnerOrders',{ userEmail: state.user.email, serviceDate: di.serviceDate }),
+      api('getLunchOrders',{ userEmail: state.user.email, serviceDate: li.serviceDate })
+    ]);
+    myDinner = (d.data && d.data.orders) || []; myLunch = (l.data && l.data.orders) || [];
+  } catch(e){}
+  $('#meals-root').innerHTML =
+    '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-moon text-teal-400 mr-2"></i>Dinner</h3>'+
+    '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+di.serviceDate+'</strong></p>'+
+    '<p class="text-[10px] '+(di.open?'text-teal-400':'text-amber-400')+'">'+(di.open?'Ordering open':'Closed')+' — '+di.cutoffLabel+'</p></div>'+
+    (myDinner[0]?'<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(myDinner[0].mealChoice)+'</strong></p>':'')+
+    '<select id="dinner-choice" class="w-full rounded-xl px-3 py-2 text-sm"><option>Standard</option><option>Vegetarian</option><option>Fish</option><option>Chicken</option><option>No meal</option></select>'+
+    '<input id="dinner-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes / allergies"/>'+
+    '<button id="btn-dinner" class="btn-primary w-full rounded-xl py-2 text-sm text-white">'+(di.open?'Place dinner order':'Submit late request')+'</button></div>'+
+    '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-sun text-teal-400 mr-2"></i>Lunch / Duty Meal</h3>'+
+    '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+li.serviceDate+'</strong></p>'+
+    '<p class="text-[10px] '+(li.open?'text-teal-400':'text-amber-400')+'">'+(li.open?'Ordering open':'Closed')+' — '+li.cutoffLabel+'</p></div>'+
+    (myLunch[0]?'<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(myLunch[0].mealChoice)+'</strong></p>':'')+
+    '<select id="lunch-choice" class="w-full rounded-xl px-3 py-2 text-sm"><option>Duty Meal</option><option>Vegetarian</option><option>Fish</option><option>Chicken</option><option>No meal</option></select>'+
+    '<input id="lunch-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes"/>'+
+    '<button id="btn-lunch" class="btn-primary w-full rounded-xl py-2 text-sm text-white">'+(li.open?'Place lunch order':'Submit late request')+'</button></div>';
+  $('#btn-dinner').onclick = async () => {
+    const r = await api('placeDinnerOrder',{ mealChoice:$('#dinner-choice').value, notes:$('#dinner-notes').value, allowLate: !di.open });
+    if (!r.success) { toast(r.error,'error'); return; }
+    toast(r.data.late?'Late dinner request submitted':'Dinner ordered','ok'); renderMeals();
+  };
+  $('#btn-lunch').onclick = async () => {
+    const r = await api('placeLunchOrder',{ mealChoice:$('#lunch-choice').value, notes:$('#lunch-notes').value, allowLate: !li.open });
+    if (!r.success) { toast(r.error,'error'); return; }
+    toast(r.data.late?'Late lunch request submitted':'Lunch ordered','ok'); renderMeals();
+  };
+}
+
+async function renderBoat(){
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="boat-root"><p class="text-sm text-sand-200/50">Loading runs…</p></div>';
+  try {
+    const r = await api('getBoatRuns');
+    const runs = (r.data && r.data.runs) || [];
+    const bookings = ((await api('getBoatBookings')).data || {}).bookings || [];
+    let html = '<div class="flex justify-between items-center"><h3 class="font-semibold text-sm">Upcoming boat runs</h3>'+
+      (canAdmin()?'<button id="btn-add-run" class="text-xs text-teal-400"><i class="fa-solid fa-plus mr-1"></i>Add run</button>':'')+'</div>';
+    if (!runs.length) html += '<p class="text-sm text-sand-200/50">No runs scheduled.</p>';
+    runs.forEach(run => {
+      const used = bookings.filter(b=>b.runId===run.id && b.status!=='cancelled').reduce((s,b)=>s+Number(b.seats||1),0);
+      html += '<div class="glass rounded-xl p-3"><div class="flex justify-between"><div><p class="font-medium text-sm">'+esc(run.route)+'</p>'+
+        '<p class="text-xs text-sand-200/60">'+esc(run.date)+' · '+esc(run.time)+'</p>'+
+        '<p class="text-[10px] text-sand-200/40">'+used+'/'+run.capacity+' seats · '+esc(run.notes||'')+'</p></div>'+
+        '<button class="btn-primary text-xs px-3 py-1.5 rounded-lg text-white h-fit book-run" data-id="'+run.id+'">Book</button></div></div>';
+    });
+    html += '<button onclick="navigate(\'bookings\')" class="w-full text-center text-xs text-teal-400 py-2">View my bookings →</button>';
+    $('#boat-root').innerHTML = html;
+    $$('.book-run').forEach(b => b.onclick = async () => {
+      const seats = prompt('Number of seats?', '1');
+      if (!seats) return;
+      const res = await api('bookBoat',{ runId:b.dataset.id, seats:Number(seats) });
+      if (!res.success) toast(res.error,'error'); else { toast('Booked','ok'); renderBoat(); }
+    });
+    const addBtn = $('#btn-add-run');
+    if (addBtn) addBtn.onclick = async () => {
+      const passcode = await askPasscode(); if (!passcode) return;
+      openModal('<h3 class="font-semibold mb-3">New boat run</h3><div class="space-y-2">'+
+        '<input id="br-date" type="date" class="w-full rounded-xl px-3 py-2 text-sm" value="'+fijiDateString()+'"/>'+
+        '<input id="br-time" type="time" class="w-full rounded-xl px-3 py-2 text-sm" value="07:00"/>'+
+        '<input id="br-route" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Route" value="Denarau → Resort"/>'+
+        '<input id="br-cap" type="number" class="w-full rounded-xl px-3 py-2 text-sm" value="20"/>'+
+        '<input id="br-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes"/>'+
+        '<button id="br-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Save</button></div>');
+      $('#br-save').onclick = async () => {
+        const res = await api('saveBoatRun',{ passcode, date:$('#br-date').value, time:$('#br-time').value, route:$('#br-route').value, capacity:Number($('#br-cap').value), notes:$('#br-notes').value });
+        closeModal();
+        if (!res.success) toast(res.error,'error'); else { toast('Run saved','ok'); renderBoat(); }
+      };
+    };
+  } catch(e) {
+    $('#boat-root').innerHTML = '<div class="glass rounded-xl p-4 text-sm text-red-300">'+esc(e.message)+'</div>';
+  }
+}
+
+async function renderMyBookings(){
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="mb-root">Loading…</div>';
+  try {
+    const r = await api('myBoatBookings');
+    const list = (r.data && r.data.bookings) || [];
+    let html = '<h3 class="font-semibold text-sm mb-2">My boat bookings</h3>';
+    if (!list.length) html += '<p class="text-sm text-sand-200/50">No bookings yet.</p>';
+    list.forEach(b => {
+      html += '<div class="glass rounded-xl p-3 flex justify-between items-center"><div>'+
+        '<p class="text-sm font-medium">'+esc((b.run && b.run.route) || b.runId)+'</p>'+
+        '<p class="text-xs text-sand-200/60">'+esc((b.run && b.run.date) || '')+' '+esc((b.run && b.run.time) || '')+' · '+b.seats+' seat(s)</p>'+
+        '<span class="badge '+(b.status==='confirmed'?'bg-teal-500/20 text-teal-300':'bg-red-500/20 text-red-300')+'">'+esc(b.status)+'</span></div>'+
+        (b.status==='confirmed'?'<button class="text-xs text-red-300 cancel-bb" data-id="'+b.id+'">Cancel</button>':'')+'</div>';
+    });
+    $('#mb-root').innerHTML = html;
+    $$('.cancel-bb').forEach(b => b.onclick = async () => {
+      await api('cancelBoatBooking',{ id:b.dataset.id }); toast('Cancelled','ok'); renderMyBookings();
+    });
+  } catch(e){ $('#mb-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
+}
+
+async function renderSchedule(){
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="sch-root">Loading…</div>';
+  try {
+    const r = await api('getMySchedule');
+    const leave = (r.data && r.data.leave) || [];
+    let html = '<div class="glass rounded-2xl p-4"><h3 class="font-semibold text-sm mb-1"><i class="fa-solid fa-clipboard-list text-teal-400 mr-2"></i>My roster</h3>'+
+      '<p class="text-sm text-sand-200/80">'+esc((r.data && r.data.roster) || 'No roster set — ask your HOD')+'</p>'+
+      '<p class="text-[10px] text-sand-200/40 mt-2">Fiji: '+esc((r.data && r.data.fijiNow) || formatFiji())+'</p></div>'+
+      '<div class="glass rounded-2xl p-4 space-y-3"><h3 class="font-semibold text-sm">Request leave</h3>'+
+      '<input id="lv-start" type="date" class="w-full rounded-xl px-3 py-2 text-sm"/>'+
+      '<input id="lv-end" type="date" class="w-full rounded-xl px-3 py-2 text-sm"/>'+
+      '<input id="lv-reason" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Reason"/>'+
+      '<button id="btn-leave" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Submit request</button></div>'+
+      '<div class="space-y-2"><h3 class="font-semibold text-sm">My leave requests</h3>';
+    if (!leave.length) html += '<p class="text-xs text-sand-200/50">None yet</p>';
+    leave.forEach(l => {
+      html += '<div class="glass rounded-xl p-3 text-sm"><p>'+esc(l.startDate)+' → '+esc(l.endDate)+'</p>'+
+        '<p class="text-xs text-sand-200/60">'+esc(l.reason)+'</p><span class="badge bg-navy-700 text-sand-200/80">'+esc(l.status)+'</span></div>';
+    });
+    html += '</div>';
+    if (canAdmin()) html += '<button id="btn-lv-admin" class="w-full text-xs text-teal-400 py-2">Review team leave →</button>';
+    $('#sch-root').innerHTML = html;
+    $('#btn-leave').onclick = async () => {
+      const res = await api('requestLeave',{ startDate:$('#lv-start').value, endDate:$('#lv-end').value, reason:$('#lv-reason').value });
+      if (!res.success) toast(res.error,'error'); else { toast('Leave submitted','ok'); renderSchedule(); }
+    };
+    const ba = $('#btn-lv-admin');
+    if (ba) ba.onclick = () => renderLeaveAdmin();
+  } catch(e){ $('#sch-root').innerHTML = '<p class="text-red-300">'+esc(e.message)+'</p>'; }
+}
+
+async function renderLeaveAdmin(){
+  const passcode = await askPasscode(); if (!passcode) return;
+  const r = await api('getLeaveRequests',{});
+  const pending = ((r.data && r.data.requests) || []).filter(x=>x.status==='pending');
+  let html = '<h3 class="font-semibold mb-3">Pending leave</h3><div class="space-y-2">';
+  if (!pending.length) html += '<p class="text-xs text-sand-200/50">No pending requests</p>';
+  pending.forEach(l => {
+    html += '<div class="glass rounded-xl p-3 text-sm"><p class="font-medium">'+esc(l.userName)+' · '+esc(l.department)+'</p>'+
+      '<p class="text-xs">'+esc(l.startDate)+' → '+esc(l.endDate)+'</p><p class="text-xs text-sand-200/60">'+esc(l.reason)+'</p>'+
+      '<div class="flex gap-2 mt-2"><button class="flex-1 btn-primary rounded-lg py-1 text-xs text-white lv-ok" data-id="'+l.id+'">Approve</button>'+
+      '<button class="flex-1 bg-red-700/80 rounded-lg py-1 text-xs lv-no" data-id="'+l.id+'">Reject</button></div></div>';
+  });
+  html += '</div>';
+  openModal(html);
+  $$('.lv-ok').forEach(b => b.onclick = async () => { await api('reviewLeave',{ id:b.dataset.id, status:'approved', passcode }); toast('Approved','ok'); closeModal(); });
+  $$('.lv-no').forEach(b => b.onclick = async () => { await api('reviewLeave',{ id:b.dataset.id, status:'rejected', passcode }); toast('Rejected','ok'); closeModal(); });
+}
+
+function moreRow(tab, icon, label){
+  return '<button onclick="navigate(\''+tab+'\')" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid '+icon+' text-teal-400 w-5"></i><span class="flex-1">'+label+'</span><i class="fa-solid fa-chevron-right text-sand-200/30 text-xs"></i></button>';
+}
+function renderMore(){
+  let html = '<div class="fade-in max-w-lg mx-auto space-y-2">'+
+    moreRow('reminders','fa-bell','Reminders')+moreRow('suggestions','fa-lightbulb','Suggestion box')+
+    moreRow('bookings','fa-ticket','My boat bookings');
+  if (canKitchen()) html += moreRow('kitchen','fa-fire-burner','Kitchen dashboard');
+  if (canAdmin()) html += moreRow('users','fa-users','Staff directory');
+  if (state.user.role==='super_admin') html += moreRow('admin','fa-gear','Admin · Alert emails');
+  html += '<div class="glass rounded-xl p-3 mt-4 text-[10px] text-sand-200/40 space-y-1">'+
+    '<p>Backend: '+(state.demo?'Demo (localStorage)':esc((API_URL||'').slice(0,48)+'…'))+'</p>'+
+    '<p>API version: '+esc(state.backendVersion||'—')+'</p><p>Fiji now: '+formatFiji()+'</p>'+
+    '<button onclick="checkHealth()" class="text-teal-400 mt-1">Check API health</button></div></div>';
+  $('#main-content').innerHTML = html;
+}
+async function checkHealth(){
+  try {
+    const r = await api('getVersion');
+    state.backendVersion = r.version || (r.data && r.data.version);
+    toast('API OK · v'+(state.backendVersion||'?'),'ok');
+    renderMore();
+  } catch(e){ toast(e.message,'error'); }
+}
+
+async function renderReminders(){
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="rem-root">Loading…</div>';
+  const r = await api('getReminders');
+  const list = (r.data && r.data.reminders) || [];
+  let html = '<button id="btn-add-rem" class="btn-primary w-full rounded-xl py-2 text-sm text-white mb-2"><i class="fa-solid fa-plus mr-1"></i>Add reminder</button>';
+  if (!list.length) html += '<p class="text-sm text-sand-200/50">No reminders</p>';
+  list.forEach(x => {
+    const done = x.done || x.done==='TRUE';
+    html += '<div class="glass rounded-xl p-3 flex gap-3 items-start '+(done?'opacity-50':'')+'">'+
+      '<button class="text-teal-400 mt-0.5 rem-done" data-id="'+x.id+'"><i class="fa-solid fa-circle-check"></i></button>'+
+      '<div class="flex-1"><p class="text-sm font-medium">'+esc(x.title)+'</p><p class="text-xs text-sand-200/60">'+esc(x.body)+'</p>'+
+      (x.dueDate?'<p class="text-[10px] text-sand-200/40">Due '+esc(x.dueDate)+'</p>':'')+'</div>'+
+      '<button class="text-red-400/70 rem-del" data-id="'+x.id+'"><i class="fa-solid fa-trash text-xs"></i></button></div>';
+  });
+  $('#rem-root').innerHTML = html;
+  $('#btn-add-rem').onclick = () => {
+    openModal('<h3 class="font-semibold mb-3">New reminder</h3><input id="rm-title" class="w-full rounded-xl px-3 py-2 text-sm mb-2" placeholder="Title"/>'+
+      '<textarea id="rm-body" class="w-full rounded-xl px-3 py-2 text-sm mb-2" rows="2" placeholder="Details"></textarea>'+
+      '<input id="rm-due" type="date" class="w-full rounded-xl px-3 py-2 text-sm mb-3"/>'+
+      '<button id="rm-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Save</button>');
+    $('#rm-save').onclick = async () => {
+      await api('addReminder',{ title:$('#rm-title').value, body:$('#rm-body').value, dueDate:$('#rm-due').value });
+      closeModal(); toast('Saved','ok'); renderReminders();
+    };
+  };
+  $$('.rem-done').forEach(b=>b.onclick=async()=>{ await api('completeReminder',{id:b.dataset.id}); renderReminders(); });
+  $$('.rem-del').forEach(b=>b.onclick=async()=>{ await api('deleteReminder',{id:b.dataset.id}); renderReminders(); });
+}
+
+async function renderSuggestions(){
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="sug-root">Loading…</div>';
+  const r = await api('getSuggestions');
+  const list = (r.data && r.data.suggestions) || [];
+  let html = '<button id="btn-add-sug" class="btn-primary w-full rounded-xl py-2 text-sm text-white"><i class="fa-solid fa-plus mr-1"></i>New suggestion</button>';
+  if (!list.length) html += '<p class="text-sm text-sand-200/50">No suggestions yet</p>';
+  list.forEach(s => {
+    html += '<div class="glass rounded-xl p-3"><div class="flex justify-between gap-2"><div>'+
+      '<p class="font-medium text-sm">'+esc(s.title)+'</p><p class="text-xs text-sand-200/60 mt-1">'+esc(s.body)+'</p>'+
+      '<p class="text-[10px] text-sand-200/40 mt-1">'+esc(s.userName)+'</p></div>'+
+      '<button class="flex flex-col items-center text-teal-400 vote-sug" data-id="'+s.id+'"><i class="fa-solid fa-caret-up text-lg"></i><span class="text-xs font-semibold">'+(s.votes||0)+'</span></button></div></div>';
+  });
+  $('#sug-root').innerHTML = html;
+  $('#btn-add-sug').onclick = () => {
+    openModal('<h3 class="font-semibold mb-3">Suggestion</h3><input id="sg-title" class="w-full rounded-xl px-3 py-2 text-sm mb-2" placeholder="Title"/>'+
+      '<textarea id="sg-body" class="w-full rounded-xl px-3 py-2 text-sm mb-3" rows="3" placeholder="Your idea"></textarea>'+
+      '<button id="sg-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Submit</button>');
+    $('#sg-save').onclick = async () => {
+      await api('addSuggestion',{ title:$('#sg-title').value, body:$('#sg-body').value });
+      closeModal(); toast('Submitted','ok'); renderSuggestions();
+    };
+  };
+  $$('.vote-sug').forEach(b=>b.onclick=async()=>{
+    const res = await api('voteSuggestion',{ id:b.dataset.id });
+    if (!res.success) toast(res.error,'error'); else { toast('Voted','ok'); renderSuggestions(); }
+  });
+}
+
+async function renderKitchen(){
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root">Loading kitchen…</div>';
+  try {
+    const r = await api('getKitchenDashboard');
+    const d = r.data;
+    function block(title, meal, pack, date) {
+      let h = '<div class="glass rounded-2xl p-4"><div class="flex justify-between items-center mb-2"><h3 class="font-semibold text-sm">'+title+'</h3>'+
+        '<button class="text-xs text-teal-400 print-check" data-meal="'+meal+'">Print checklist</button></div>'+
+        '<p class="text-[10px] text-sand-200/50 mb-2">Service '+esc(date)+' · Fiji '+esc(d.fijiNow)+'</p><div class="flex flex-wrap gap-2 mb-3">';
+      const tally = pack.tally || {};
+      const keys = Object.keys(tally);
+      if (!keys.length) h += '<span class="text-xs text-sand-200/40">No orders</span>';
+      keys.forEach(k => { h += '<span class="badge bg-teal-600/30 text-teal-200">'+esc(k)+': '+tally[k]+'</span>'; });
+      h += '</div>';
+      const late = pack.late || [];
+      if (late.length) {
+        h += '<div class="mb-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30"><p class="text-xs text-amber-300 font-medium"><i class="fa-solid fa-clock mr-1"></i>Late requests ('+late.length+')</p>';
+        late.forEach(o => { h += '<p class="text-[10px] text-sand-200/70">'+esc(o.userName)+' — '+esc(o.mealChoice)+'</p>'; });
+        h += '</div>';
+      }
+      h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Meal</th><th></th></tr></thead><tbody>';
+      (pack.orders||[]).forEach(o => {
+        h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(o.userName)+'</td><td>'+esc(o.department)+'</td><td>'+esc(o.mealChoice)+'</td>'+
+          '<td><button class="text-teal-400 mark-ord" data-id="'+o.id+'" data-meal="'+meal+'">'+(o.status==='prepared'?'✓':'Mark')+'</button></td></tr>';
+      });
+      h += '</tbody></table></div></div>';
+      return h;
+    }
+    $('#kit-root').innerHTML = block('Dinner','dinner',d.dinner,d.dinnerDate) + block('Lunch / Duty','lunch',d.lunch,d.lunchDate);
+    $$('.mark-ord').forEach(b=>b.onclick=async()=>{
+      await api('markOrderStatus',{ id:b.dataset.id, meal:b.dataset.meal, status:'prepared' });
+      toast('Marked','ok'); renderKitchen();
+    });
+    $$('.print-check').forEach(b=>b.onclick=()=>{
+      const pack = b.dataset.meal==='dinner'?d.dinner:d.lunch;
+      const date = b.dataset.meal==='dinner'?d.dinnerDate:d.lunchDate;
+      $('#print-area').classList.remove('hidden');
+      let items = '';
+      (pack.orders||[]).forEach(o => { items += '<li>☐ '+o.userName+' ('+o.department+') — '+o.mealChoice+(o.late?' [LATE]':'')+'</li>'; });
+      $('#print-area').innerHTML = '<h1>PCR Kitchen Checklist — '+b.dataset.meal+' '+date+'</h1><p>Printed '+formatFiji()+'</p><ul>'+items+'</ul>';
+      window.print();
+      $('#print-area').classList.add('hidden');
+    });
+  } catch(e){ $('#kit-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
+}
+
+/* ========== STAFF DIRECTORY (critical) ========== */
+function renderUsersTable(users){
+  if (!users || !users.length) return '<div class="p-6 text-center text-sm text-sand-200/50">No staff to show</div>';
+  const depts = [...new Set(users.map(u=>u.department).filter(Boolean))].sort();
+  setTimeout(()=>{
+    const sel = $('#u-dept');
+    if (sel && sel.options.length<=1) {
+      depts.forEach(d => { const o=document.createElement('option'); o.value=d; o.textContent=d; sel.appendChild(o); });
+    }
+  },0);
+  let rows = '';
+  users.forEach(u => {
+    rows += '<tr class="border-t border-teal-500/10 hover:bg-teal-500/5"><td class="px-3 py-2"><p class="font-medium text-sand-100">'+esc(u.firstName)+' '+esc(u.lastName)+'</p>'+
+      '<p class="text-[10px] text-sand-200/40">'+esc(u.email)+'</p></td><td class="px-2">'+esc(u.department||'—')+'</td>'+
+      '<td class="px-2"><span class="badge bg-teal-600/20 text-teal-300">'+esc(roleLabel(u.role))+'</span></td>'+
+      '<td class="px-2">'+esc(u.contact||'—')+'</td>'+
+      '<td class="px-2"><button class="text-teal-400 u-edit" data-email="'+esc(u.email)+'">Edit</button></td></tr>';
+  });
+  return '<div class="table-scroll"><table class="w-full text-xs"><thead class="bg-navy-900/80 text-sand-200/50 text-left"><tr><th class="px-3 py-2">Name</th><th class="px-2">Dept</th><th class="px-2">Role</th><th class="px-2">Contact</th><th class="px-2"></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+function usersErrorUI(msg){
+  return '<div class="glass rounded-2xl p-5 border border-red-500/30 space-y-3">'+
+    '<p class="text-red-300 font-semibold text-sm"><i class="fa-solid fa-triangle-exclamation mr-2"></i>Couldn’t load staff directory</p>'+
+    '<p class="text-xs text-sand-200/70">'+esc(msg)+'</p>'+
+    '<ul class="text-[11px] text-sand-200/50 list-disc pl-4 space-y-1">'+
+    '<li>Confirm <code class="text-teal-400">SCRIPT_URL</code> / <code class="text-teal-400">API_URL</code> at the top of index.html matches your Apps Script Web App URL.</li>'+
+    '<li>Redeploy Apps Script: Deploy → Manage deployments → Edit → New version. Execute as <strong>Me</strong>, Who has access: <strong>Anyone</strong>.</li>'+
+    '<li>Open the Web App URL in a browser — you should see JSON, not HTML login.</li>'+
+    '<li>For local testing without backend, open with <code>?demo=1</code> or leave API_URL empty.</li></ul>'+
+    '<button id="u-try-again" class="btn-primary rounded-xl px-4 py-2 text-sm text-white">Try again</button></div>';
+}
+
+async function renderUsers(){
+  state.tab = 'users';
+  $('#header-title').textContent = 'Staff Directory';
+  renderNav();
+  const cached = readUsersCache();
+  state.usersCache = cached.length ? cached : state.usersCache;
+  $('#main-content').innerHTML =
+  '<div class="fade-in max-w-3xl mx-auto space-y-3" id="users-root">'+
+    '<div class="flex flex-wrap gap-2 items-center">'+
+      '<input id="u-search" class="flex-1 min-w-[140px] rounded-xl px-3 py-2 text-sm" placeholder="Search name, email, dept…"/>'+
+      '<select id="u-dept" class="rounded-xl px-2 py-2 text-xs"><option value="">All depts</option></select>'+
+      '<select id="u-role" class="rounded-xl px-2 py-2 text-xs"><option value="">All roles</option>'+
+        '<option value="super_admin">Super Admin</option><option value="admin">Admin</option><option value="hod">HOD</option>'+
+        '<option value="kitchen">Kitchen</option><option value="boat">Boat</option><option value="staff">Staff</option></select>'+
+      '<button id="u-refresh" class="glass rounded-xl px-3 py-2 text-xs"><i class="fa-solid fa-rotate"></i> Refresh</button>'+
+      '<button id="u-export" class="glass rounded-xl px-3 py-2 text-xs"><i class="fa-solid fa-download"></i> CSV</button></div>'+
+    '<div class="flex flex-wrap gap-2">'+
+      '<button id="u-add" class="btn-primary rounded-xl px-3 py-1.5 text-xs text-white"><i class="fa-solid fa-plus mr-1"></i>Add user</button>'+
+      '<button id="u-import" class="glass rounded-xl px-3 py-1.5 text-xs"><i class="fa-solid fa-file-csv mr-1"></i>Quick Import CSV</button>'+
+      '<button id="u-pending" class="glass rounded-xl px-3 py-1.5 text-xs"><i class="fa-solid fa-user-clock mr-1"></i>Pending</button>'+
+      (state.user.role==='super_admin'?'<button id="u-alerts" class="glass rounded-xl px-3 py-1.5 text-xs"><i class="fa-solid fa-envelope mr-1"></i>Alert Emails</button>':'')+
+    '</div><div id="u-status" class="text-[10px] text-sand-200/40"></div><div id="u-error" class="hidden"></div>'+
+    '<div id="u-table" class="glass rounded-2xl overflow-hidden">'+renderUsersTable(state.usersCache)+'</div></div>';
+  wireUsersControls();
+  if (state.usersCache.length) {
+    $('#u-status').textContent = 'Showing cached ('+state.usersCache.length+') · refreshing…';
+    $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
+  } else {
+    $('#u-status').textContent = 'Loading staff…';
+    $('#u-table').innerHTML = '<div class="p-6 text-center text-sm text-sand-200/50"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</div>';
+  }
+  await refreshUsers(true);
+}
+
+function debounce(fn,ms){ let t; return function(){ const a=arguments; clearTimeout(t); t=setTimeout(()=>fn.apply(null,a),ms); }; }
+function csvEscape(v){ const s=String(v==null?'':v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+function downloadText(name, text){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'})); a.download=name; a.click();
+}
+
+async function refreshUsers(silent){
+  state.usersLoading = true;
+  state.usersError = null;
+  const search = ($('#u-search') && $('#u-search').value) || '';
+  const department = ($('#u-dept') && $('#u-dept').value) || '';
+  const role = ($('#u-role') && $('#u-role').value) || '';
+  try {
+    const r = await api('getUsers', { search, department, role, activeOnly: true });
+    if (!r || r.success === false) throw new Error((r && r.error) || 'API returned failure');
+    const users = r.data && r.data.users;
+    if (!Array.isArray(users)) throw new Error('Empty or invalid users payload (non-array). Check SCRIPT_URL.');
+    state.usersCache = users;
+    cacheUsers(users);
+    if (r.data && r.data.version) state.backendVersion = r.data.version;
+    const err = $('#u-error'); if (err) { err.classList.add('hidden'); err.innerHTML=''; }
+    $('#u-table').innerHTML = renderUsersTable(users);
+    $('#u-status').textContent = users.length+' active staff · updated '+formatFiji()+(state.demo?' · demo':'');
+    $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
+  } catch (e) {
+    state.usersError = e.message || String(e);
+    const err = $('#u-error');
+    if (err) {
+      err.classList.remove('hidden');
+      err.innerHTML = usersErrorUI(state.usersError);
+      const tb = $('#u-try-again'); if (tb) tb.onclick = () => refreshUsers(false);
+    }
+    if (!state.usersCache.length) $('#u-table').innerHTML = '';
+    else {
+      $('#u-status').textContent = 'Cached data shown · refresh failed';
+      $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
+    }
+    if (!silent) toast('Staff refresh failed','error');
+  } finally { state.usersLoading = false; }
+}
+
+function wireUsersControls(){
+  $('#u-refresh').onclick = () => refreshUsers(false);
+  $('#u-search').oninput = debounce(() => refreshUsers(true), 300);
+  $('#u-dept').onchange = () => refreshUsers(true);
+  $('#u-role').onchange = () => refreshUsers(true);
+  $('#u-export').onclick = () => {
+    const users = state.usersCache;
+    const header = 'email,firstName,lastName,department,contact,role,roster,village,active';
+    const rows = users.map(u => [u.email,u.firstName,u.lastName,u.department,u.contact,u.role,u.roster,u.village,u.active].map(csvEscape).join(','));
+    downloadText('pcr-staff.csv', [header].concat(rows).join('\n'));
+  };
+  $('#u-add').onclick = () => openAddUser();
+  $('#u-import').onclick = () => openImportCsv();
+  $('#u-pending').onclick = () => openPending();
+  const al = $('#u-alerts'); if (al) al.onclick = () => openAlertEmails();
+}
+
+async function openEditUser(email){
+  let u = state.usersCache.find(x=>x.email===email);
+  if (!u) {
+    const r = await api('getUsers',{ search:email, activeOnly:false });
+    u = ((r.data && r.data.users) || []).find(x=>x.email===email);
+  }
+  if (!u) { toast('User not found','error'); return; }
+  const isHod = state.user.role==='hod';
+  const roles = ['staff','kitchen','boat','hod','admin'];
+  if (state.user.role==='super_admin') roles.push('super_admin');
+  let roleOpts = roles.map(r => '<option value="'+r+'" '+(u.role===r?'selected':'')+'>'+roleLabel(r)+'</option>').join('');
+  openModal('<h3 class="font-semibold mb-3">Edit user</h3><div class="space-y-2 text-sm"><p class="text-xs text-sand-200/50">'+esc(u.email)+'</p>'+
+    '<div class="grid grid-cols-2 gap-2"><input id="eu-fn" class="rounded-xl px-3 py-2" placeholder="First" value="'+esc(u.firstName)+'"/>'+
+    '<input id="eu-ln" class="rounded-xl px-3 py-2" placeholder="Last" value="'+esc(u.lastName)+'"/></div>'+
+    '<input id="eu-contact" class="w-full rounded-xl px-3 py-2" placeholder="Contact" value="'+esc(u.contact)+'"/>'+
+    '<input id="eu-dept" class="w-full rounded-xl px-3 py-2" placeholder="Department" value="'+esc(u.department)+'" '+(isHod?'readonly':'')+'/>'+
+    '<select id="eu-role" class="w-full rounded-xl px-3 py-2">'+roleOpts+'</select>'+
+    '<input id="eu-roster" class="w-full rounded-xl px-3 py-2" placeholder="Roster" value="'+esc(u.roster)+'"/>'+
+    '<input id="eu-village" class="w-full rounded-xl px-3 py-2" placeholder="Village" value="'+esc(u.village)+'"/>'+
+    '<label class="flex items-center gap-2 text-xs"><input type="checkbox" id="eu-active" '+(u.active?'checked':'')+'/> Active</label>'+
+    '<button id="eu-save" class="btn-primary w-full rounded-xl py-2 text-white">Save changes</button></div>');
+  $('#eu-save').onclick = async () => {
+    const patch = {
+      targetEmail: u.email,
+      firstName: $('#eu-fn').value, lastName: $('#eu-ln').value, contact: $('#eu-contact').value,
+      department: $('#eu-dept').value, role: $('#eu-role').value, roster: $('#eu-roster').value,
+      village: $('#eu-village').value, active: $('#eu-active').checked
+    };
+    closeModal();
+    const passcode = await askPasscode(); if (!passcode) return;
+    const res = await api('updateUser', Object.assign({}, patch, { passcode }));
+    if (!res.success) toast(res.error,'error');
+    else {
+      toast('User updated','ok');
+      if (res.data && res.data.user && res.data.user.email === state.user.email) { state.user = res.data.user; saveSession(); }
+      refreshUsers(false);
+    }
+  };
+}
+
+async function openAddUser(){
+  openModal('<h3 class="font-semibold mb-3">Add user</h3><div class="space-y-2">'+
+    '<input id="au-email" type="email" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="email"/>'+
+    '<input id="au-pass" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="password"/>'+
+    '<div class="grid grid-cols-2 gap-2"><input id="au-fn" class="rounded-xl px-3 py-2 text-sm" placeholder="First"/>'+
+    '<input id="au-ln" class="rounded-xl px-3 py-2 text-sm" placeholder="Last"/></div>'+
+    '<input id="au-dept" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Department"/>'+
+    '<input id="au-contact" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Contact"/>'+
+    '<select id="au-role" class="w-full rounded-xl px-3 py-2 text-sm"><option value="staff">Staff</option><option value="kitchen">Kitchen</option>'+
+    '<option value="boat">Boat</option><option value="hod">HOD</option><option value="admin">Admin</option>'+
+    (state.user.role==='super_admin'?'<option value="super_admin">Super Admin</option>':'')+'</select>'+
+    '<label class="flex items-center gap-2 text-xs"><input type="checkbox" id="au-active" checked/> Active (login immediately)</label>'+
+    '<button id="au-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Create</button></div>');
+  $('#au-save').onclick = async () => {
+    const payload = {
+      email:$('#au-email').value, password:$('#au-pass').value, firstName:$('#au-fn').value,
+      lastName:$('#au-ln').value, department:$('#au-dept').value, contact:$('#au-contact').value,
+      role:$('#au-role').value, active:$('#au-active').checked
+    };
+    closeModal();
+    const passcode = await askPasscode(); if (!passcode) return;
+    const res = await api('addUser', Object.assign({}, payload, { passcode }));
+    if (!res.success) toast(res.error,'error'); else { toast('User created','ok'); refreshUsers(false); }
+  };
+}
+
+function openImportCsv(){
+  openModal('<h3 class="font-semibold mb-2">Quick Import CSV</h3>'+
+    '<p class="text-[10px] text-sand-200/50 mb-2">Format: email,password,firstName,lastName,department,contact — sets active=true</p>'+
+    '<textarea id="csv-text" class="w-full rounded-xl px-3 py-2 text-xs font-mono h-40" placeholder="email,password,firstName,lastName,department,contact"></textarea>'+
+    '<button id="csv-go" class="btn-primary w-full rounded-xl py-2 text-sm text-white mt-3">Import</button>');
+  $('#csv-go').onclick = async () => {
+    const csv = $('#csv-text').value;
+    closeModal();
+    const passcode = await askPasscode(); if (!passcode) return;
+    const res = await api('importUsersCSV',{ csv, passcode });
+    if (!res.success) toast(res.error,'error');
+    else { toast('Imported '+res.data.imported+', skipped '+((res.data.skipped && res.data.skipped.length)||0),'ok'); refreshUsers(false); }
+  };
+}
+
+async function openPending(){
+  const passcode = await askPasscode(); if (!passcode) return;
+  const r = await api('getPendingApprovals',{ passcode });
+  const users = (r.data && r.data.users) || [];
+  let html = '<h3 class="font-semibold mb-3">Pending @pcr.com approvals</h3><div class="space-y-2">';
+  if (!users.length) html += '<p class="text-xs text-sand-200/50">No pending approvals</p>';
+  users.forEach(u => {
+    html += '<div class="glass rounded-xl p-3 flex justify-between items-center text-sm"><div><p class="font-medium">'+esc(u.firstName)+' '+esc(u.lastName)+'</p>'+
+      '<p class="text-[10px] text-sand-200/50">'+esc(u.email)+' · '+esc(u.department)+'</p></div>'+
+      '<button class="btn-primary text-xs px-3 py-1 rounded-lg text-white pend-ok" data-email="'+esc(u.email)+'">Approve</button></div>';
+  });
+  html += '</div>';
+  openModal(html);
+  $$('.pend-ok').forEach(b=>b.onclick=async()=>{
+    const res = await api('approveUser',{ targetEmail:b.dataset.email, passcode });
+    if (!res.success) toast(res.error,'error'); else { toast('Approved','ok'); closeModal(); }
+  });
+}
+
+async function openAlertEmails(){
+  const r = await api('getAlertEmails');
+  const emails = ((r.data && r.data.emails) || []).map(e=>e.email||e).join('\n');
+  openModal('<h3 class="font-semibold mb-2">Alert Emails</h3><p class="text-[10px] text-sand-200/50 mb-2">Super admin only · one email per line</p>'+
+    '<textarea id="al-text" class="w-full rounded-xl px-3 py-2 text-xs h-40">'+esc(emails)+'</textarea>'+
+    '<button id="al-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white mt-3">Save</button>');
+  $('#al-save').onclick = async () => {
+    const list = $('#al-text').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
+    closeModal();
+    const passcode = await askPasscode(); if (!passcode) return;
+    const res = await api('saveAlertEmails',{ emails:list, passcode });
+    if (!res.success) toast(res.error,'error'); else toast('Alert emails saved','ok');
+  };
+}
+
+function renderAdmin(){
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3">'+
+    '<button onclick="openAlertEmails()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-envelope text-teal-400 mr-2"></i>Manage Alert Emails</button>'+
+    '<button onclick="navigate(\'users\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-users text-teal-400 mr-2"></i>Staff Directory</button>'+
+    '<button onclick="checkHealth()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-heart-pulse text-teal-400 mr-2"></i>API health / version</button></div>';
+}
+
+function maybeProfileModal(){
+  if (!state.user || !state.user.needsProfile) return;
+  openModal('<h3 class="font-semibold mb-1">Complete Your Profile</h3>'+
+    '<p class="text-xs text-sand-200/60 mb-3">First name, last name and department are required.</p><div class="space-y-2">'+
+    '<input id="pf-fn" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="First name" value="'+esc(state.user.firstName)+'"/>'+
+    '<input id="pf-ln" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Last name" value="'+esc(state.user.lastName)+'"/>'+
+    '<input id="pf-dept" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Department" value="'+esc(state.user.department)+'"/>'+
+    '<input id="pf-contact" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Contact" value="'+esc(state.user.contact)+'"/>'+
+    '<button id="pf-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Save profile</button></div>');
+  $('#pf-save').onclick = async () => {
+    const firstName=$('#pf-fn').value.trim(), lastName=$('#pf-ln').value.trim(), department=$('#pf-dept').value.trim();
+    if (!firstName||!lastName||!department) { toast('All three required','error'); return; }
+    const res = await api('updateProfile',{ targetEmail:state.user.email, email:state.user.email, firstName, lastName, department, contact:$('#pf-contact').value });
+    if (!res.success) { toast(res.error,'error'); return; }
+    state.user = res.data.user; saveSession(); closeModal(); toast('Profile saved','ok'); navigate('home');
+  };
+}
+
+let pendingVerifyEmail = '';
+async function doLogin(email, password){
+  $('#login-error').classList.add('hidden');
+  const r = await api('login',{ email, password });
+  if (r.needsVerification) {
+    pendingVerifyEmail = r.email || email;
+    $('#verify-panel').classList.remove('hidden');
+    toast('Verification required','info');
+    const vr = await api('requestVerification',{ email: pendingVerifyEmail });
+    if (vr.data && vr.data.code) toast('Demo code: '+vr.data.code,'info');
+    return;
+  }
+  if (!r.success) {
+    $('#login-error').textContent = r.error || 'Login failed';
+    $('#login-error').classList.remove('hidden');
+    return;
+  }
+  state.user = r.data.user;
+  saveSession();
+  enterApp();
+}
+function enterApp(){
+  $('#view-login').classList.add('hidden');
+  $('#view-main').classList.remove('hidden');
+  navigate('home');
+  maybeProfileModal();
+  api('getVersion').then(r=>{ state.backendVersion = r.version || (r.data && r.data.version); }).catch(()=>{});
+}
+
+$('#login-form').onsubmit = async (e) => {
+  e.preventDefault();
+  await doLogin($('#login-email').value.trim(), $('#login-password').value);
+};
+$('#btn-verify').onclick = async () => {
+  const r = await api('verifyEmail',{ email: pendingVerifyEmail, code: $('#verify-code').value.trim() });
+  if (!r.success) { toast(r.error,'error'); return; }
+  toast('Verified — sign in again','ok');
+  $('#verify-panel').classList.add('hidden');
+};
+$('#btn-resend-code').onclick = async () => {
+  const vr = await api('requestVerification',{ email: pendingVerifyEmail });
+  if (vr.data && vr.data.code) toast('Code: '+vr.data.code,'info'); else toast('Code sent','ok');
+};
+$('#btn-logout').onclick = () => {
+  state.user = null; localStorage.removeItem(SESSION_KEY);
+  $('#view-main').classList.add('hidden');
+  $('#view-login').classList.remove('hidden');
+};
+
+function boot(){
+  $('#ui-version').textContent = APP_VERSION;
+  state.demo = isDemoMode();
+  if (state.demo) {
+    $('#demo-badge').classList.remove('hidden');
+    loadDemo();
+  }
+  const tick = () => { const el=$('#fiji-clock'); if(el) el.textContent = formatFiji(); };
+  tick(); setInterval(tick, 30000);
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  const session = loadSession();
+  if (session && session.email) {
+    state.user = session;
+    state.user.needsProfile = !(session.firstName && session.lastName && session.department);
+    enterApp();
+  }
+}
+boot();
+</script>
+</body>
+</html>
