@@ -85,7 +85,7 @@ input:focus, select:focus, textarea:focus {
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.2.1';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
 const SESSION_KEY = 'pcr_v2_session';
 const DEMO_KEY = 'pcr_v2_demo_db';
@@ -111,11 +111,55 @@ const DEMO_KEY = 'pcr_v2_demo_db';
           <label class="text-xs text-sand-200/70 mb-1 block">Password</label>
           <input type="password" id="login-password" required class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="••••••••" autocomplete="current-password"/>
         </div>
-        <p id="login-error" class="text-red-400 text-sm hidden"></p>
         <button type="submit" class="btn-primary w-full rounded-xl py-2.5 font-semibold text-white text-sm">
           <i class="fa-solid fa-right-to-bracket mr-2"></i>Sign in
         </button>
       </form>
+      <p id="login-error" class="text-red-400 text-sm hidden mt-3"></p>
+      <p class="text-center mt-3">
+        <button type="button" id="btn-show-register" class="text-sm text-teal-400 hover:text-teal-300 underline-offset-2 hover:underline">
+          Create an account
+        </button>
+      </p>
+      <div id="register-panel" class="hidden mt-4 pt-4 border-t border-teal-500/20 space-y-3">
+        <h3 class="text-sm font-semibold text-sand-100">Create an account</h3>
+        <form id="register-form" class="space-y-3">
+          <div>
+            <label class="text-xs text-sand-200/70 mb-1 block">Email</label>
+            <input type="email" id="reg-email" required class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="you@example.com" autocomplete="username"/>
+          </div>
+          <div>
+            <label class="text-xs text-sand-200/70 mb-1 block">Password</label>
+            <input type="password" id="reg-password" required class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="••••••••" autocomplete="new-password"/>
+          </div>
+          <div>
+            <label class="text-xs text-sand-200/70 mb-1 block">Confirm password</label>
+            <input type="password" id="reg-password2" required class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="••••••••" autocomplete="new-password"/>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-sand-200/70 mb-1 block">First name</label>
+              <input type="text" id="reg-firstName" class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="Optional"/>
+            </div>
+            <div>
+              <label class="text-xs text-sand-200/70 mb-1 block">Last name</label>
+              <input type="text" id="reg-lastName" class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="Optional"/>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-sand-200/70 mb-1 block">Department <span class="text-sand-200/40">(optional)</span></label>
+            <input type="text" id="reg-department" class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="e.g. F&B"/>
+          </div>
+          <div>
+            <label class="text-xs text-sand-200/70 mb-1 block">Contact <span class="text-sand-200/40">(optional)</span></label>
+            <input type="text" id="reg-contact" class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="Phone / WhatsApp"/>
+          </div>
+          <button type="submit" class="btn-primary w-full rounded-xl py-2.5 font-semibold text-white text-sm">
+            <i class="fa-solid fa-user-plus mr-2"></i>Create account
+          </button>
+          <button type="button" id="btn-back-login" class="w-full text-xs text-teal-400 py-1">Back to sign in</button>
+        </form>
+      </div>
       <div id="verify-panel" class="hidden mt-4 pt-4 border-t border-teal-500/20 space-y-2">
         <p class="text-sm text-sand-200/80">Enter the verification code emailed to you.</p>
         <input id="verify-code" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="6-digit code"/>
@@ -263,6 +307,33 @@ function demoApi(action, p) {
       if (!isSuper && !isPcr && !u.verified) return Promise.resolve({ success:false, error:'Email not verified', needsVerification:true, email });
       if (!isSuper && !u.active) return Promise.resolve(fail('Account inactive'));
       return Promise.resolve(ok({ user: publicUser(u), token:'demo' }));
+    }
+    case 'register': {
+      const email = String(p.email||'').toLowerCase().trim();
+      const password = String(p.password||'');
+      if (!email || !password) return Promise.resolve(fail('Email and password required'));
+      if (db.users.find(x => x.email === email)) return Promise.resolve(fail('Account already exists — sign in instead'));
+      const isPcr = email.includes('@pcr.com');
+      const isSuper = email === 'it@paradisecoveresortfiji.com';
+      const row = {
+        id: uid('usr'), email, password,
+        firstName: p.firstName||'', lastName: p.lastName||'',
+        department: p.department||'', contact: p.contact||'',
+        role: 'staff', roster:'', village:'',
+        active: false, verified: false, createdAt: new Date().toISOString()
+      };
+      db.users.push(row); saveDemo(db);
+      if (isPcr && !isSuper) {
+        return Promise.resolve(ok({ pendingApproval:true, message:'Account created. Pending admin approval.' }));
+      }
+      const code = String(Math.floor(100000+Math.random()*900000));
+      db.verificationCodes.push({ email, code, expiresAt: Date.now()+1.8e6, used:false });
+      saveDemo(db);
+      return Promise.resolve(ok({
+        needsVerification:true, email,
+        message:'Check your email for a verification code',
+        emailed:false, code
+      }));
     }
     case 'requestVerification': {
       const code = String(Math.floor(100000+Math.random()*900000));
@@ -1157,14 +1228,14 @@ async function doLogin(email, password){
   if (r.needsVerification) {
     pendingVerifyEmail = r.email || email;
     $('#verify-panel').classList.remove('hidden');
+    showLoginError('Verification required — enter the code emailed to you.', 'info');
     toast('Verification required','info');
     const vr = await api('requestVerification',{ email: pendingVerifyEmail });
     if (vr.data && vr.data.code) toast('Demo code: '+vr.data.code,'info');
     return;
   }
   if (!r.success) {
-    $('#login-error').textContent = r.error || 'Login failed';
-    $('#login-error').classList.remove('hidden');
+    showLoginError(r.error || 'Login failed');
     return;
   }
   state.user = r.data.user;
@@ -1197,6 +1268,70 @@ $('#btn-logout').onclick = () => {
   state.user = null; localStorage.removeItem(SESSION_KEY);
   $('#view-main').classList.add('hidden');
   $('#view-login').classList.remove('hidden');
+};
+
+
+function showLoginError(msg, kind){
+  const el = $('#login-error');
+  if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.textContent = msg;
+  el.classList.remove('hidden', 'text-red-400', 'text-teal-400', 'text-emerald-400');
+  el.classList.add(kind === 'ok' || kind === 'info' ? 'text-teal-400' : 'text-red-400');
+}
+function showRegisterPanel(show){
+  const reg = $('#register-panel');
+  const form = $('#login-form');
+  const link = $('#btn-show-register');
+  if (show) {
+    reg.classList.remove('hidden');
+    form.classList.add('hidden');
+    if (link) link.parentElement.classList.add('hidden');
+    $('#verify-panel').classList.add('hidden');
+  } else {
+    reg.classList.add('hidden');
+    form.classList.remove('hidden');
+    if (link) link.parentElement.classList.remove('hidden');
+  }
+}
+$('#btn-show-register').onclick = () => { showLoginError('', 'ok'); showRegisterPanel(true); };
+$('#btn-back-login').onclick = () => { showRegisterPanel(false); $('#login-error').classList.add('hidden'); };
+$('#register-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $('#reg-email').value.trim();
+  const password = $('#reg-password').value;
+  const password2 = $('#reg-password2').value;
+  if (password !== password2) { showLoginError('Passwords do not match'); toast('Passwords do not match','error'); return; }
+  const payload = {
+    email, password,
+    firstName: $('#reg-firstName').value.trim(),
+    lastName: $('#reg-lastName').value.trim(),
+    department: $('#reg-department').value.trim(),
+    contact: $('#reg-contact').value.trim()
+  };
+  const r = await api('register', payload);
+  if (!r.success) {
+    showLoginError(r.error || 'Registration failed');
+    toast(r.error || 'Registration failed', 'error');
+    return;
+  }
+  const d = r.data || {};
+  if (d.pendingApproval) {
+    showRegisterPanel(false);
+    showLoginError(d.message || 'Account created. Pending admin approval.', 'ok');
+    toast(d.message || 'Pending approval', 'ok');
+    return;
+  }
+  if (d.needsVerification) {
+    showRegisterPanel(false);
+    pendingVerifyEmail = d.email || email;
+    $('#verify-panel').classList.remove('hidden');
+    showLoginError(d.message || 'Check your email for a verification code', 'info');
+    if (d.code) toast('Demo code: '+d.code, 'info');
+    else toast(d.message || 'Verification code sent', 'ok');
+    return;
+  }
+  showRegisterPanel(false);
+  showLoginError(d.message || 'Account created — sign in', 'ok');
 };
 
 function boot(){

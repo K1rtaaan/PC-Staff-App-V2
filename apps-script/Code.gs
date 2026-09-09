@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.2.0';
+var APP_VERSION = '2.2.1';
 var ADMIN_PASSCODE = 'paradise2026';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
 var SUPERADMIN_PASSWORD = '21slands';
@@ -79,6 +79,7 @@ function routeAction(action, p) {
       return { success: true, ok: true, version: APP_VERSION, sheetId: SHEET_ID, fijiNow: formatFiji(getFijiNow()) };
 
     case 'login': return login(p);
+    case 'register': return register(p);
     case 'verifyEmail': return verifyEmail(p);
     case 'requestVerification': return requestVerification(p);
     case 'updateProfile':
@@ -458,6 +459,60 @@ function login(p) {
       token: Utilities.base64EncodeWebSafe(email + '|' + u.id + '|' + Date.now())
     }
   };
+}
+
+
+function register(p) {
+  var email = String(p.email || '').trim().toLowerCase();
+  var password = String(p.password || '');
+  if (!email || !password) return { success: false, error: 'Email and password required' };
+
+  if (findUserByEmail(email)) {
+    return { success: false, error: 'Account already exists — sign in instead' };
+  }
+
+  var isPcr = email.indexOf('@pcr.com') !== -1;
+  var isSuper = email === SUPERADMIN_EMAIL;
+
+  var row = {
+    id: uid('usr'),
+    email: email,
+    password: password,
+    firstName: p.firstName || '',
+    lastName: p.lastName || '',
+    department: p.department || '',
+    contact: p.contact || '',
+    role: 'staff',
+    roster: '',
+    village: '',
+    active: false,
+    createdAt: nowIso(),
+    verified: false
+  };
+  appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'roster', 'village', 'active', 'createdAt', 'verified']);
+
+  // @pcr.com (not superadmin): pending admin approval — no email code
+  if (isPcr && !isSuper) {
+    return {
+      success: true,
+      data: {
+        pendingApproval: true,
+        message: 'Account created. Pending admin approval.'
+      }
+    };
+  }
+
+  // Other emails: send verification code
+  var vr = requestVerification({ email: email });
+  var emailed = vr && vr.data && vr.data.emailed;
+  var out = {
+    needsVerification: true,
+    email: email,
+    message: 'Check your email for a verification code',
+    emailed: !!emailed
+  };
+  if (vr && vr.data && vr.data.code) out.code = vr.data.code;
+  return { success: true, data: out };
 }
 
 function requestVerification(p) {
