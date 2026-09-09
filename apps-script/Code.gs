@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.2.1';
+var APP_VERSION = '2.3.0';
 var ADMIN_PASSCODE = 'paradise2026';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
 var SUPERADMIN_PASSWORD = '21slands';
@@ -53,9 +53,24 @@ function handleRequest(e, method) {
     if (method === 'POST' && e && e.postData && e.postData.contents) {
       payload = JSON.parse(e.postData.contents);
     } else if (e && e.parameter) {
-      payload = e.parameter;
+      payload = {};
+      var keys = Object.keys(e.parameter);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        var v = e.parameter[k];
+        if (typeof v === 'string') {
+          var trimmed = v.replace(/^\s+/, '');
+          if (trimmed.charAt(0) === '{' || trimmed.charAt(0) === '[') {
+            try { v = JSON.parse(v); } catch (err) {}
+          }
+        }
+        payload[k] = v;
+      }
       if (payload.payload) {
-        try { payload = Object.assign({}, payload, JSON.parse(payload.payload)); } catch (err) {}
+        try {
+          var nested = (typeof payload.payload === 'string') ? JSON.parse(payload.payload) : payload.payload;
+          payload = Object.assign({}, payload, nested);
+        } catch (err) {}
       }
     }
     var action = payload.action || (e && e.parameter && e.parameter.action) || '';

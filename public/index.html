@@ -3,11 +3,13 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<meta name="theme-color" content="#0d9488"/>
+<meta name="theme-color" content="#0a4d4a"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <title>PCR Staff — Paradise Cove Resort</title>
 <link rel="manifest" href="manifest.json"/>
+<link rel="icon" href="assets/logo.png"/>
+<link rel="apple-touch-icon" href="assets/logo.png"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -17,7 +19,8 @@ tailwind.config = {
       colors: {
         navy: { 950: '#060d18', 900: '#0a1628', 800: '#0f2137', 700: '#16304d' },
         teal: { 400: '#2dd4bf', 500: '#14b8a6', 600: '#0d9488', 700: '#0f766e' },
-        sand: { 100: '#f5f0e6', 200: '#e8dfd0' }
+        sand: { 100: '#f5f0e6', 200: '#e8dfd0', 300: '#d4c4a8' },
+        gold: { 400: '#e0c36a', 500: '#c9a227', 600: '#a8841a' }
       },
       fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }
     }
@@ -26,30 +29,67 @@ tailwind.config = {
 </script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-:root { color-scheme: dark; }
+:root {
+  color-scheme: dark;
+  --hero-beach: url('assets/hero-beach.jpg');
+  --hero-pool: url('assets/hero-pool.jpg');
+  --hero-manta: url('assets/hero-manta.jpg');
+  --gold: #c9a227;
+}
 * { -webkit-tap-highlight-color: transparent; }
 body {
   background: radial-gradient(ellipse at 20% 0%, #0f766e33 0%, transparent 50%),
-              radial-gradient(ellipse at 80% 100%, #0d948833 0%, transparent 40%),
+              radial-gradient(ellipse at 80% 100%, #c9a22718 0%, transparent 40%),
               #060d18;
   min-height: 100dvh;
   font-family: Inter, system-ui, sans-serif;
 }
+.login-hero {
+  position: relative;
+  min-height: 100dvh;
+  background: var(--hero-beach) center center / cover no-repeat;
+}
+.login-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(165deg,
+    rgba(6, 20, 40, 0.88) 0%,
+    rgba(10, 55, 60, 0.72) 42%,
+    rgba(6, 13, 24, 0.90) 100%);
+  pointer-events: none;
+}
+.login-hero > * { position: relative; z-index: 1; }
 .glass {
-  background: rgba(15, 33, 55, 0.65);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(45, 212, 191, 0.15);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  background: rgba(15, 33, 55, 0.72);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(201,162,39,0.08);
 }
 .glass-strong {
-  background: rgba(10, 22, 40, 0.85);
+  background: rgba(10, 22, 40, 0.88);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(45, 212, 191, 0.2);
+}
+.app-header-motif {
+  background-image:
+    linear-gradient(105deg, rgba(6,18,32,0.94) 0%, rgba(10,40,48,0.88) 55%, rgba(10,22,40,0.92) 100%),
+    var(--hero-pool);
+  background-size: cover;
+  background-position: center 40%;
+}
+.home-accent {
+  background-image:
+    linear-gradient(135deg, rgba(6,18,32,0.85), rgba(10,50,55,0.7)),
+    var(--hero-manta);
+  background-size: cover;
+  background-position: center;
 }
 .btn-primary {
   background: linear-gradient(135deg, #0d9488, #0f766e);
   transition: transform .15s, box-shadow .15s;
+  box-shadow: 0 2px 12px rgba(13,148,136,0.35);
 }
 .btn-primary:active { transform: scale(0.97); }
 .btn-primary:disabled { opacity: .5; }
@@ -85,22 +125,21 @@ input:focus, select:focus, textarea:focus {
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.2.1';
+const APP_VERSION = '2.3.0';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
 const SESSION_KEY = 'pcr_v2_session';
 const DEMO_KEY = 'pcr_v2_demo_db';
 </script>
 
 <div id="app" class="min-h-dvh flex flex-col">
-  <div id="view-login" class="flex-1 flex items-center justify-center p-4">
+  <div id="view-login" class="login-hero flex-1 flex items-center justify-center p-4">
     <div class="glass rounded-2xl p-6 w-full max-w-md fade-in">
       <div class="text-center mb-6">
-        <div class="w-16 h-16 mx-auto rounded-2xl bg-teal-600/30 border border-teal-500/40 flex items-center justify-center mb-3">
-          <i class="fa-solid fa-umbrella-beach text-2xl text-teal-400"></i>
-        </div>
-        <h1 class="text-xl font-bold tracking-tight">Paradise Cove Resort</h1>
-        <p class="text-sm text-sand-200/60 mt-1">Staff Portal · Fiji</p>
+        <img src="assets/logo.png" alt="Paradise Cove Resort" class="mx-auto mb-3 max-h-20 w-auto object-contain drop-shadow-lg" width="160" height="80"/>
+        <h1 class="text-xl font-bold tracking-tight text-sand-100">Paradise Cove Resort</h1>
+        <p class="text-sm text-sand-200/70 mt-1">Staff Portal · Yasawa Islands</p>
         <p id="demo-badge" class="hidden mt-2 text-xs text-amber-300/90"><i class="fa-solid fa-flask"></i> Demo mode</p>
+        <div id="backend-banner" class="hidden mt-3 text-xs text-amber-200 bg-amber-500/15 border border-amber-500/35 rounded-xl px-3 py-2 text-left"></div>
       </div>
       <form id="login-form" class="space-y-3">
         <div>
@@ -167,14 +206,18 @@ const DEMO_KEY = 'pcr_v2_demo_db';
         <button type="button" id="btn-resend-code" class="w-full text-xs text-teal-400 py-1">Resend code</button>
       </div>
       <p class="text-[10px] text-center text-sand-200/40 mt-4">v<span id="ui-version"></span> · Fiji time UTC+12</p>
+      <p class="text-[9px] text-center text-gold-500/50 mt-1">Paradise Cove Resort · Yasawa Islands Fiji</p>
     </div>
   </div>
 
   <div id="view-main" class="hidden flex-1 flex flex-col safe-bottom">
-    <header class="glass-strong sticky top-0 z-40 px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
-      <div>
-        <p class="text-xs text-teal-400/80 font-medium">Paradise Cove</p>
-        <h2 id="header-title" class="text-sm font-semibold">Home</h2>
+    <header class="app-header-motif glass-strong sticky top-0 z-40 px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <img src="assets/logo.png" alt="" class="h-8 w-auto object-contain opacity-90 hidden xs:block sm:block" aria-hidden="true"/>
+        <div class="min-w-0">
+          <p class="text-xs text-teal-400/90 font-medium">Paradise Cove</p>
+          <h2 id="header-title" class="text-sm font-semibold truncate">Home</h2>
+        </div>
       </div>
       <div class="flex items-center gap-2">
         <span id="fiji-clock" class="text-[10px] text-sand-200/50 hidden sm:inline"></span>
@@ -272,17 +315,22 @@ function isDemoMode(){
 
 async function api(action, payload={}) {
   if (state.demo) return demoApi(action, payload);
-  const body = { action, ...payload };
+  const params = new URLSearchParams();
+  params.set('action', action);
+  const body = Object.assign({}, payload);
   if (state.user) {
     body.requesterEmail = state.user.email;
     body.userEmail = body.userEmail || state.user.email;
   }
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(body),
-    redirect: 'follow'
+  Object.keys(body).forEach(function(key) {
+    var v = body[key];
+    if (v === undefined || v === null) return;
+    if (typeof v === 'object') params.set(key, JSON.stringify(v));
+    else params.set(key, String(v));
   });
+  var sep = API_URL.indexOf('?') >= 0 ? '&' : '?';
+  var url = API_URL + sep + params.toString();
+  const res = await fetch(url, { method: 'GET', redirect: 'follow' });
   const text = await res.text();
   try { return JSON.parse(text); }
   catch(e) {
@@ -654,7 +702,7 @@ function renderHome(){
   const di = dinnerCutoffInfo(), li = lunchCutoffInfo();
   $('#main-content').innerHTML =
   '<div class="fade-in space-y-4 max-w-lg mx-auto">'+
-    '<div class="glass rounded-2xl p-4"><p class="text-xs text-teal-400/80">Bula, '+esc(u.firstName||'Staff')+'!</p>'+
+    '<div class="glass home-accent rounded-2xl p-4 border border-teal-500/20"><p class="text-xs text-teal-300/90">Bula, '+esc(u.firstName||'Staff')+'!</p>'+
     '<p class="font-semibold">'+esc(u.firstName)+' '+esc(u.lastName)+'</p>'+
     '<p class="text-xs text-sand-200/50 mt-1">'+esc(roleLabel(u.role))+' · '+esc(u.department||'—')+' · '+esc(u.village||'')+'</p>'+
     '<p class="text-[10px] text-sand-200/40 mt-2"><i class="fa-regular fa-clock mr-1"></i>'+formatFiji()+'</p></div>'+
@@ -672,7 +720,8 @@ function renderHome(){
       (canKitchen()?quickBtn('kitchen','fa-fire-burner','Kitchen'):'')+
       (canAdmin()?quickBtn('users','fa-users','Staff directory'):'')+
     '</div>'+
-    '<p class="text-[10px] text-center text-sand-200/30">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p></div>';
+    '<p class="text-[10px] text-center text-sand-200/30">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p>'+
+    '<p class="text-[9px] text-center text-gold-500/40">Paradise Cove Resort · Yasawa Islands Fiji</p></div>';
 }
 
 async function renderMeals(){
@@ -1334,12 +1383,26 @@ $('#register-form').onsubmit = async (e) => {
   showLoginError(d.message || 'Account created — sign in', 'ok');
 };
 
+function showBackendBanner(msg){
+  const el = $('#backend-banner');
+  if (!el) return;
+  if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> ' + msg;
+  el.classList.remove('hidden');
+}
 function boot(){
   $('#ui-version').textContent = APP_VERSION;
   state.demo = isDemoMode();
   if (state.demo) {
     $('#demo-badge').classList.remove('hidden');
     loadDemo();
+  } else {
+    api('getVersion').then(function(r){
+      state.backendVersion = r.version || (r.data && r.data.version);
+      showBackendBanner('');
+    }).catch(function(){
+      showBackendBanner('Backend unreachable — check network or Apps Script deployment. Not using demo mode.');
+    });
   }
   const tick = () => { const el=$('#fiji-clock'); if(el) el.textContent = formatFiji(); };
   tick(); setInterval(tick, 30000);
