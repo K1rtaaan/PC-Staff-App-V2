@@ -19,8 +19,8 @@
  *     e.g. Sat 09:59 → can book Sat lunch; Sat 10:00 → closed
  */
 
-var SHEET_ID = '16RgtupxsReP3_WtzNXvwebnYEmi6nMoASRQgGHEskF4';
-var APP_VERSION = '2.1.0';
+var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
+var APP_VERSION = '2.2.0';
 var ADMIN_PASSCODE = 'paradise2026';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
 var SUPERADMIN_PASSWORD = '21slands';
@@ -215,7 +215,13 @@ function getCutoffInfo(p) {
 /* ========== SHEETS ========== */
 
 function getSS() {
-  return SpreadsheetApp.openById(SHEET_ID);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss) {
+    SHEET_ID = ss.getId();
+    return ss;
+  }
+  if (SHEET_ID) return SpreadsheetApp.openById(SHEET_ID);
+  throw new Error('No V2 spreadsheet bound. Open this script from the PCR Staff App V2 sheet.');
 }
 
 function ensureSheet(ss, name, headers) {
