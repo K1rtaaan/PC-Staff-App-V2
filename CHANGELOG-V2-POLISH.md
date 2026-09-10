@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.6.3**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.6.4**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -135,4 +135,10 @@ Version **2.6.3**. Revert any item later by asking for its ID (e.g. “revert C7
 | ID | Change |
 |----|--------|
 | C51 | Dinner Prep List downloadable as **PDF** + **View all as PDF** (blob in new tab). Lazy-load `html2pdf.js` 0.14.0 from cdnjs on first PDF action; `buildPrepHtml` logo uses absolute URL so PDF keeps golden logo; header **Download PDF** / **View PDF**; Generate modal leads with View PDF + Download PDF (HTML/TXT secondary). `APP_VERSION` → **2.6.3**; SW cache `pcr-staff-v2.6.3`. |
+
+## Home banner restore / avatar / order (2.6.4)
+
+| ID | Change |
+|----|--------|
+| C52 | Bring back full-bleed home banner under sticky header (~2× old strip height, `h-44`/`h-48`, slideshow `hero-banner.jpg` via `--aerial`). Greeting avatar: staff photo or teal initials (no golden logo). Home order: Banner → greeting → Dinner\|Lunch → quick tiles → Reminders → Suggestions → version footer. `APP_VERSION` → **2.6.4**; SW cache `pcr-staff-v2.6.4`. |
 
