@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.6.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.6.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -122,3 +122,10 @@ Version **2.6.0**. Revert any item later by asking for its ID (e.g. “revert C7
 | C47 | Dashboard suggestions sorted by likes; thumbs up/down via `voteSuggestion` with refresh; **Share idea** opens suggest modal; all staff. |
 | C48 | Quick tile **Request leave** beside/under My Bookings; opens leave request modal (or My Schedule). |
 | C49 | Global press animations; `showLoadingTips()` with slideshow thumbs; login hero rotates `assets/slideshow/*`; CSS motifs use slideshow. `APP_VERSION` → **2.6.1**; SW `pcr-staff-v2.6.1`. |
+
+
+## Service worker cache bust (2.6.2)
+
+| ID | Change |
+|----|--------|
+| C50 | Service worker rewritten network-first for navigations / `index.html` (update cache on success; cache only if offline). Stale-while-revalidate for same-origin static assets. CACHE `pcr-staff-v2.6.2`; activate deletes all other caches + `clients.claim`; install `skipWaiting`. Never cache Google / Apps Script hosts. Light one-reload-per-version on `controllerchange` / waiting SW. `APP_VERSION` → **2.6.2**. |
