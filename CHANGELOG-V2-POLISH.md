@@ -152,5 +152,5 @@ Version **2.6.6**. Revert any item later by asking for its ID (e.g. “revert C7
 
 | ID | Change |
 |----|--------|
-| C54 | Sample high-occupancy broadcast reminder (weeks ending 20 & 27 Sep; priority high / important; due 2026-09-27). `seedSampleReminders()` + `seedVillageBoatRuns()` (Soso Express 05:00/06:30/12:30/17:00/23:00 for 14 Fiji days) called from `initializeSheets`; action `seedVillageBoatSchedule` / `seedStaffSamples` (admin passcode). Boat tab info card: Staff Boat Transfer Schedule — Soso Express. Demo seeds same. `APP_VERSION` → **2.6.6**; SW cache `pcr-staff-v2.6.6`. |
+| C54 | Sample high-occupancy broadcast reminder (weeks ending 20 & 27 Sep; priority high / important; due 2026-09-27). `seedSampleReminders()` + `seedVillageBoatRuns()` (Soso Express 05:00/06:30/12:30/17:00/23:00 for 14 Fiji days) called from `initializeSheets`; action `seedVillageBoatSchedule` / `seedStaffSamples` (admin passcode). Boat tab info card: Staff Boat Transfer Schedule — Soso Express. Demo seeds same. `appendRow` writes by live sheet header names (fixes priority/fullNotification column drift); seed repairs misaligned reminder + deactivates broken Soso rows. `APP_VERSION` → **2.6.6**; SW cache `pcr-staff-v2.6.6`. |
 
