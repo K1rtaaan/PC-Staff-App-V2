@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.5.2';
+var APP_VERSION = '2.6.0';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -35,7 +35,13 @@ var DEFAULT_ALERT_EMAILS = [
   'pranav619kumar@gmail.com'
 ];
 
-var ROLES = ['super_admin', 'admin', 'hod', 'kitchen', 'boat', 'staff'];
+var ROLES = ['super_admin', 'admin', 'hod', 'assistant_hod', 'chef', 'kitchen', 'boat_manager', 'boat_captain', 'boat', 'staff'];
+var ALL_PERMISSIONS = ['super_admin', 'admin', 'hod', 'assistant_hod', 'boat_manager', 'boat_captain', 'chef', 'staff'];
+var FEATURE_DEFAULTS = {
+  feature_live_roster: 'false',
+  feature_leave_escalation: 'false'
+};
+var LIVE_ROSTER_SHEET_ID = '1n5onxR-Ww-0oDdPWDDUvRWuzKd-UGF51tBERtZfAcZM';
 
 var WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -159,6 +165,11 @@ function routeAction(action, p) {
     case 'requestLeave': return requestLeave(p);
     case 'reviewLeave': return reviewLeave(p);
     case 'getMySchedule': return getMySchedule(p);
+    case 'getAppSettings': return getAppSettings(p);
+    case 'setAppSetting': return setAppSetting(p);
+    case 'getLiveRoster': return getLiveRoster(p);
+    case 'getDepartmentRoster': return getDepartmentRoster(p);
+    case 'unlockSuperadminPin': return unlockSuperadminPin(p);
 
     case 'getCutoffInfo': return getCutoffInfo(p);
     case 'initSheets':
@@ -294,10 +305,12 @@ function initializeSheets() {
   var ss = getSS();
   ensureSheet(ss, 'Users', [
     'id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact',
-    'role', 'roster', 'village', 'active', 'createdAt', 'verified', 'photoUrl'
+    'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified', 'photoUrl'
   ]);
+  ensureSheet(ss, 'App Settings', ['key', 'value', 'updatedAt', 'updatedBy']);
+  ensureFeatureDefaults();
   ensureSheet(ss, 'Boat Runs', [
-    'id', 'date', 'time', 'route', 'capacity', 'notes', 'active', 'createdBy', 'createdAt'
+    'id', 'date', 'time', 'route', 'capacity', 'notes', 'fullNotification', 'active', 'createdBy', 'createdAt'
   ]);
   ensureSheet(ss, 'Boat Bookings', [
     'id', 'runId', 'userEmail', 'userName', 'seats', 'status', 'notes', 'createdAt'
@@ -318,7 +331,7 @@ function initializeSheets() {
   ]);
   ensureSheet(ss, 'Leave Requests', [
     'id', 'userEmail', 'userName', 'department', 'startDate', 'endDate', 'reason',
-    'status', 'reviewedBy', 'createdAt'
+    'status', 'reviewedBy', 'hodNote', 'managerNote', 'notifyNote', 'createdAt'
   ]);
   ensureSheet(ss, 'Alert Emails', ['email', 'label', 'active']);
   ensureSheet(ss, 'Verification Codes', [
@@ -411,6 +424,247 @@ function nowIso() {
   return formatFiji(getFijiNow());
 }
 
+/* ========== PERMISSIONS / FEATURE FLAGS (C38–C39) ========== */
+
+function parsePermissions(raw, legacyRole) {
+  var list = [];
+  if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+    var s = String(raw).trim();
+    if (s.charAt(0) === '[') {
+      try {
+        var arr = JSON.parse(s);
+        if (Array.isArray(arr)) list = arr.map(String);
+      } catch (e) {}
+    } else {
+      list = s.split(/[,|]+/).map(function (x) { return String(x).trim(); }).filter(Boolean);
+    }
+  }
+  // legacy single role → permissions
+  if (!list.length && legacyRole) {
+    var lr = String(legacyRole);
+    if (lr === 'kitchen') list = ['chef'];
+    else if (lr === 'boat') list = ['boat_manager'];
+    else if (ALL_PERMISSIONS.indexOf(lr) >= 0) list = [lr];
+    else list = ['staff'];
+  }
+  if (!list.length) list = ['staff'];
+  // dedupe
+  var seen = {};
+  var out = [];
+  list.forEach(function (p) {
+    var k = String(p).trim();
+    if (!k || seen[k]) return;
+    // map legacy kitchen/boat into new keys if present
+    if (k === 'kitchen') k = 'chef';
+    if (k === 'boat') k = 'boat_manager';
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push(k);
+  });
+  return out;
+}
+
+function permissionsToString(perms) {
+  return (perms || []).join(',');
+}
+
+function primaryRoleFromPermissions(perms) {
+  var order = ['super_admin', 'admin', 'hod', 'assistant_hod', 'chef', 'boat_manager', 'boat_captain', 'staff'];
+  for (var i = 0; i < order.length; i++) {
+    if (perms.indexOf(order[i]) >= 0) return order[i];
+  }
+  return 'staff';
+}
+
+function userPermissions(u) {
+  if (!u) return ['staff'];
+  return parsePermissions(u.permissions, u.role);
+}
+
+function userHasPermission(u, key) {
+  var perms = userPermissions(u);
+  if (perms.indexOf('super_admin') >= 0) return true; // super has all
+  return perms.indexOf(key) >= 0;
+}
+
+function userHasAnyPermission(u, keys) {
+  for (var i = 0; i < keys.length; i++) {
+    if (userHasPermission(u, keys[i]) || (keys[i] !== 'super_admin' && userPermissions(u).indexOf(keys[i]) >= 0)) {
+      // careful: userHasPermission already treats super as all
+    }
+  }
+  var perms = userPermissions(u);
+  if (perms.indexOf('super_admin') >= 0) return true;
+  for (var j = 0; j < keys.length; j++) {
+    if (perms.indexOf(keys[j]) >= 0) return true;
+  }
+  // legacy role fallback already in parsePermissions
+  return false;
+}
+
+function isSuperPerm(u) {
+  return userPermissions(u).indexOf('super_admin') >= 0;
+}
+
+function isAdminPerm(u) {
+  var p = userPermissions(u);
+  return p.indexOf('super_admin') >= 0 || p.indexOf('admin') >= 0;
+}
+
+function isHodPerm(u) {
+  var p = userPermissions(u);
+  return p.indexOf('hod') >= 0 || p.indexOf('assistant_hod') >= 0 || isAdminPerm(u);
+}
+
+function isChefPerm(u) {
+  var p = userPermissions(u);
+  return p.indexOf('chef') >= 0 || isAdminPerm(u);
+}
+
+function isBoatManagerPerm(u) {
+  var p = userPermissions(u);
+  return p.indexOf('boat_manager') >= 0 || isAdminPerm(u);
+}
+
+function isBoatCaptainPerm(u) {
+  var p = userPermissions(u);
+  return p.indexOf('boat_captain') >= 0 || isBoatManagerPerm(u);
+}
+
+function ensureFeatureDefaults() {
+  var existing = sheetToObjects('App Settings');
+  var map = {};
+  existing.forEach(function (r) { map[String(r.key)] = r; });
+  Object.keys(FEATURE_DEFAULTS).forEach(function (k) {
+    if (!map[k]) {
+      appendRow('App Settings', {
+        key: k,
+        value: FEATURE_DEFAULTS[k],
+        updatedAt: nowIso(),
+        updatedBy: 'system'
+      }, ['key', 'value', 'updatedAt', 'updatedBy']);
+    }
+  });
+}
+
+function getSetting(key, fallback) {
+  var rows = sheetToObjects('App Settings');
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].key) === String(key)) return String(rows[i].value);
+  }
+  if (FEATURE_DEFAULTS[key] !== undefined) return FEATURE_DEFAULTS[key];
+  return fallback === undefined ? '' : String(fallback);
+}
+
+function setSetting(key, value, byEmail) {
+  var rows = sheetToObjects('App Settings');
+  var found = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].key) === String(key)) { found = rows[i]; break; }
+  }
+  if (found) {
+    // App Settings may not have id — update by row
+    var sh = getSS().getSheetByName('App Settings');
+    var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+    var keyCol = headers.indexOf('key');
+    var valCol = headers.indexOf('value');
+    var atCol = headers.indexOf('updatedAt');
+    var byCol = headers.indexOf('updatedBy');
+    var data = sh.getDataRange().getValues();
+    for (var r = 1; r < data.length; r++) {
+      if (String(data[r][keyCol]) === String(key)) {
+        if (valCol >= 0) sh.getRange(r + 1, valCol + 1).setValue(String(value));
+        if (atCol >= 0) sh.getRange(r + 1, atCol + 1).setValue(nowIso());
+        if (byCol >= 0) sh.getRange(r + 1, byCol + 1).setValue(byEmail || '');
+        return;
+      }
+    }
+  }
+  appendRow('App Settings', {
+    key: key,
+    value: String(value),
+    updatedAt: nowIso(),
+    updatedBy: byEmail || ''
+  }, ['key', 'value', 'updatedAt', 'updatedBy']);
+}
+
+function isFeatureEnabled(key) {
+  var v = String(getSetting(key, FEATURE_DEFAULTS[key] || 'false')).toLowerCase();
+  return v === 'true' || v === '1' || v === 'yes' || v === 'on';
+}
+
+function featureOffMessage(feature) {
+  return 'Feature disabled. Ask a superadmin (passcode 2026) to enable ' + feature + ' in Admin → Settings / Features.';
+}
+
+function getAppSettings(p) {
+  ensureFeatureDefaults();
+  var rows = sheetToObjects('App Settings');
+  var settings = {};
+  rows.forEach(function (r) {
+    // never return pin hash to non-super in clear — still return presence
+    if (String(r.key) === 'superadmin_pin') {
+      settings.superadmin_pin_set = !!(r.value && String(r.value).length);
+      return;
+    }
+    settings[String(r.key)] = String(r.value);
+  });
+  Object.keys(FEATURE_DEFAULTS).forEach(function (k) {
+    if (settings[k] === undefined) settings[k] = FEATURE_DEFAULTS[k];
+  });
+  return { success: true, data: { settings: settings, features: {
+    feature_live_roster: isFeatureEnabled('feature_live_roster'),
+    feature_leave_escalation: isFeatureEnabled('feature_leave_escalation')
+  } } };
+}
+
+function setAppSetting(p) {
+  // Only superadmin + passcode 2026
+  requirePasscode(p, 'super');
+  var requester = getRequester(p);
+  if (requester && !isSuperPerm(requester) && String(requester.email).toLowerCase() !== SUPERADMIN_EMAIL) {
+    // allow bootstrap super email even before permissions migrated
+    if (String(requester.role) !== 'super_admin') {
+      return { success: false, error: 'Only superadmin can change app settings / feature flags' };
+    }
+  }
+  var key = String(p.key || '').trim();
+  if (!key) return { success: false, error: 'key required' };
+  // Admin (2025) cannot — already blocked by requirePasscode super
+  if (key.indexOf('feature_') === 0) {
+    var val = String(p.value === true || p.value === 'true' || p.value === 1 || p.value === '1' ? 'true' : 'false');
+    setSetting(key, val, p.requesterEmail || '');
+    return getAppSettings(p);
+  }
+  if (key === 'superadmin_pin') {
+    return { success: false, error: 'Use unlockSuperadminPin to set PIN' };
+  }
+  setSetting(key, p.value, p.requesterEmail || '');
+  return getAppSettings(p);
+}
+
+function unlockSuperadminPin(p) {
+  requirePasscode(p, 'super');
+  var pin = String(p.pin || p.superadminPin || '').trim();
+  var existing = getSetting('superadmin_pin', '');
+  if (!existing) {
+    if (!pin || pin.length < 4) return { success: false, error: 'Set a PIN (min 4 chars) on first unlock' };
+    setSetting('superadmin_pin', pin, p.requesterEmail || '');
+    return { success: true, data: { set: true, message: 'Superadmin PIN stored' } };
+  }
+  if (String(p.pin || p.superadminPin || '') !== existing) {
+    return { success: false, error: 'Invalid superadmin PIN' };
+  }
+  return { success: true, data: { unlocked: true } };
+}
+
+function requireSuperadminPinIfSet(p) {
+  var existing = getSetting('superadmin_pin', '');
+  if (!existing) return; // bootstrap: not set yet
+  var pin = String(p.superadminPin || p.pin || '');
+  if (pin !== existing) throw new Error('Superadmin PIN required');
+}
+
 /* ========== SUPERADMIN / ALERTS ========== */
 
 function ensureSuperAdmin() {
@@ -425,16 +679,20 @@ function ensureSuperAdmin() {
       department: 'IT',
       contact: '',
       role: 'super_admin',
+      permissions: 'super_admin,admin',
       roster: '',
       village: '',
       active: true,
       createdAt: nowIso(),
       verified: true
-    }, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'roster', 'village', 'active', 'createdAt', 'verified']);
+    }, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified']);
   } else {
-    // keep role/password in sync for bootstrap account
+    var perms = parsePermissions(u.permissions, u.role);
+    if (perms.indexOf('super_admin') < 0) perms.unshift('super_admin');
+    if (perms.indexOf('admin') < 0) perms.push('admin');
     updateRowById('Users', u.id, {
       role: 'super_admin',
+      permissions: permissionsToString(perms),
       active: true,
       verified: true,
       password: SUPERADMIN_PASSWORD,
@@ -461,6 +719,8 @@ function seedAlertEmails() {
 
 function publicUser(u) {
   if (!u) return null;
+  var perms = parsePermissions(u.permissions, u.role);
+  var role = u.role || primaryRoleFromPermissions(perms);
   return {
     id: u.id,
     email: u.email,
@@ -468,7 +728,9 @@ function publicUser(u) {
     lastName: u.lastName || '',
     department: u.department || '',
     contact: u.contact || '',
-    role: u.role || 'staff',
+    role: role,
+    permissions: perms,
+    permissionsRaw: permissionsToString(perms),
     roster: u.roster || '',
     village: u.village || '',
     active: truthy(u.active),
@@ -552,6 +814,7 @@ function register(p) {
     department: p.department || '',
     contact: p.contact || '',
     role: 'staff',
+    permissions: 'staff',
     roster: p.roster || p.rosterPattern || '',
     village: villageVal,
     active: false,
@@ -559,7 +822,7 @@ function register(p) {
     verified: false,
     photoUrl: photoUrl
   };
-  appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'roster', 'village', 'active', 'createdAt', 'verified', 'photoUrl']);
+  appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified', 'photoUrl']);
 
   // @pcr.com (not superadmin): pending admin approval — no email code
   if (isPcr && !isSuper) {
@@ -680,23 +943,31 @@ function requirePasscode(p, level) {
 
 function canManageUsers(requester) {
   if (!requester) return false;
-  var r = requester.role;
-  return r === 'super_admin' || r === 'admin' || r === 'hod';
+  return isAdminPerm(requester) || isHodPerm(requester);
+}
+
+function canAssignPermissions(requester) {
+  return requester && isAdminPerm(requester);
 }
 
 function isPrivilegedRole(role) {
-  return role === 'super_admin' || role === 'admin' || role === 'hod' || role === 'kitchen';
+  return role === 'super_admin' || role === 'admin' || role === 'hod' || role === 'assistant_hod' || role === 'kitchen' || role === 'chef';
 }
 
 function requireKitchenOrAdmin(p) {
   var u = getRequester(p);
   if (!u) throw new Error('Login required');
-  var r = u.role;
-  if (r === 'super_admin' || r === 'admin' || r === 'hod' || r === 'kitchen') return u;
-  // passcode unlock still allows kitchen ops for admins calling without role match
+  if (isChefPerm(u) || isHodPerm(u)) return u;
   try { requirePasscode(p, 'admin'); return u; } catch (e) {
-    throw new Error('Kitchen access requires kitchen/admin role');
+    throw new Error('Kitchen access requires chef/admin permission');
   }
+}
+
+function canAccessAdminTab(u) {
+  if (!u) return false;
+  var p = userPermissions(u);
+  return p.indexOf('super_admin') >= 0 || p.indexOf('admin') >= 0 ||
+    p.indexOf('boat_manager') >= 0 || p.indexOf('chef') >= 0;
 }
 
 function getRequester(p) {
@@ -756,9 +1027,9 @@ function addUser(p) {
   if (!email || !p.password) return { success: false, error: 'Email and password required' };
   if (findUserByEmail(email)) return { success: false, error: 'User already exists' };
 
-  if (requester && requester.role === 'hod') {
+  if (requester && isHodPerm(requester) && !isAdminPerm(requester)) {
     p.department = requester.department;
-    if (p.role && p.role !== 'staff' && p.role !== 'kitchen' && p.role !== 'boat') {
+    if (p.role && p.role !== 'staff' && p.role !== 'kitchen' && p.role !== 'chef' && p.role !== 'boat' && p.role !== 'boat_manager' && p.role !== 'boat_captain') {
       return { success: false, error: 'HOD can only create staff/kitchen/boat in their department' };
     }
   }
@@ -766,14 +1037,20 @@ function addUser(p) {
   var isPcr = email.indexOf('@pcr.com') !== -1;
   var role = p.role || 'staff';
   if (ROLES.indexOf(role) === -1) role = 'staff';
-  if (requester && requester.role !== 'super_admin' && role === 'super_admin') {
+  var perms = parsePermissions(p.permissions, role);
+  if (requester && !isSuperPerm(requester) && perms.indexOf('super_admin') >= 0) {
     return { success: false, error: 'Only super_admin can create super_admin' };
   }
+  // Only admin/super can assign non-staff permissions
+  if (requester && !isAdminPerm(requester)) {
+    perms = ['staff'];
+    role = 'staff';
+  }
+  role = primaryRoleFromPermissions(perms);
 
   var active = p.active === true || p.active === 'true' || p.active === 'TRUE';
   var verified = true;
   if (isPcr && email !== SUPERADMIN_EMAIL) {
-    // @pcr.com default: pending approval
     if (p.active === undefined) active = false;
     verified = false;
   }
@@ -788,13 +1065,14 @@ function addUser(p) {
     department: p.department || '',
     contact: p.contact || '',
     role: role,
+    permissions: permissionsToString(perms),
     roster: p.roster || '',
     village: p.village || '',
     active: active,
     createdAt: nowIso(),
     verified: verified || !isPcr
   };
-  appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'roster', 'village', 'active', 'createdAt', 'verified']);
+  appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified']);
   return { success: true, data: { user: publicUser(row) } };
 }
 
@@ -813,7 +1091,7 @@ function updateUser(p) {
 
   if (adminUpdate && !selfUpdate) {
     requirePasscode(p);
-    if (requester.role === 'hod') {
+    if (isHodPerm(requester) && !isAdminPerm(requester)) {
       if (String(u.department) !== String(requester.department)) {
         return { success: false, error: 'HOD can only edit users in their department' };
       }
@@ -829,23 +1107,47 @@ function updateUser(p) {
     if (ph.length > 45000) ph = '';
     patch.photoUrl = ph;
   }
-  // Staff cannot change own role
-  if (selfUpdate && !adminUpdate && p.role !== undefined) {
-    return { success: false, error: 'Staff cannot change role' };
+  if (selfUpdate && !adminUpdate && (p.role !== undefined || p.permissions !== undefined)) {
+    return { success: false, error: 'Staff cannot change role/permissions' };
   }
 
   if (adminUpdate && !selfUpdate) {
-    if (p.role !== undefined) {
-      if (requester.role === 'hod' && ['super_admin', 'admin', 'hod'].indexOf(p.role) >= 0) {
+    // C39: permissions multi-select (admin/super only)
+    if (p.permissions !== undefined) {
+      if (!canAssignPermissions(requester)) {
+        return { success: false, error: 'Only admin/superadmin can assign permissions' };
+      }
+      var newPerms = parsePermissions(p.permissions, p.role || u.role);
+      var oldPerms = userPermissions(u);
+      var grantingSuper = newPerms.indexOf('super_admin') >= 0 && oldPerms.indexOf('super_admin') < 0;
+      var revokingSuper = newPerms.indexOf('super_admin') < 0 && oldPerms.indexOf('super_admin') >= 0;
+      if ((grantingSuper || revokingSuper) && !isSuperPerm(requester)) {
+        return { success: false, error: 'Only superadmin can grant/revoke super_admin' };
+      }
+      if (grantingSuper || revokingSuper || newPerms.indexOf('admin') >= 0) {
+        requirePasscode(p, 'super');
+      }
+      patch.permissions = permissionsToString(newPerms);
+      patch.role = primaryRoleFromPermissions(newPerms);
+    } else if (p.role !== undefined) {
+      if (isHodPerm(requester) && !isAdminPerm(requester) && ['super_admin', 'admin', 'hod', 'assistant_hod'].indexOf(p.role) >= 0) {
         return { success: false, error: 'HOD cannot assign that role' };
       }
-      if (requester.role !== 'super_admin' && p.role === 'super_admin') {
+      if (!isSuperPerm(requester) && p.role === 'super_admin') {
         return { success: false, error: 'Only super_admin can assign super_admin' };
       }
       if (['super_admin', 'admin', 'hod'].indexOf(String(p.role)) >= 0 && String(u.role) !== String(p.role)) {
         requirePasscode(p, 'super');
       }
       patch.role = p.role;
+      // keep permissions in sync with primary role when only role sent
+      var synced = parsePermissions(u.permissions, p.role);
+      if (synced.indexOf(p.role) < 0 && p.role) {
+        if (p.role === 'kitchen') synced = ['chef'];
+        else if (p.role === 'boat') synced = ['boat_manager'];
+        else synced = [p.role];
+      }
+      patch.permissions = permissionsToString(parsePermissions(synced.join(','), p.role));
     }
     if (p.active !== undefined) patch.active = p.active === true || p.active === 'true' || p.active === 'TRUE';
     if (p.password) patch.password = p.password;
@@ -1001,15 +1303,43 @@ function getBoatRuns(p) {
     return p.includeInactive || truthy(r.active) || r.active === '' || r.active === undefined;
   });
   if (p.date) runs = runs.filter(function (r) { return String(r.date).indexOf(String(p.date)) === 0; });
+  var bookings = sheetToObjects('Boat Bookings');
+  runs = runs.map(function (r) {
+    var used = bookings.filter(function (b) {
+      return b.runId === r.id && b.status !== 'cancelled';
+    }).reduce(function (s, b) { return s + Number(b.seats || 1); }, 0);
+    return Object.assign({}, r, {
+      paxBooked: used,
+      fullNotification: truthy(r.fullNotification)
+    });
+  });
   return { success: true, data: { runs: runs } };
 }
 
 function saveBoatRun(p) {
+  var requester = getRequester(p);
+  var captainOnly = p.captainUpdate === true || p.captainUpdate === 'true' || p.limited === true || p.limited === 'true';
+  if (captainOnly) {
+    if (!requester || !isBoatCaptainPerm(requester)) {
+      return { success: false, error: 'Boat captain permission required' };
+    }
+    if (!p.id) return { success: false, error: 'Run id required' };
+    var capPatch = {};
+    if (p.capacity !== undefined) capPatch.capacity = p.capacity;
+    if (p.fullNotification !== undefined) {
+      capPatch.fullNotification = p.fullNotification === true || p.fullNotification === 'true' || p.fullNotification === 'TRUE' || p.fullNotification === 1 || p.fullNotification === '1';
+    }
+    var capUpdated = updateRowById('Boat Runs', p.id, capPatch);
+    return { success: !!capUpdated, data: { run: capUpdated }, error: capUpdated ? undefined : 'Not found' };
+  }
+  // full CRUD requires admin passcode (boat_manager uses Admin → Boat UI)
   requirePasscode(p);
   if (p.id) {
     var updated = updateRowById('Boat Runs', p.id, {
       date: p.date, time: p.time, route: p.route, capacity: p.capacity,
-      notes: p.notes, active: p.active !== false
+      notes: p.notes,
+      fullNotification: p.fullNotification === true || p.fullNotification === 'true' || p.fullNotification === 'TRUE',
+      active: p.active !== false
     });
     return { success: !!updated, data: { run: updated }, error: updated ? undefined : 'Not found' };
   }
@@ -1020,11 +1350,12 @@ function saveBoatRun(p) {
     route: p.route || '',
     capacity: p.capacity || 20,
     notes: p.notes || '',
+    fullNotification: false,
     active: true,
     createdBy: p.requesterEmail || '',
     createdAt: nowIso()
   };
-  appendRow('Boat Runs', row, ['id', 'date', 'time', 'route', 'capacity', 'notes', 'active', 'createdBy', 'createdAt']);
+  appendRow('Boat Runs', row, ['id', 'date', 'time', 'route', 'capacity', 'notes', 'fullNotification', 'active', 'createdBy', 'createdAt']);
   return { success: true, data: { run: row } };
 }
 
@@ -1296,9 +1627,14 @@ function buildPrepPayload(serviceDate) {
     byItem[k].push({
       userName: o.userName,
       department: o.department,
+      foodSelection: o.mealChoice || k,
       orderedAt: o.createdAt,
+      comments: o.notes || '',
       status: o.status,
-      late: truthy(o.late)
+      approved: o.status === 'approved' || o.status === 'late_approved' || o.status === 'prepared' || o.status === 'served',
+      denied: o.status === 'rejected' || o.status === 'cancelled',
+      late: truthy(o.late),
+      servedCheck: '' // printable cross-off
     });
   });
   var pending = orders.filter(function (o) { return o.status === 'pending' || o.status === 'late_pending'; }).length;
@@ -1789,21 +2125,38 @@ function voteSuggestion(p) {
   return { success: true, data: { votes: votes, likes: likes, dislikes: dislikes, myVote: dir } };
 }
 
-/* ========== LEAVE / SCHEDULE ========== */
+/* ========== LEAVE / SCHEDULE (C40 escalation) ========== */
 
 function getLeaveRequests(p) {
+  var requester = getRequester(p);
   var rows = sheetToObjects('Leave Requests');
   if (p.userEmail) {
     rows = rows.filter(function (r) { return String(r.userEmail).toLowerCase() === String(p.userEmail).toLowerCase(); });
   }
   if (p.department) rows = rows.filter(function (r) { return r.department === p.department; });
-  return { success: true, data: { requests: rows } };
+  // HOD inbox: department only when escalation on
+  if (p.inbox === 'hod' && requester && isHodPerm(requester) && !isAdminPerm(requester)) {
+    rows = rows.filter(function (r) { return String(r.department) === String(requester.department); });
+  }
+  if (p.status) {
+    var st = String(p.status);
+    rows = rows.filter(function (r) { return String(r.status) === st; });
+  }
+  return {
+    success: true,
+    data: {
+      requests: rows,
+      escalation: isFeatureEnabled('feature_leave_escalation')
+    }
+  };
 }
 
 function requestLeave(p) {
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User required' };
+  var escalation = isFeatureEnabled('feature_leave_escalation');
+  var status = escalation ? 'pending_hod' : 'pending';
   var row = {
     id: uid('lv'),
     userEmail: email,
@@ -1812,22 +2165,104 @@ function requestLeave(p) {
     startDate: p.startDate || '',
     endDate: p.endDate || '',
     reason: p.reason || '',
-    status: 'pending',
+    status: status,
     reviewedBy: '',
+    hodNote: '',
+    managerNote: '',
+    notifyNote: '',
     createdAt: nowIso()
   };
-  appendRow('Leave Requests', row, ['id', 'userEmail', 'userName', 'department', 'startDate', 'endDate', 'reason', 'status', 'reviewedBy', 'createdAt']);
-  return { success: true, data: { request: row } };
+  appendRow('Leave Requests', row, ['id', 'userEmail', 'userName', 'department', 'startDate', 'endDate', 'reason', 'status', 'reviewedBy', 'hodNote', 'managerNote', 'notifyNote', 'createdAt']);
+  return { success: true, data: { request: row, escalation: escalation } };
 }
 
+/**
+ * C40: with feature_leave_escalation:
+ *   HOD/assistant_hod: pending_hod → pending_manager (approve/forward) or rejected (+ notifyNote)
+ *   admin/super_admin: pending_manager → approved|rejected
+ * Without feature: admin passcode simple approve/reject (legacy pending)
+ */
 function reviewLeave(p) {
-  requirePasscode(p);
-  var status = p.status === 'approved' ? 'approved' : 'rejected';
-  var r = updateRowById('Leave Requests', p.id, {
-    status: status,
-    reviewedBy: p.requesterEmail || ''
-  });
-  return { success: !!r, data: { request: r } };
+  var escalation = isFeatureEnabled('feature_leave_escalation');
+  var requester = getRequester(p);
+  var rows = sheetToObjects('Leave Requests').filter(function (r) { return r.id === p.id; });
+  if (!rows.length) return { success: false, error: 'Leave request not found' };
+  var cur = rows[0];
+  var action = String(p.status || p.action || '').toLowerCase();
+  var note = String(p.note || p.notifyNote || p.hodNote || p.managerNote || '');
+
+  if (!escalation) {
+    requirePasscode(p);
+    var status = (action === 'approved' || action === 'approve') ? 'approved' : 'rejected';
+    var r = updateRowById('Leave Requests', p.id, {
+      status: status,
+      reviewedBy: p.requesterEmail || (requester && requester.email) || '',
+      managerNote: note
+    });
+    return { success: !!r, data: { request: r, escalation: false } };
+  }
+
+  if (!requester) return { success: false, error: 'Login required' };
+
+  // HOD step
+  if (cur.status === 'pending_hod') {
+    if (!(isHodPerm(requester) || isAdminPerm(requester))) {
+      return { success: false, error: 'Department HOD / assistant_hod required' };
+    }
+    if (!isAdminPerm(requester) && String(cur.department) !== String(requester.department)) {
+      return { success: false, error: 'Can only review leave in your department' };
+    }
+    if (action === 'approved' || action === 'approve' || action === 'forward') {
+      var fwd = updateRowById('Leave Requests', p.id, {
+        status: 'pending_manager',
+        reviewedBy: requester.email,
+        hodNote: note
+      });
+      return { success: !!fwd, data: { request: fwd, escalation: true, message: 'Forwarded to managers' } };
+    }
+    var rej = updateRowById('Leave Requests', p.id, {
+      status: 'rejected',
+      reviewedBy: requester.email,
+      hodNote: note,
+      notifyNote: note || 'Leave disapproved by HOD'
+    });
+    // best-effort notify staff
+    try {
+      MailApp.sendEmail({
+        to: cur.userEmail,
+        subject: 'PCR Leave request update',
+        body: 'Your leave request (' + cur.startDate + ' → ' + cur.endDate + ') was rejected by HOD.\n\nNote: ' + (note || '—') + '\n\n— PCR Staff App'
+      });
+    } catch (e) {}
+    return { success: !!rej, data: { request: rej, escalation: true, notified: true } };
+  }
+
+  // Manager step
+  if (cur.status === 'pending_manager' || cur.status === 'pending') {
+    if (!isAdminPerm(requester)) {
+      return { success: false, error: 'Manager (admin/super_admin) required for final decision' };
+    }
+    requirePasscode(p, 'admin');
+    var finalSt = (action === 'approved' || action === 'approve') ? 'approved' : 'rejected';
+    var fin = updateRowById('Leave Requests', p.id, {
+      status: finalSt,
+      reviewedBy: requester.email,
+      managerNote: note,
+      notifyNote: finalSt === 'rejected' ? (note || 'Leave rejected by management') : note
+    });
+    if (finalSt === 'rejected') {
+      try {
+        MailApp.sendEmail({
+          to: cur.userEmail,
+          subject: 'PCR Leave request update',
+          body: 'Your leave request (' + cur.startDate + ' → ' + cur.endDate + ') was rejected.\n\nNote: ' + (note || '—') + '\n\n— PCR Staff App'
+        });
+      } catch (e2) {}
+    }
+    return { success: !!fin, data: { request: fin, escalation: true } };
+  }
+
+  return { success: false, error: 'Leave request is already ' + cur.status };
 }
 
 function getMySchedule(p) {
@@ -1836,13 +2271,282 @@ function getMySchedule(p) {
   var leave = sheetToObjects('Leave Requests').filter(function (r) {
     return String(r.userEmail).toLowerCase() === email;
   });
+  var live = null;
+  var liveError = '';
+  if (isFeatureEnabled('feature_live_roster') && u) {
+    try {
+      live = parseLiveRosterForUser(u);
+    } catch (err) {
+      liveError = String(err.message || err);
+    }
+  }
   return {
     success: true,
     data: {
       user: publicUser(u),
       roster: u ? u.roster : '',
       leave: leave,
+      liveRoster: live,
+      liveRosterError: liveError || undefined,
+      featureLiveRoster: isFeatureEnabled('feature_live_roster'),
+      featureLeaveEscalation: isFeatureEnabled('feature_leave_escalation'),
       fijiNow: formatFiji(getFijiNow())
     }
   };
 }
+
+/* ========== LIVE ROSTER (C41) — read-only external sheet ========== */
+
+function getLiveRoster(p) {
+  if (!isFeatureEnabled('feature_live_roster')) {
+    return { success: false, error: featureOffMessage('feature_live_roster'), featureOff: true };
+  }
+  var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
+  var u = findUserByEmail(email);
+  if (!u) return { success: false, error: 'User required' };
+  try {
+    var data = parseLiveRosterForUser(u);
+    return { success: true, data: data };
+  } catch (err) {
+    return { success: false, error: 'Roster parse failed: ' + (err.message || err), canDisable: true };
+  }
+}
+
+function getDepartmentRoster(p) {
+  if (!isFeatureEnabled('feature_live_roster')) {
+    return { success: false, error: featureOffMessage('feature_live_roster'), featureOff: true };
+  }
+  var requester = getRequester(p);
+  if (!requester || !(isHodPerm(requester) || isAdminPerm(requester))) {
+    return { success: false, error: 'HOD/admin required for department roster' };
+  }
+  var dept = p.department || requester.department || '';
+  if (!isAdminPerm(requester)) dept = requester.department;
+  try {
+    var parsed = parseLiveRosterSheet(dept);
+    return { success: true, data: { department: dept, roster: parsed, fijiNow: formatFiji(getFijiNow()) } };
+  } catch (err) {
+    return { success: false, error: 'Roster parse failed: ' + (err.message || err), canDisable: true };
+  }
+}
+
+function openLiveRosterSS() {
+  return SpreadsheetApp.openById(LIVE_ROSTER_SHEET_ID);
+}
+
+function normalizeName(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function namesMatch(staffFirst, staffLast, cellName) {
+  var cell = normalizeName(cellName);
+  if (!cell) return false;
+  var first = normalizeName(staffFirst);
+  var last = normalizeName(staffLast);
+  var full = (first + ' ' + last).trim();
+  if (full && (cell === full || cell.indexOf(full) === 0 || full.indexOf(cell) === 0)) return true;
+  if (first && (cell === first || cell.indexOf(first + ' ') === 0 || cell.split(' ')[0] === first)) return true;
+  if (first && last && cell.indexOf(first) >= 0 && cell.indexOf(last) >= 0) return true;
+  return false;
+}
+
+/**
+ * Best-effort parser for CSV-like dept roster tabs:
+ * dept header row, date row, name rows with Start/End pairs, DAY OFF.
+ * Does NOT modify the roster spreadsheet.
+ */
+function parseLiveRosterSheet(departmentFilter) {
+  var ss = openLiveRosterSS();
+  var sheets = ss.getSheets();
+  var result = { tabs: [], weeks: [], shifts: [], parseNotes: [] };
+  var deptFilter = normalizeName(departmentFilter || '');
+
+  sheets.forEach(function (sh) {
+    var name = sh.getName();
+    var values = sh.getDataRange().getDisplayValues();
+    if (!values || values.length < 2) return;
+
+    // Guess department from tab name or first non-empty cell
+    var deptGuess = name;
+    for (var r0 = 0; r0 < Math.min(5, values.length); r0++) {
+      for (var c0 = 0; c0 < Math.min(8, values[r0].length); c0++) {
+        var cell = String(values[r0][c0] || '').trim();
+        if (cell && cell.length > 2 && !/^\d/.test(cell) && !/start|end|date|day/i.test(cell)) {
+          deptGuess = cell;
+          break;
+        }
+      }
+      if (deptGuess !== name) break;
+    }
+
+    if (deptFilter) {
+      var ng = normalizeName(deptGuess);
+      var nn = normalizeName(name);
+      if (ng.indexOf(deptFilter) === -1 && deptFilter.indexOf(ng) === -1 &&
+          nn.indexOf(deptFilter) === -1 && deptFilter.indexOf(nn) === -1) {
+        // also allow BAR vs Bar etc.
+        if (nn !== deptFilter && ng !== deptFilter) return;
+      }
+    }
+
+    var tabInfo = { tab: name, department: deptGuess, people: [] };
+    // Find a date header row: cells that look like dates or weekdays
+    var dateRowIdx = -1;
+    var dates = [];
+    for (var r = 0; r < Math.min(12, values.length); r++) {
+      var dateHits = 0;
+      var rowDates = [];
+      for (var c = 0; c < values[r].length; c++) {
+        var v = String(values[r][c] || '').trim();
+        var d = tryParseRosterDate(v);
+        rowDates.push(d);
+        if (d) dateHits++;
+      }
+      if (dateHits >= 3) {
+        dateRowIdx = r;
+        dates = rowDates;
+        break;
+      }
+    }
+    if (dateRowIdx < 0) {
+      result.parseNotes.push('No date row in tab ' + name);
+      // still try name-based rows with DAY OFF / times
+    }
+
+    // Name column: usually col 0 or 1
+    for (var r = (dateRowIdx >= 0 ? dateRowIdx + 1 : 1); r < values.length; r++) {
+      var row = values[r];
+      var personName = '';
+      var nameCol = 0;
+      for (var c = 0; c < Math.min(3, row.length); c++) {
+        var cand = String(row[c] || '').trim();
+        if (cand && !/^(start|end|am|pm|total)$/i.test(cand) && !/^\d{1,2}:\d{2}/.test(cand)) {
+          personName = cand;
+          nameCol = c;
+          break;
+        }
+      }
+      if (!personName || /^department|roster|name|staff$/i.test(personName)) continue;
+
+      var dayShifts = [];
+      var isDayOff = false;
+      for (var c = nameCol + 1; c < row.length; c++) {
+        var cellVal = String(row[c] || '').trim();
+        if (!cellVal) continue;
+        if (/day\s*off|off|rdo|leave/i.test(cellVal)) {
+          isDayOff = true;
+          dayShifts.push({
+            date: dates[c] || '',
+            start: '',
+            end: '',
+            dayOff: true,
+            raw: cellVal
+          });
+          continue;
+        }
+        // Start/End pairs: either "07:00-16:00" or separate Start/End columns
+        var range = cellVal.match(/(\d{1,2}:\d{2})\s*[-–to]+\s*(\d{1,2}:\d{2})/i);
+        if (range) {
+          dayShifts.push({
+            date: dates[c] || '',
+            start: range[1],
+            end: range[2],
+            dayOff: false,
+            raw: cellVal
+          });
+          continue;
+        }
+        var timeOnly = cellVal.match(/^(\d{1,2}:\d{2})\s*(am|pm)?$/i);
+        if (timeOnly) {
+          // look ahead for End
+          var next = String(row[c + 1] || '').trim();
+          var nextTime = next.match(/^(\d{1,2}:\d{2})/);
+          dayShifts.push({
+            date: dates[c] || dates[c - 1] || '',
+            start: timeOnly[1] + (timeOnly[2] ? timeOnly[2] : ''),
+            end: nextTime ? nextTime[1] : '',
+            dayOff: false,
+            raw: cellVal + (nextTime ? '-' + next : '')
+          });
+          if (nextTime) c++; // skip end col
+        }
+      }
+      if (!dayShifts.length && !isDayOff) {
+        // row may just be a label
+        var joined = row.join(' ');
+        if (/day\s*off/i.test(joined)) {
+          dayShifts.push({ date: '', start: '', end: '', dayOff: true, raw: 'DAY OFF' });
+        }
+      }
+      if (dayShifts.length) {
+        tabInfo.people.push({ name: personName, shifts: dayShifts });
+        dayShifts.forEach(function (s) {
+          result.shifts.push({
+            department: deptGuess,
+            tab: name,
+            name: personName,
+            date: s.date,
+            start: s.start,
+            end: s.end,
+            dayOff: !!s.dayOff,
+            raw: s.raw
+          });
+        });
+      }
+    }
+    result.tabs.push(tabInfo);
+  });
+
+  return result;
+}
+
+function tryParseRosterDate(v) {
+  v = String(v || '').trim();
+  if (!v) return '';
+  // yyyy-mm-dd or dd/mm/yyyy or dd-mm-yyyy or "Mon 10/9"
+  var iso = v.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[1] + '-' + iso[2] + '-' + iso[3];
+  var dmy = v.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (dmy) {
+    var y = dmy[3].length === 2 ? ('20' + dmy[3]) : dmy[3];
+    return y + '-' + pad2(Number(dmy[2])) + '-' + pad2(Number(dmy[1]));
+  }
+  var md = v.match(/(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)?\s*(\d{1,2})[\/\-](\d{1,2})/i);
+  if (md) {
+    var now = getFijiNow();
+    var year = now.getUTCFullYear();
+    return year + '-' + pad2(Number(md[2])) + '-' + pad2(Number(md[1]));
+  }
+  return '';
+}
+
+function parseLiveRosterForUser(u) {
+  var dept = u.department || '';
+  var parsed = parseLiveRosterSheet(dept);
+  var myShifts = [];
+  parsed.shifts.forEach(function (s) {
+    if (namesMatch(u.firstName, u.lastName, s.name)) myShifts.push(s);
+  });
+  // week window: today .. +6 Fiji
+  var now = getFijiNow();
+  var weekDates = [];
+  for (var i = 0; i < 7; i++) {
+    weekDates.push(fijiDateString(addFijiDays(now, i)));
+  }
+  var weekShifts = myShifts.filter(function (s) {
+    if (!s.date) return true;
+    return weekDates.indexOf(String(s.date).substring(0, 10)) >= 0;
+  });
+  return {
+    department: dept,
+    matchedName: myShifts.length ? myShifts[0].name : null,
+    matched: myShifts.length > 0,
+    weekDates: weekDates,
+    shifts: weekShifts,
+    allMatched: myShifts,
+    tabsScanned: parsed.tabs.map(function (t) { return t.tab; }),
+    parseNotes: parsed.parseNotes,
+    fijiNow: formatFiji(now)
+  };
+}
+

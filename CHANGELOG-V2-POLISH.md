@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.5.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.6.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -89,4 +89,26 @@ Version **2.5.2**. Revert any item later by asking for its ID (e.g. “revert C7
 | C35 | Broadcast reminders for all staff; only admin/superadmin `addReminder`/`deleteReminder` (passcode 2025|2026); fields `priority`, `important`, `audience=all`; `getReminders` returns active undoned sorted important/high first; staff page read-only |
 | C36 | Suggestions start `status=pending`; staff `getSuggestions` only approved/legacy-open and anonymous (no author); admin sees pending+approved with author; `approveSuggestion`/`rejectSuggestion` + passcode; sort by likes desc; staff submit + like/dislike approved; demo seed `approved` |
 | C37 | `APP_VERSION` → **2.5.2** (public/index.html + apps-script/Code.gs); SW cache `pcr-staff-v2.5.2` |
+
+
+
+## Roles / features / roster (2.6.0)
+
+| ID | Change |
+|----|--------|
+| C38 | Feature flags via sheet tab `App Settings` (key/value). Keys: `feature_live_roster` (default **false**), `feature_leave_escalation` (default **false**). API `getAppSettings` / `setAppSetting` — **only superadmin + passcode 2026** can toggle (Admin 2025 cannot). UI: Admin → Settings / Features. When off, related UI is hidden/skipped and APIs return a friendly message. |
+| C39 | Multi-permission roles: Users.permissions (comma-separated or JSON) + `role` as primary display label. Keys: `super_admin`, `admin`, `hod`, `assistant_hod`, `boat_manager`, `boat_captain`, `chef`, `staff`. New registrations always `permissions=staff`. Admin/super assign via Admin → Users multi-select; only superadmin grants/revokes `super_admin`. First super unlock can set `superadmin_pin` in App Settings. `canAdmin`/`canKitchen`/gates check permissions (+ legacy role). |
+| C40 | Leave escalation behind `feature_leave_escalation`: staff → HOD/assistant_hod inbox (`pending_hod`) → approve forwards to managers (`pending_manager`) or disapprove+notify (`rejected`); managers final approve/reject. Feature off: previous simple admin leave review (`pending`). |
+| C41 | Live roster behind `feature_live_roster`: read-only `SpreadsheetApp.openById('1n5onxR-Ww-0oDdPWDDUvRWuzKd-UGF51tBERtZfAcZM')`. Best-effort parse of dept tabs; match staff by name to Users.department. Schedule shows matched week shifts; HOD/admin see department roster. Parse errors surface in UI; toggle remains available to disable. |
+| C42 | Chef prep list printable: staff name, food selection, time ordered, comments, approved/denied; sorted by food; served checkbox column; “did not order but received dinner” note area. Chef permission gates kitchen admin. |
+| C43 | Boat captain: pax-booked info box per run; can update capacity + `fullNotification` via `saveBoatRun` limited fields (no full admin). |
+| C44 | `APP_VERSION` → **2.6.0** (public/index.html + apps-script/Code.gs); SW cache `pcr-staff-v2.6.0` |
+
+### How to enable feature flags (safe deploy defaults OFF)
+
+1. Sign in as superadmin (`it@paradisecoveresortfiji.com`).
+2. Open **Admin** and unlock with passcode **2026** (not 2025).
+3. Open **Settings / Features**.
+4. Toggle **Live roster** and/or **Leave escalation** ON.
+5. To disable after a roster parse issue, toggle OFF from the same panel.
 
