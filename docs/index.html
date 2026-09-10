@@ -3,12 +3,19 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<meta name="theme-color" content="#0d9488"/>
+<meta name="theme-color" content="#0a1628"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <title>PCR Staff — Paradise Cove Resort</title>
 <link rel="manifest" href="manifest.json"/>
+<link rel="icon" href="assets/pcr-logo.png"/>
+<link rel="apple-touch-icon" href="assets/pcr-logo.png"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+<script src="https://unpkg.com/lucide@0.468.0"></script>
+<script type="module">
+  // optional motion for home tiles (graceful if blocked)
+  window.__motionReady = import("https://esm.sh/framer-motion@11?bundle").then(m => { window.FM = m; }).catch(() => {});
+</script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
 tailwind.config = {
@@ -17,60 +24,142 @@ tailwind.config = {
       colors: {
         navy: { 950: '#060d18', 900: '#0a1628', 800: '#0f2137', 700: '#16304d' },
         teal: { 400: '#2dd4bf', 500: '#14b8a6', 600: '#0d9488', 700: '#0f766e' },
-        sand: { 100: '#f5f0e6', 200: '#e8dfd0' }
+        sand: { 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1' },
+        gold: { 400: '#e0c36a', 500: '#c9a227', 600: '#a8841a' }
       },
-      fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }
+      fontFamily: { sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'] }
     }
   }
 }
 </script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-:root { color-scheme: dark; }
-* { -webkit-tap-highlight-color: transparent; }
-body {
-  background: radial-gradient(ellipse at 20% 0%, #0f766e33 0%, transparent 50%),
-              radial-gradient(ellipse at 80% 100%, #0d948833 0%, transparent 40%),
-              #060d18;
-  min-height: 100dvh;
-  font-family: Inter, system-ui, sans-serif;
+:root {
+  color-scheme: dark;
+  --bg: #0a1628;
+  --teal: #0d9488;
+  --hero-beach: url('assets/hero-beach.jpg');
+  --hero-pool: url('assets/hero-pool.jpg');
+  --hero-manta: url('assets/hero-manta.jpg');
+  --aerial: url('assets/aerial-resort.jpg');
 }
+* { -webkit-tap-highlight-color: transparent; }
+html, body {
+  background: var(--bg);
+  color: #e2e8f0;
+  min-height: 100%;
+}
+body {
+  min-height: 100dvh;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(13,148,136,0.18) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, rgba(13,148,136,0.08) 0%, transparent 40%),
+    var(--bg);
+}
+/* shadcn-style primitives */
+.ui-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem;
+  border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500;
+  transition: color .15s, background .15s, box-shadow .15s, transform .15s;
+}
+.ui-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(13,148,136,0.55); }
+.ui-btn:disabled { opacity: .5; pointer-events: none; }
+.ui-btn-default { background: #0d9488; color: #fff; box-shadow: 0 1px 2px rgba(13,148,136,0.35); }
+.ui-btn-default:hover { background: #14b8a6; }
+.ui-btn-secondary { background: #1e293b; color: #f1f5f9; border: 1px solid #334155; }
+.ui-btn-secondary:hover { background: #334155; }
+.ui-btn-ghost { color: #e2e8f0; }
+.ui-btn-ghost:hover { background: #1e293b; }
+.ui-btn-danger { background: #b91c1c; color: #fff; }
+.ui-btn-sm { height: 2rem; padding: 0 0.625rem; font-size: 0.75rem; }
+.ui-btn-md { height: 2.25rem; padding: 0.5rem 0.75rem; }
+.ui-btn-lg { height: 2.75rem; padding: 0 1rem; }
+.ui-card {
+  border-radius: 0.75rem; border: 1px solid #1e293b;
+  background: rgba(15, 23, 42, 0.72); box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+}
+.ui-input {
+  width: 100%; border-radius: 0.5rem; padding: 0.625rem 0.75rem; font-size: 0.875rem;
+  background: rgba(6,13,24,0.65) !important; border: 1px solid #334155 !important; color: #f1f5f9 !important;
+}
+.ui-input:focus { outline: none; border-color: #0d9488 !important; box-shadow: 0 0 0 2px rgba(13,148,136,0.25); }
+.ui-badge {
+  display: inline-flex; align-items: center; border-radius: 999px;
+  font-size: 0.65rem; padding: 0.15rem 0.45rem; font-weight: 500;
+}
+.login-hero {
+  position: relative; min-height: 100dvh;
+  background: var(--hero-beach) center center / cover no-repeat;
+}
+.login-hero::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(to bottom, rgba(10,22,40,0.70), rgba(10,22,40,0.88), #0a1628);
+}
+.login-hero > * { position: relative; z-index: 1; }
 .glass {
-  background: rgba(15, 33, 55, 0.65);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(45, 212, 191, 0.15);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(51, 65, 85, 0.85);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
 .glass-strong {
-  background: rgba(10, 22, 40, 0.85);
+  background: rgba(10, 22, 40, 0.92);
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(45, 212, 191, 0.2);
+  border: 1px solid rgba(51, 65, 85, 0.9);
+}
+.app-header-motif {
+  background-image:
+    linear-gradient(105deg, rgba(10,22,40,0.94) 0%, rgba(10,40,48,0.88) 55%, rgba(10,22,40,0.92) 100%),
+    var(--hero-pool);
+  background-size: cover; background-position: center 40%;
+}
+.home-accent {
+  background-image:
+    linear-gradient(to top, #0a1628, rgba(10,22,40,0.75), rgba(10,22,40,0.25)),
+    var(--aerial);
+  background-size: cover; background-position: center;
 }
 .btn-primary {
-  background: linear-gradient(135deg, #0d9488, #0f766e);
-  transition: transform .15s, box-shadow .15s;
+  background: #0d9488;
+  transition: transform .15s, box-shadow .15s, background .15s;
+  box-shadow: 0 2px 12px rgba(13,148,136,0.35);
 }
+.btn-primary:hover { background: #14b8a6; }
 .btn-primary:active { transform: scale(0.97); }
 .btn-primary:disabled { opacity: .5; }
 .nav-item.active { color: #2dd4bf; }
-.nav-item.active i { transform: translateY(-2px); }
+.nav-item.active i, .nav-item.active svg { transform: translateY(-2px); }
 .safe-bottom { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
 .modal-bg { background: rgba(6,13,24,0.75); backdrop-filter: blur(4px); }
 input, select, textarea {
   background: rgba(6,13,24,0.6) !important;
-  border: 1px solid rgba(45,212,191,0.2) !important;
-  color: #e8dfd0 !important;
+  border: 1px solid rgba(51,65,85,0.95) !important;
+  color: #f1f5f9 !important;
 }
 input:focus, select:focus, textarea:focus {
-  outline: none;
-  border-color: #14b8a6 !important;
-  box-shadow: 0 0 0 2px rgba(20,184,166,0.25);
+  outline: none; border-color: #0d9488 !important;
+  box-shadow: 0 0 0 2px rgba(13,148,136,0.25);
 }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-@keyframes fadeIn { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:none;} }
-.fade-in { animation: fadeIn .25s ease; }
-.badge { font-size: .65rem; padding: .15rem .45rem; border-radius: 999px; }
+@keyframes fade-in { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:translateY(0);} }
+@keyframes float { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-4px);} }
+@keyframes pulse-soft { 0%,100%{opacity:1;} 50%{opacity:0.72;} }
+@keyframes glow-pulse {
+  0%,100%{ box-shadow: 0 0 0 0 rgba(13,148,136,0.35); }
+  50%{ box-shadow: 0 0 16px 2px rgba(13,148,136,0.25); }
+}
+.animate-fade-in, .fade-in { animation: fade-in .5s ease-out both; }
+.animate-float { animation: float 3.5s ease-in-out infinite; }
+.animate-pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
+.meal-open-glow { animation: glow-pulse 2.4s ease-in-out infinite; }
+.auth-tab { flex:1; padding:.5rem 0; font-size:.875rem; font-weight:500; color:#94a3b8; border-bottom:2px solid transparent; }
+.auth-tab.active { color:#f1f5f9; border-bottom-color:#0d9488; }
+.quick-tile {
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.quick-tile:hover { transform: translateY(-2px); border-color: rgba(13,148,136,0.45); }
+.quick-tile:active { transform: scale(0.98); }
 @media print {
   body * { visibility: hidden; }
   #print-area, #print-area * { visibility: visible; }
@@ -79,58 +168,158 @@ input:focus, select:focus, textarea:focus {
 }
 </style>
 </head>
-<body class="text-sand-100 antialiased">
+<body class="text-slate-100 antialiased">
 
 <!-- ========== CONFIG — paste Apps Script Web App URL after deploy ========== -->
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.4.0';
+const SUPER_PASS = '2026';
+const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
 const SESSION_KEY = 'pcr_v2_session';
 const DEMO_KEY = 'pcr_v2_demo_db';
 </script>
 
 <div id="app" class="min-h-dvh flex flex-col">
-  <div id="view-login" class="flex-1 flex items-center justify-center p-4">
-    <div class="glass rounded-2xl p-6 w-full max-w-md fade-in">
-      <div class="text-center mb-6">
-        <div class="w-16 h-16 mx-auto rounded-2xl bg-teal-600/30 border border-teal-500/40 flex items-center justify-center mb-3">
-          <i class="fa-solid fa-umbrella-beach text-2xl text-teal-400"></i>
+  <div id="view-login" class="login-hero flex-1 flex items-center justify-center p-4">
+    <div class="glass ui-card rounded-2xl p-6 w-full max-w-md animate-fade-in border-slate-700/80">
+      <div class="text-center mb-5">
+        <div class="mx-auto mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white/95 shadow-xl shadow-teal-900/40 ring-1 ring-white/30 animate-float">
+          <img src="assets/pcr-logo.png" alt="Paradise Cove" class="h-[72px] w-[72px] object-contain p-1.5"/>
         </div>
-        <h1 class="text-xl font-bold tracking-tight">Paradise Cove Resort</h1>
-        <p class="text-sm text-sand-200/60 mt-1">Staff Portal · Fiji</p>
+        <h1 class="text-2xl font-bold tracking-tight text-slate-100">PCR Staff App</h1>
+        <p class="text-xs text-slate-300 mt-1">Paradise Cove Resort Fiji · Yasawa Islands</p>
         <p id="demo-badge" class="hidden mt-2 text-xs text-amber-300/90"><i class="fa-solid fa-flask"></i> Demo mode</p>
+        <div id="backend-banner" class="hidden mt-3 text-xs text-amber-200 bg-amber-500/15 border border-amber-500/35 rounded-xl px-3 py-2 text-left"></div>
       </div>
+
+      <div id="auth-tabs" class="flex mb-4 border-b border-slate-700">
+        <button type="button" id="tab-login" class="auth-tab active">Login</button>
+        <button type="button" id="tab-register" class="auth-tab">Register</button>
+      </div>
+
       <form id="login-form" class="space-y-3">
         <div>
-          <label class="text-xs text-sand-200/70 mb-1 block">Email</label>
-          <input type="email" id="login-email" required class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="you@paradisecoveresortfiji.com" autocomplete="username"/>
+          <label class="text-xs text-slate-400 mb-1 block">Email</label>
+          <input type="email" id="login-email" required class="ui-input" placeholder="you@paradisecoveresortfiji.com" autocomplete="username"/>
         </div>
         <div>
-          <label class="text-xs text-sand-200/70 mb-1 block">Password</label>
-          <input type="password" id="login-password" required class="w-full rounded-xl px-3 py-2.5 text-sm" placeholder="••••••••" autocomplete="current-password"/>
+          <label class="text-xs text-slate-400 mb-1 block">Password</label>
+          <input type="password" id="login-password" required class="ui-input" placeholder="••••••••" autocomplete="current-password"/>
         </div>
-        <p id="login-error" class="text-red-400 text-sm hidden"></p>
-        <button type="submit" class="btn-primary w-full rounded-xl py-2.5 font-semibold text-white text-sm">
+        <button type="submit" class="btn-primary ui-btn ui-btn-default ui-btn-lg w-full rounded-xl font-semibold text-white">
           <i class="fa-solid fa-right-to-bracket mr-2"></i>Sign in
         </button>
       </form>
-      <div id="verify-panel" class="hidden mt-4 pt-4 border-t border-teal-500/20 space-y-2">
-        <p class="text-sm text-sand-200/80">Enter the verification code emailed to you.</p>
-        <input id="verify-code" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="6-digit code"/>
+
+      <div id="register-panel" class="hidden space-y-3">
+        <form id="register-form" class="space-y-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-slate-400 mb-1 block">First name <span class="text-red-400">*</span></label>
+              <input type="text" id="reg-firstName" required class="ui-input" placeholder="First" autocomplete="given-name"/>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400 mb-1 block">Last name <span class="text-red-400">*</span></label>
+              <input type="text" id="reg-lastName" required class="ui-input" placeholder="Last" autocomplete="family-name"/>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs text-slate-400 mb-1 block">Contact</label>
+            <input type="text" id="reg-contact" class="ui-input" placeholder="Phone / WhatsApp"/>
+          </div>
+          <div>
+            <label class="text-xs text-slate-400 mb-1 block">Department <span class="text-red-400">*</span></label>
+            <select id="reg-department" required class="ui-input">
+              <option value="">Select department…</option>
+              <option value="F&amp;B">F&amp;B</option>
+              <option value="Bar">Bar</option>
+              <option value="Kitchen">Kitchen</option>
+              <option value="Boatman">Boatman</option>
+              <option value="Porters">Porters</option>
+              <option value="Kids Club">Kids Club</option>
+              <option value="BR Kitchen">BR Kitchen</option>
+              <option value="Donu Kitchen">Donu Kitchen</option>
+              <option value="Housekeeping">Housekeeping</option>
+              <option value="Grounds">Grounds</option>
+              <option value="Spa">Spa</option>
+              <option value="Maintenance">Maintenance</option>
+              <option value="Management">Management</option>
+              <option value="IT/Office">IT/Office</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-slate-400 mb-1 block">Village staff?</label>
+              <select id="reg-village" class="ui-input">
+                <option value="false">No (Resort)</option>
+                <option value="true">Yes (Village)</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400 mb-1 block">Roster pattern</label>
+              <select id="reg-roster" class="ui-input">
+                <option value="">Select…</option>
+                <option value="5/2">5/2</option>
+                <option value="16/6">16/6</option>
+                <option value="24/8">24/8</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="flex items-center gap-2 text-xs text-slate-400 mb-2">
+              <input type="checkbox" id="reg-use-default-email" class="rounded border-slate-600"/>
+              Use default @pcr.com email (no personal email)
+            </label>
+            <div id="reg-default-email-hint" class="hidden text-[10px] text-amber-300 bg-amber-900/20 border border-amber-500/30 rounded-lg p-2 mb-2">
+              Format: <strong>firstname.l@pcr.com</strong> (first name + first letter of last name). Account waits for HOD/admin approval.
+            </div>
+            <label class="text-xs text-slate-400 mb-1 block">Email <span class="text-red-400">*</span></label>
+            <input type="email" id="reg-email" required class="ui-input" placeholder="you@example.com" autocomplete="username"/>
+          </div>
+          <div>
+            <label class="text-xs text-slate-400 mb-1 block">Password <span class="text-red-400">*</span></label>
+            <input type="password" id="reg-password" required class="ui-input" placeholder="••••••••" autocomplete="new-password"/>
+          </div>
+          <div>
+            <label class="text-xs text-slate-400 mb-1 block">Confirm password <span class="text-red-400">*</span></label>
+            <input type="password" id="reg-password2" required class="ui-input" placeholder="••••••••" autocomplete="new-password"/>
+          </div>
+          <div>
+            <label class="text-xs text-slate-400 mb-1 block">Profile photo <span class="text-slate-500">(optional)</span></label>
+            <input type="file" id="reg-photo" accept="image/*" class="block w-full text-xs text-slate-400"/>
+            <div id="reg-photo-preview" class="hidden mt-2"><img id="reg-photo-img" class="h-16 w-16 rounded-xl object-cover border border-slate-600" alt=""/></div>
+          </div>
+          <button type="submit" class="btn-primary ui-btn ui-btn-default ui-btn-lg w-full rounded-xl font-semibold text-white">
+            <i class="fa-solid fa-user-plus mr-2"></i>Create account
+          </button>
+        </form>
+      </div>
+
+      <p id="login-error" class="text-red-400 text-sm hidden mt-3"></p>
+
+      <div id="verify-panel" class="hidden mt-4 pt-4 border-t border-slate-700 space-y-2">
+        <p class="text-sm text-slate-300">Enter the verification code emailed to you.</p>
+        <input id="verify-code" class="ui-input" placeholder="6-digit code"/>
         <button type="button" id="btn-verify" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Verify</button>
         <button type="button" id="btn-resend-code" class="w-full text-xs text-teal-400 py-1">Resend code</button>
       </div>
-      <p class="text-[10px] text-center text-sand-200/40 mt-4">v<span id="ui-version"></span> · Fiji time UTC+12</p>
+      <p class="text-[10px] text-center text-slate-500 mt-4">v<span id="ui-version"></span> · Fiji time UTC+12</p>
+      <p class="text-[9px] text-center text-teal-600/60 mt-1">Paradise Cove Resort · Yasawa Islands Fiji</p>
     </div>
   </div>
 
   <div id="view-main" class="hidden flex-1 flex flex-col safe-bottom">
-    <header class="glass-strong sticky top-0 z-40 px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
-      <div>
-        <p class="text-xs text-teal-400/80 font-medium">Paradise Cove</p>
-        <h2 id="header-title" class="text-sm font-semibold">Home</h2>
+    <header class="app-header-motif glass-strong sticky top-0 z-40 px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <img src="assets/pcr-logo.png" alt="" class="h-8 w-8 rounded-lg object-contain bg-white/90 p-0.5 opacity-95" aria-hidden="true"/>
+        <div class="min-w-0">
+          <p class="text-xs text-teal-400/90 font-medium">Paradise Cove</p>
+          <h2 id="header-title" class="text-sm font-semibold truncate">Home</h2>
+        </div>
       </div>
       <div class="flex items-center gap-2">
         <span id="fiji-clock" class="text-[10px] text-sand-200/50 hidden sm:inline"></span>
@@ -159,7 +348,8 @@ const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 
 let state = {
   user: null, tab: 'home', demo: false, backendVersion: null,
-  usersCache: [], usersError: null, usersLoading: false
+  usersCache: [], usersError: null, usersLoading: false,
+  adminUnlock: null // 'admin' | 'super' after passcode
 };
 
 /* Fiji time UTC+12 — never use device local for cutoffs/dates */
@@ -228,17 +418,22 @@ function isDemoMode(){
 
 async function api(action, payload={}) {
   if (state.demo) return demoApi(action, payload);
-  const body = { action, ...payload };
+  const params = new URLSearchParams();
+  params.set('action', action);
+  const body = Object.assign({}, payload);
   if (state.user) {
     body.requesterEmail = state.user.email;
     body.userEmail = body.userEmail || state.user.email;
   }
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(body),
-    redirect: 'follow'
+  Object.keys(body).forEach(function(key) {
+    var v = body[key];
+    if (v === undefined || v === null) return;
+    if (typeof v === 'object') params.set(key, JSON.stringify(v));
+    else params.set(key, String(v));
   });
+  var sep = API_URL.indexOf('?') >= 0 ? '&' : '?';
+  var url = API_URL + sep + params.toString();
+  const res = await fetch(url, { method: 'GET', redirect: 'follow' });
   const text = await res.text();
   try { return JSON.parse(text); }
   catch(e) {
@@ -263,6 +458,37 @@ function demoApi(action, p) {
       if (!isSuper && !isPcr && !u.verified) return Promise.resolve({ success:false, error:'Email not verified', needsVerification:true, email });
       if (!isSuper && !u.active) return Promise.resolve(fail('Account inactive'));
       return Promise.resolve(ok({ user: publicUser(u), token:'demo' }));
+    }
+    case 'register': {
+      const email = String(p.email||'').toLowerCase().trim();
+      const password = String(p.password||'');
+      if (!email || !password) return Promise.resolve(fail('Email and password required'));
+      if (db.users.find(x => x.email === email)) return Promise.resolve(fail('Account already exists — sign in instead'));
+      const isPcr = email.includes('@pcr.com');
+      const isSuper = email === 'it@paradisecoveresortfiji.com';
+      let villageVal = '';
+      if (p.village === true || p.village === 'true') villageVal = 'Village';
+      else if (p.village === false || p.village === 'false') villageVal = 'Resort';
+      else if (p.village) villageVal = String(p.village);
+      const row = {
+        id: uid('usr'), email, password,
+        firstName: p.firstName||'', lastName: p.lastName||'',
+        department: p.department||'', contact: p.contact||'',
+        role: 'staff', roster: p.roster || p.rosterPattern || '', village: villageVal,
+        active: false, verified: false, createdAt: new Date().toISOString()
+      };
+      db.users.push(row); saveDemo(db);
+      if (isPcr && !isSuper) {
+        return Promise.resolve(ok({ pendingApproval:true, message:'Account created. Pending admin approval.' }));
+      }
+      const code = String(Math.floor(100000+Math.random()*900000));
+      db.verificationCodes.push({ email, code, expiresAt: Date.now()+1.8e6, used:false });
+      saveDemo(db);
+      return Promise.resolve(ok({
+        needsVerification:true, email,
+        message:'Check your email for a verification code',
+        emailed:false, code
+      }));
     }
     case 'requestVerification': {
       const code = String(Math.floor(100000+Math.random()*900000));
@@ -302,7 +528,7 @@ function demoApi(action, p) {
       return Promise.resolve(ok({ user: publicUser(u) }));
     }
     case 'addUser': {
-      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('Admin passcode required'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
       const email = String(p.email||'').toLowerCase();
       if (db.users.find(x=>x.email===email)) return Promise.resolve(fail('User already exists'));
       const isPcr = email.includes('@pcr.com');
@@ -316,7 +542,7 @@ function demoApi(action, p) {
       return Promise.resolve(ok({ user: publicUser(row) }));
     }
     case 'importUsersCSV': {
-      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('Admin passcode required'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
       const lines = String(p.csv||'').split(/\r?\n/).filter(l=>l.trim());
       let imported=0, skipped=[];
       lines.forEach((line,idx)=>{
@@ -340,7 +566,7 @@ function demoApi(action, p) {
       return Promise.resolve(ok({ users }));
     }
     case 'approveUser': {
-      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('passcode'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('passcode'));
       const u = db.users.find(x => x.email === (p.targetEmail||'').toLowerCase());
       if (!u) return Promise.resolve(fail('not found'));
       u.active = true; u.verified = true; saveDemo(db);
@@ -349,7 +575,7 @@ function demoApi(action, p) {
     case 'getAlertEmails':
       return Promise.resolve(ok({ emails: db.alertEmails }));
     case 'saveAlertEmails': {
-      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('passcode'));
+      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('passcode'));
       let emails = p.emails;
       if (typeof emails === 'string') emails = emails.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
       db.alertEmails = emails.map((e,i)=>({ email: typeof e==='string'?e:e.email, label:'Alert '+(i+1), active:true }));
@@ -360,7 +586,7 @@ function demoApi(action, p) {
     case 'getBoatRuns':
       return Promise.resolve(ok({ runs: db.boatRuns.filter(r=>r.active!==false) }));
     case 'saveBoatRun': {
-      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('passcode'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('passcode'));
       if (p.id) {
         const r = db.boatRuns.find(x=>x.id===p.id);
         Object.assign(r, { date:p.date, time:p.time, route:p.route, capacity:p.capacity, notes:p.notes });
@@ -487,7 +713,7 @@ function demoApi(action, p) {
       db.leaveRequests.push(row); saveDemo(db); return Promise.resolve(ok({ request:row }));
     }
     case 'reviewLeave': {
-      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('passcode'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('passcode'));
       const r = db.leaveRequests.find(x=>x.id===p.id);
       if (r) { r.status = p.status==='approved'?'approved':'rejected'; r.reviewedBy=state.user.email; }
       saveDemo(db); return Promise.resolve(ok({ request:r }));
@@ -499,7 +725,7 @@ function demoApi(action, p) {
     case 'getCutoffInfo':
       return Promise.resolve(ok({ fijiNow:formatFiji(), dinner:dinnerCutoffInfo(), lunch:lunchCutoffInfo() }));
     case 'deleteUser': {
-      if (p.passcode !== 'paradise2026') return Promise.resolve(fail('passcode'));
+      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('passcode'));
       db.users = db.users.filter(u => u.email !== (p.targetEmail||'').toLowerCase());
       saveDemo(db); return Promise.resolve(ok({ deleted: p.targetEmail }));
     }
@@ -529,11 +755,30 @@ function closeModal() {
 }
 $('#modal').addEventListener('click', e => { if (e.target.id==='modal') closeModal(); });
 
-function askPasscode() {
+function passLevel(code){
+  if (String(code) === SUPER_PASS) return 'super';
+  if (String(code) === ADMIN_PASS) return 'admin';
+  return null;
+}
+function passOk(code, level){
+  const lv = passLevel(code);
+  if (!lv) return false;
+  if (level === 'super') return lv === 'super';
+  return true;
+}
+function askPasscode(level){
+  level = level || 'admin';
+  const hint = level === 'super'
+    ? 'Superadmin unlock required (2026)'
+    : 'Admin 2025 (limited) or Superadmin 2026 (full)';
   return new Promise(resolve => {
-    openModal('<h3 class="font-semibold mb-2"><i class="fa-solid fa-key text-teal-400 mr-2"></i>Admin passcode</h3><p class="text-xs text-sand-200/60 mb-3">Required for admin actions</p><input id="pc-input" type="password" class="w-full rounded-xl px-3 py-2 text-sm mb-3" placeholder="Passcode"/><div class="flex gap-2"><button class="flex-1 rounded-xl py-2 text-sm bg-navy-700" id="pc-cancel">Cancel</button><button class="flex-1 btn-primary rounded-xl py-2 text-sm text-white" id="pc-ok">Confirm</button></div>');
+    openModal('<h3 class="font-semibold mb-2 text-slate-100"><i class="fa-solid fa-key text-teal-400 mr-2"></i>Admin unlock</h3><p class="text-xs text-slate-400 mb-3">'+hint+'</p><input id="pc-input" type="password" inputmode="numeric" class="ui-input mb-3" placeholder="Passcode"/><div class="flex gap-2"><button class="flex-1 ui-btn ui-btn-secondary rounded-xl py-2 text-sm" id="pc-cancel">Cancel</button><button class="flex-1 btn-primary rounded-xl py-2 text-sm text-white" id="pc-ok">Confirm</button></div>');
     $('#pc-cancel').onclick = () => { closeModal(); resolve(null); };
-    $('#pc-ok').onclick = () => { const v=$('#pc-input').value; closeModal(); resolve(v); };
+    $('#pc-ok').onclick = () => {
+      const v=$('#pc-input').value;
+      if (!passOk(v, level)) { toast(level==='super'?'Need 2026':'Invalid passcode','error'); return; }
+      closeModal(); resolve(v);
+    };
     setTimeout(()=>{ const i=$('#pc-input'); if(i) i.focus(); }, 50);
   });
 }
@@ -575,33 +820,73 @@ function navigate(tab){
   };
   (map[tab]||renderHome)();
 }
-function quickBtn(tab, icon, label){
-  return '<button onclick="navigate(\''+tab+'\')" class="glass rounded-xl p-3 text-left hover:border-teal-500/40 transition"><i class="fa-solid '+icon+' text-teal-400 mb-1"></i><p class="text-xs font-medium">'+label+'</p></button>';
+function quickBtn(tab, icon, label, accent){
+  accent = accent || 'from-teal-500/20 to-emerald-600/5';
+  return '<button onclick="navigate(\''+tab+'\')" class="quick-tile ui-card glass rounded-xl p-3 text-left border border-slate-700/80 bg-gradient-to-br '+accent+'">'+
+    '<i class="fa-solid '+icon+' text-teal-400 mb-1.5 text-base"></i><p class="text-xs font-medium text-slate-100">'+label+'</p></button>';
 }
 function renderHome(){
   const u = state.user;
   const di = dinnerCutoffInfo(), li = lunchCutoffInfo();
+  let tiles =
+      quickBtn('meals','fa-utensils','Dinner / Lunch','from-orange-500/20 to-amber-600/5')+
+      quickBtn('boat','fa-ship','Book a Boat','from-sky-500/20 to-cyan-600/5')+
+      quickBtn('bookings','fa-ticket','My Bookings','from-indigo-500/20 to-blue-600/5')+
+      quickBtn('schedule','fa-calendar-check','My Schedule','from-violet-500/20 to-purple-600/5')+
+      quickBtn('reminders','fa-bell','Reminders','from-rose-500/20 to-pink-600/5')+
+      quickBtn('suggestions','fa-lightbulb','Suggestions','from-yellow-500/20 to-lime-600/5');
+  if (canKitchen()) tiles += quickBtn('kitchen','fa-fire-burner','Kitchen','from-red-500/20 to-orange-700/5');
+  if (canAdmin()) tiles += quickBtn('users','fa-users','Directory','from-teal-500/20 to-emerald-600/5');
+  if (canAdmin()) tiles += quickBtn('admin','fa-gear','Admin','from-slate-500/20 to-slate-700/5');
+
   $('#main-content').innerHTML =
-  '<div class="fade-in space-y-4 max-w-lg mx-auto">'+
-    '<div class="glass rounded-2xl p-4"><p class="text-xs text-teal-400/80">Bula, '+esc(u.firstName||'Staff')+'!</p>'+
-    '<p class="font-semibold">'+esc(u.firstName)+' '+esc(u.lastName)+'</p>'+
-    '<p class="text-xs text-sand-200/50 mt-1">'+esc(roleLabel(u.role))+' · '+esc(u.department||'—')+' · '+esc(u.village||'')+'</p>'+
-    '<p class="text-[10px] text-sand-200/40 mt-2"><i class="fa-regular fa-clock mr-1"></i>'+formatFiji()+'</p></div>'+
-    '<div class="grid grid-cols-2 gap-3">'+
-      '<div class="glass rounded-xl p-3"><p class="text-[10px] uppercase tracking-wide text-sand-200/50">Dinner</p>'+
-      '<p class="text-sm font-medium mt-1">'+(di.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
-      '<p class="text-[10px] text-sand-200/40">Service '+di.serviceDate+'</p><p class="text-[10px] text-sand-200/40">'+di.cutoffLabel+'</p></div>'+
-      '<div class="glass rounded-xl p-3"><p class="text-[10px] uppercase tracking-wide text-sand-200/50">Lunch</p>'+
-      '<p class="text-sm font-medium mt-1">'+(li.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
-      '<p class="text-[10px] text-sand-200/40">Service '+li.serviceDate+'</p><p class="text-[10px] text-sand-200/40">'+li.cutoffLabel+'</p></div></div>'+
-    '<div class="grid grid-cols-2 gap-2">'+
-      quickBtn('meals','fa-utensils','Order meals')+quickBtn('boat','fa-ship','Boat runs')+
-      quickBtn('bookings','fa-ticket','My bookings')+quickBtn('schedule','fa-calendar-check','Leave & roster')+
-      quickBtn('suggestions','fa-lightbulb','Suggestions')+quickBtn('reminders','fa-bell','Reminders')+
-      (canKitchen()?quickBtn('kitchen','fa-fire-burner','Kitchen'):'')+
-      (canAdmin()?quickBtn('users','fa-users','Staff directory'):'')+
+  '<div class="animate-fade-in space-y-4 max-w-lg mx-auto">'+
+    '<div class="relative overflow-hidden rounded-2xl border border-teal-800/40 shadow-lg shadow-teal-950/40 home-accent">'+
+      '<div class="relative z-10 flex items-end gap-3 p-4 pt-16">'+
+        '<div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/95 shadow-md">'+
+          '<img src="assets/pcr-logo.png" alt="" class="h-11 w-11 object-contain p-0.5"/>'+
+        '</div>'+
+        '<div class="min-w-0 flex-1">'+
+          '<h2 class="text-xl font-bold text-white drop-shadow">Bula, '+esc(u.firstName||'friend')+'!</h2>'+
+          '<p class="truncate text-xs text-slate-200/90">'+esc(roleLabel(u.role))+' · '+esc(u.department||'—')+(u.village?' · '+esc(u.village):'')+(state.demo?' · demo':'')+'</p>'+
+          '<p class="mt-1 flex items-center gap-1 text-[11px] text-teal-200/90"><i class="fa-regular fa-clock animate-pulse-soft"></i> '+formatFiji()+'</p>'+
+        '</div>'+
+      '</div>'+
     '</div>'+
-    '<p class="text-[10px] text-center text-sand-200/30">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p></div>';
+    '<div class="grid grid-cols-2 gap-3">'+
+      '<div class="ui-card glass rounded-xl p-3 '+(di.open?'meal-open-glow border-teal-600/40':'')+'">'+
+        '<p class="text-[10px] uppercase tracking-wide text-slate-400">Dinner</p>'+
+        '<p class="text-sm font-medium mt-1">'+(di.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
+        '<p class="text-[10px] text-slate-500">Service '+di.serviceDate+'</p>'+
+        '<p class="text-[10px] text-slate-500">'+di.cutoffLabel+'</p></div>'+
+      '<div class="ui-card glass rounded-xl p-3 '+(li.open?'meal-open-glow border-teal-600/40':'')+'">'+
+        '<p class="text-[10px] uppercase tracking-wide text-slate-400">Lunch</p>'+
+        '<p class="text-sm font-medium mt-1">'+(li.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
+        '<p class="text-[10px] text-slate-500">Service '+li.serviceDate+'</p>'+
+        '<p class="text-[10px] text-slate-500">'+li.cutoffLabel+'</p></div></div>'+
+    '<div class="flex gap-1 overflow-x-auto pb-1 text-[11px] no-print" id="home-page-tabs">'+
+      [['home','Dashboard'],['meals','Meals'],['boat','Boat'],['bookings','My Bookings'],['schedule','My Schedule']].map(function(x){
+        const active = state.tab===x[0];
+        return '<button onclick="navigate(\''+x[0]+'\')" class="shrink-0 px-3 py-1.5 rounded-full border '+(active?'bg-teal-600/30 border-teal-500/50 text-teal-200':'border-slate-700 text-slate-400')+'">'+x[1]+'</button>';
+      }).join('')+
+      (canAdmin()?'<button onclick="navigate(\'admin\')" class="shrink-0 px-3 py-1.5 rounded-full border border-slate-700 text-slate-400">Admin</button>':'')+
+    '</div>'+
+    '<div class="grid grid-cols-2 gap-2" id="home-quick-tiles">'+tiles+'</div>'+
+    '<div class="ui-card glass rounded-xl p-3 space-y-2">'+
+      '<p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-bell text-teal-400 mr-1"></i>Reminders & suggestions</p>'+
+      '<div class="flex gap-2">'+
+        '<button onclick="navigate(\'reminders\')" class="flex-1 ui-btn ui-btn-secondary ui-btn-sm rounded-lg">View reminders</button>'+
+        '<button onclick="navigate(\'suggestions\')" class="flex-1 ui-btn ui-btn-secondary ui-btn-sm rounded-lg">Suggestion box</button>'+
+      '</div></div>'+
+    '<p class="text-[10px] text-center text-slate-500">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p>'+
+    '<p class="text-[9px] text-center text-teal-700/70">Paradise Cove Resort · Yasawa Islands Fiji</p></div>';
+  // soft stagger via CSS delays
+  setTimeout(function(){
+    $$('#home-quick-tiles .quick-tile').forEach(function(el,i){
+      el.style.animation = 'fade-in 0.45s ease-out both';
+      el.style.animationDelay = (i*0.05)+'s';
+    });
+  }, 0);
 }
 
 async function renderMeals(){
@@ -766,7 +1051,7 @@ function renderMore(){
     moreRow('bookings','fa-ticket','My boat bookings');
   if (canKitchen()) html += moreRow('kitchen','fa-fire-burner','Kitchen dashboard');
   if (canAdmin()) html += moreRow('users','fa-users','Staff directory');
-  if (state.user.role==='super_admin') html += moreRow('admin','fa-gear','Admin · Alert emails');
+  if (canAdmin()) html += moreRow('admin','fa-gear','Admin tools');
   html += '<div class="glass rounded-xl p-3 mt-4 text-[10px] text-sand-200/40 space-y-1">'+
     '<p>Backend: '+(state.demo?'Demo (localStorage)':esc((API_URL||'').slice(0,48)+'…'))+'</p>'+
     '<p>API version: '+esc(state.backendVersion||'—')+'</p><p>Fiji now: '+formatFiji()+'</p>'+
@@ -1111,35 +1396,70 @@ async function openPending(){
 }
 
 async function openAlertEmails(){
+  if (state.adminUnlock !== 'super') {
+    const code = await askPasscode('super');
+    if (!code) return;
+    state.adminUnlock = 'super';
+  }
   const r = await api('getAlertEmails');
   const emails = ((r.data && r.data.emails) || []).map(e=>e.email||e).join('\n');
-  openModal('<h3 class="font-semibold mb-2">Alert Emails</h3><p class="text-[10px] text-sand-200/50 mb-2">Super admin only · one email per line</p>'+
-    '<textarea id="al-text" class="w-full rounded-xl px-3 py-2 text-xs h-40">'+esc(emails)+'</textarea>'+
+  openModal('<h3 class="font-semibold mb-2 text-slate-100">Alert Emails</h3><p class="text-[10px] text-slate-400 mb-2">Super unlock (2026) · one email per line</p>'+
+    '<textarea id="al-text" class="ui-input h-40 text-xs">'+esc(emails)+'</textarea>'+
     '<button id="al-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white mt-3">Save</button>');
   $('#al-save').onclick = async () => {
     const list = $('#al-text').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
     closeModal();
-    const passcode = await askPasscode(); if (!passcode) return;
+    const passcode = await askPasscode('super'); if (!passcode) return;
     const res = await api('saveAlertEmails',{ emails:list, passcode });
     if (!res.success) toast(res.error,'error'); else toast('Alert emails saved','ok');
   };
 }
-
-function renderAdmin(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3">'+
-    '<button onclick="openAlertEmails()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-envelope text-teal-400 mr-2"></i>Manage Alert Emails</button>'+
-    '<button onclick="navigate(\'users\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-users text-teal-400 mr-2"></i>Staff Directory</button>'+
-    '<button onclick="checkHealth()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-heart-pulse text-teal-400 mr-2"></i>API health / version</button></div>';
+async function renderAdmin(){
+  if (!canAdmin()) { navigate('more'); return; }
+  if (!state.adminUnlock) {
+    const code = await askPasscode('admin');
+    if (!code) { navigate('more'); return; }
+    state.adminUnlock = passLevel(code);
+  }
+  const full = state.adminUnlock === 'super';
+  let html = '<div class="animate-fade-in max-w-lg mx-auto space-y-3">'+
+    '<div class="ui-card glass rounded-xl p-3 flex items-center justify-between">'+
+      '<div><p class="text-sm font-semibold text-slate-100">Admin tools</p>'+
+      '<p class="text-[10px] text-slate-400">Unlock: '+(full?'Superadmin 2026 (full)':'Admin 2025 (limited)')+'</p></div>'+
+      '<button id="btn-reunlock" class="text-xs text-teal-400">Re-lock</button></div>'+
+    '<button onclick="navigate(\'users\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-users text-teal-400 mr-2"></i>Staff Directory / approve</button>'+
+    '<button onclick="navigate(\'kitchen\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-fire-burner text-teal-400 mr-2"></i>Kitchen ops</button>'+
+    '<button onclick="navigate(\'boat\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-ship text-teal-400 mr-2"></i>Boat ops</button>';
+  if (full) {
+    html += '<button onclick="openAlertEmails()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-envelope text-teal-400 mr-2"></i>Manage Alert Emails</button>'+
+      '<p class="text-[10px] text-slate-500 px-1">Super-only: alert emails, role promotion, delete users</p>';
+  } else {
+    html += '<p class="text-[10px] text-amber-300/80 px-1">Limited unlock — enter 2026 for alert emails & role promotion.</p>'+
+      '<button id="btn-upgrade-unlock" class="glass w-full rounded-xl px-4 py-3 text-left text-sm text-teal-300"><i class="fa-solid fa-lock-open text-teal-400 mr-2"></i>Upgrade to super unlock (2026)</button>';
+  }
+  html += '<button onclick="checkHealth()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-heart-pulse text-teal-400 mr-2"></i>API health / version</button></div>';
+  $('#main-content').innerHTML = html;
+  const rel = $('#btn-reunlock');
+  if (rel) rel.onclick = () => { state.adminUnlock = null; renderAdmin(); };
+  const up = $('#btn-upgrade-unlock');
+  if (up) up.onclick = async () => {
+    const code = await askPasscode('super');
+    if (!code) return;
+    state.adminUnlock = 'super';
+    renderAdmin();
+  };
 }
 
 function maybeProfileModal(){
   if (!state.user || !state.user.needsProfile) return;
-  openModal('<h3 class="font-semibold mb-1">Complete Your Profile</h3>'+
-    '<p class="text-xs text-sand-200/60 mb-3">First name, last name and department are required.</p><div class="space-y-2">'+
-    '<input id="pf-fn" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="First name" value="'+esc(state.user.firstName)+'"/>'+
-    '<input id="pf-ln" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Last name" value="'+esc(state.user.lastName)+'"/>'+
-    '<input id="pf-dept" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Department" value="'+esc(state.user.department)+'"/>'+
-    '<input id="pf-contact" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Contact" value="'+esc(state.user.contact)+'"/>'+
+  const DEPTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Management','IT/Office','Other'];
+  const deptOpts = DEPTS.map(d => '<option value="'+d.replace(/"/g,'')+'"'+(state.user.department===d?' selected':'')+'>'+d+'</option>').join('');
+  openModal('<h3 class="font-semibold mb-1 text-slate-100">Complete Your Profile</h3>'+
+    '<p class="text-xs text-slate-400 mb-3">First name, last name and department are required.</p><div class="space-y-2">'+
+    '<input id="pf-fn" class="ui-input" placeholder="First name" value="'+esc(state.user.firstName)+'"/>'+
+    '<input id="pf-ln" class="ui-input" placeholder="Last name" value="'+esc(state.user.lastName)+'"/>'+
+    '<select id="pf-dept" class="ui-input"><option value="">Select department…</option>'+deptOpts+'</select>'+
+    '<input id="pf-contact" class="ui-input" placeholder="Contact" value="'+esc(state.user.contact)+'"/>'+
     '<button id="pf-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Save profile</button></div>');
   $('#pf-save').onclick = async () => {
     const firstName=$('#pf-fn').value.trim(), lastName=$('#pf-ln').value.trim(), department=$('#pf-dept').value.trim();
@@ -1157,14 +1477,14 @@ async function doLogin(email, password){
   if (r.needsVerification) {
     pendingVerifyEmail = r.email || email;
     $('#verify-panel').classList.remove('hidden');
+    showLoginError('Verification required — enter the code emailed to you.', 'info');
     toast('Verification required','info');
     const vr = await api('requestVerification',{ email: pendingVerifyEmail });
     if (vr.data && vr.data.code) toast('Demo code: '+vr.data.code,'info');
     return;
   }
   if (!r.success) {
-    $('#login-error').textContent = r.error || 'Login failed';
-    $('#login-error').classList.remove('hidden');
+    showLoginError(r.error || 'Login failed');
     return;
   }
   state.user = r.data.user;
@@ -1194,17 +1514,133 @@ $('#btn-resend-code').onclick = async () => {
   if (vr.data && vr.data.code) toast('Code: '+vr.data.code,'info'); else toast('Code sent','ok');
 };
 $('#btn-logout').onclick = () => {
-  state.user = null; localStorage.removeItem(SESSION_KEY);
+  state.user = null; state.adminUnlock = null; localStorage.removeItem(SESSION_KEY);
   $('#view-main').classList.add('hidden');
   $('#view-login').classList.remove('hidden');
 };
 
+
+function showLoginError(msg, kind){
+  const el = $('#login-error');
+  if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.textContent = msg;
+  el.classList.remove('hidden', 'text-red-400', 'text-teal-400', 'text-emerald-400');
+  el.classList.add(kind === 'ok' || kind === 'info' ? 'text-teal-400' : 'text-red-400');
+}
+function switchAuthTab(tab){
+  const loginTab = $('#tab-login'), regTab = $('#tab-register');
+  const loginForm = $('#login-form'), regPanel = $('#register-panel');
+  showLoginError('');
+  $('#verify-panel').classList.add('hidden');
+  if (tab === 'register') {
+    loginForm.classList.add('hidden');
+    regPanel.classList.remove('hidden');
+    loginTab.classList.remove('active');
+    regTab.classList.add('active');
+  } else {
+    regPanel.classList.add('hidden');
+    loginForm.classList.remove('hidden');
+    regTab.classList.remove('active');
+    loginTab.classList.add('active');
+  }
+}
+function updateDefaultEmailUI(){
+  const useDef = $('#reg-use-default-email') && $('#reg-use-default-email').checked;
+  const hint = $('#reg-default-email-hint');
+  if (hint) hint.classList.toggle('hidden', !useDef);
+  if (!useDef) return;
+  const fn = ($('#reg-firstName').value || '').trim().toLowerCase().replace(/[^a-z]/g,'');
+  const ln = ($('#reg-lastName').value || '').trim().toLowerCase().replace(/[^a-z]/g,'');
+  if (fn && ln) {
+    $('#reg-email').value = fn + '.' + ln.charAt(0) + '@pcr.com';
+  }
+}
+$('#tab-login').onclick = () => switchAuthTab('login');
+$('#tab-register').onclick = () => switchAuthTab('register');
+['reg-use-default-email','reg-firstName','reg-lastName','reg-department'].forEach(function(id){
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', updateDefaultEmailUI);
+});
+const photoInput = $('#reg-photo');
+if (photoInput) {
+  photoInput.onchange = function(){
+    const file = this.files && this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e){
+      $('#reg-photo-preview').classList.remove('hidden');
+      $('#reg-photo-img').src = e.target.result;
+      try { sessionStorage.setItem('pcr_reg_photo', e.target.result); } catch(err){}
+    };
+    reader.readAsDataURL(file);
+  };
+}
+$('#register-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $('#reg-email').value.trim();
+  const password = $('#reg-password').value;
+  const password2 = $('#reg-password2').value;
+  const department = $('#reg-department').value.trim();
+  const firstName = $('#reg-firstName').value.trim();
+  const lastName = $('#reg-lastName').value.trim();
+  if (!firstName || !lastName || !department) {
+    showLoginError('First name, last name and department are required');
+    return;
+  }
+  if (password !== password2) { showLoginError('Passwords do not match'); toast('Passwords do not match','error'); return; }
+  const payload = {
+    email, password, firstName, lastName, department,
+    contact: $('#reg-contact').value.trim(),
+    village: $('#reg-village').value,
+    roster: $('#reg-roster').value
+  };
+  const r = await api('register', payload);
+  if (!r.success) {
+    showLoginError(r.error || 'Registration failed');
+    toast(r.error || 'Registration failed', 'error');
+    return;
+  }
+  const d = r.data || {};
+  if (d.pendingApproval) {
+    switchAuthTab('login');
+    showLoginError(d.message || 'Account created. Waiting for approval — check with your HOD or Front Office.', 'ok');
+    toast(d.message || 'Pending approval', 'ok');
+    return;
+  }
+  if (d.needsVerification) {
+    switchAuthTab('login');
+    pendingVerifyEmail = d.email || email;
+    $('#verify-panel').classList.remove('hidden');
+    showLoginError(d.message || 'Check your email for a verification code', 'info');
+    if (d.code) toast('Demo code: '+d.code, 'info');
+    else toast(d.message || 'Verification code sent', 'ok');
+    return;
+  }
+  switchAuthTab('login');
+  showLoginError(d.message || 'Account created — sign in', 'ok');
+};
+
+function showBackendBanner(msg){
+  const el = $('#backend-banner');
+  if (!el) return;
+  if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> ' + msg;
+  el.classList.remove('hidden');
+}
 function boot(){
   $('#ui-version').textContent = APP_VERSION;
   state.demo = isDemoMode();
   if (state.demo) {
     $('#demo-badge').classList.remove('hidden');
     loadDemo();
+  } else {
+    api('getVersion').then(function(r){
+      state.backendVersion = r.version || (r.data && r.data.version);
+      showBackendBanner('');
+    }).catch(function(){
+      showBackendBanner('Backend unreachable — check network or Apps Script deployment. Not using demo mode.');
+    });
   }
   const tick = () => { const el=$('#fiji-clock'); if(el) el.textContent = formatFiji(); };
   tick(); setInterval(tick, 30000);

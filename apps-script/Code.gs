@@ -20,8 +20,9 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.3.0';
-var ADMIN_PASSCODE = 'paradise2026';
+var APP_VERSION = '2.4.0';
+var SUPER_PASS = '2026';
+var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
 var SUPERADMIN_PASSWORD = '21slands';
 var FIJI_OFFSET_MS = 12 * 60 * 60 * 1000; // UTC+12 (no DST for business rules)
@@ -489,6 +490,12 @@ function register(p) {
   var isPcr = email.indexOf('@pcr.com') !== -1;
   var isSuper = email === SUPERADMIN_EMAIL;
 
+  var villageVal = '';
+  if (p.village !== undefined && p.village !== null && p.village !== '') {
+    if (p.village === true || p.village === 'true' || String(p.village).toLowerCase() === 'yes') villageVal = 'Village';
+    else if (p.village === false || p.village === 'false' || String(p.village).toLowerCase() === 'no') villageVal = 'Resort';
+    else villageVal = String(p.village);
+  }
   var row = {
     id: uid('usr'),
     email: email,
@@ -498,8 +505,8 @@ function register(p) {
     department: p.department || '',
     contact: p.contact || '',
     role: 'staff',
-    roster: '',
-    village: '',
+    roster: p.roster || p.rosterPattern || '',
+    village: villageVal,
     active: false,
     createdAt: nowIso(),
     verified: false
@@ -601,10 +608,26 @@ function verifyEmail(p) {
   return { success: true, data: { verified: true, user: publicUser(findUserByEmail(email)) } };
 }
 
-function requirePasscode(p) {
-  if (String(p.passcode || '') !== ADMIN_PASSCODE) {
-    throw new Error('Admin passcode required (paradise2026)');
+/**
+ * Dual admin unlock:
+ *   SUPER_PASS 2026 → full settings (alert emails, role promotion, delete users)
+ *   ADMIN_PASS 2025 → limited (approve/import users, kitchen/boat ops, leave review)
+ * level: 'admin' (default) or 'super'
+ * Returns 'super' | 'admin'
+ */
+function requirePasscode(p, level) {
+  level = level || 'admin';
+  var code = String(p.passcode || '');
+  var isSuper = code === SUPER_PASS;
+  var isAdmin = code === ADMIN_PASS;
+  if (level === 'super') {
+    if (!isSuper) throw new Error('Superadmin passcode required (2026)');
+    return 'super';
   }
+  if (!isSuper && !isAdmin) {
+    throw new Error('Admin passcode required (2025 or 2026)');
+  }
+  return isSuper ? 'super' : 'admin';
 }
 
 function canManageUsers(requester) {
@@ -655,7 +678,7 @@ function getUsers(p) {
 
 function addUser(p) {
   var requester = getRequester(p);
-  if (!canManageUsers(requester) && String(p.passcode || '') !== ADMIN_PASSCODE) {
+  if (!canManageUsers(requester) && String(p.passcode || '') !== SUPER_PASS && String(p.passcode || '') !== ADMIN_PASS) {
     // allow self-register style add with passcode OR admin
   }
   if (requester && (requester.role === 'admin' || requester.role === 'super_admin' || requester.role === 'hod')) {
@@ -746,6 +769,9 @@ function updateUser(p) {
       }
       if (requester.role !== 'super_admin' && p.role === 'super_admin') {
         return { success: false, error: 'Only super_admin can assign super_admin' };
+      }
+      if (['super_admin', 'admin', 'hod'].indexOf(String(p.role)) >= 0 && String(u.role) !== String(p.role)) {
+        requirePasscode(p, 'super');
       }
       patch.role = p.role;
     }
@@ -846,7 +872,7 @@ function approveUser(p) {
 }
 
 function deleteUser(p) {
-  requirePasscode(p);
+  requirePasscode(p, 'super');
   var requester = getRequester(p);
   if (!requester || requester.role !== 'super_admin') {
     return { success: false, error: 'Only super_admin can delete users' };
@@ -866,7 +892,7 @@ function getAlertEmails(p) {
 }
 
 function saveAlertEmails(p) {
-  requirePasscode(p);
+  requirePasscode(p, 'super');
   var requester = getRequester(p);
   if (!requester || requester.role !== 'super_admin') {
     return { success: false, error: 'super_admin only' };

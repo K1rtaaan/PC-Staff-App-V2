@@ -1,5 +1,5 @@
 /* PCR Staff App — basic offline shell */
-const CACHE = 'pcr-staff-v1';
+const CACHE = 'pcr-staff-v2.4.0';
 const SHELL = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', (e) => {
