@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.5.1';
+var APP_VERSION = '2.5.2';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -152,6 +152,8 @@ function routeAction(action, p) {
     case 'getSuggestions': return getSuggestions(p);
     case 'addSuggestion': return addSuggestion(p);
     case 'voteSuggestion': return voteSuggestion(p);
+    case 'approveSuggestion': return approveSuggestion(p);
+    case 'rejectSuggestion': return rejectSuggestion(p);
 
     case 'getLeaveRequests': return getLeaveRequests(p);
     case 'requestLeave': return requestLeave(p);
@@ -309,7 +311,7 @@ function initializeSheets() {
     'status', 'late', 'createdAt'
   ]);
   ensureSheet(ss, 'Reminders', [
-    'id', 'userEmail', 'title', 'body', 'dueDate', 'done', 'createdAt'
+    'id', 'userEmail', 'title', 'body', 'dueDate', 'done', 'priority', 'important', 'audience', 'createdAt'
   ]);
   ensureSheet(ss, 'Suggestions', [
     'id', 'userEmail', 'userName', 'title', 'body', 'votes', 'likes', 'dislikes', 'voters', 'createdAt', 'status'
@@ -1586,35 +1588,58 @@ function markOrderStatus(p) {
 
 /* ========== REMINDERS ========== */
 
-function getReminders(p) {
-  var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
-  var rows = sheetToObjects('Reminders').filter(function (r) {
-    return String(r.userEmail).toLowerCase() === email;
+function reminderIsImportant(r) {
+  return r.important === true || r.important === 'TRUE' || r.important === 1 ||
+    String(r.priority || '').toLowerCase() === 'high';
+}
+
+function sortReminders(rows) {
+  rows.sort(function (a, b) {
+    var ai = reminderIsImportant(a) ? 1 : 0;
+    var bi = reminderIsImportant(b) ? 1 : 0;
+    if (bi !== ai) return bi - ai;
+    return String(b.dueDate || b.createdAt || '').localeCompare(String(a.dueDate || a.createdAt || ''));
   });
+  return rows;
+}
+
+function getReminders(p) {
+  // C35: global broadcast reminders for all staff (active / not done)
+  var rows = sheetToObjects('Reminders').filter(function (r) {
+    return !(r.done === true || r.done === 'TRUE' || r.done === 1);
+  });
+  sortReminders(rows);
   return { success: true, data: { reminders: rows } };
 }
 
 function addReminder(p) {
-  var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
+  requirePasscode(p, 'admin'); // 2025 | 2026
+  var priority = String(p.priority || 'normal').toLowerCase() === 'high' ? 'high' : 'normal';
+  var important = p.important === true || p.important === 'true' || p.important === 'TRUE' || p.important === 1 || priority === 'high';
   var row = {
     id: uid('rem'),
-    userEmail: email,
+    userEmail: '', // broadcast — not per-user
     title: p.title || '',
     body: p.body || '',
     dueDate: p.dueDate || '',
     done: false,
+    priority: priority,
+    important: important,
+    audience: 'all',
     createdAt: nowIso()
   };
-  appendRow('Reminders', row, ['id', 'userEmail', 'title', 'body', 'dueDate', 'done', 'createdAt']);
+  appendRow('Reminders', row, ['id', 'userEmail', 'title', 'body', 'dueDate', 'done', 'priority', 'important', 'audience', 'createdAt']);
   return { success: true, data: { reminder: row } };
 }
 
 function completeReminder(p) {
+  requirePasscode(p, 'admin');
   var r = updateRowById('Reminders', p.id, { done: true });
   return { success: !!r, data: { reminder: r } };
 }
 
 function deleteReminder(p) {
+  requirePasscode(p, 'admin');
   var rows = sheetToObjects('Reminders');
   var found = null;
   for (var i = 0; i < rows.length; i++) if (rows[i].id === p.id) found = rows[i];
@@ -1625,26 +1650,56 @@ function deleteReminder(p) {
 
 /* ========== SUGGESTIONS ========== */
 
+function isAdminRequester(p) {
+  var email = String(p.requesterEmail || p.userEmail || '').toLowerCase();
+  var u = findUserByEmail(email);
+  if (!u) return false;
+  var r = u.role;
+  return r === 'super_admin' || r === 'admin' || r === 'hod';
+}
+
+function normalizeSuggestion(s) {
+  var likes = Number(s.likes || 0);
+  var dislikes = Number(s.dislikes || 0);
+  if (!likes && !dislikes && s.voters) {
+    String(s.voters).split(',').forEach(function (part) {
+      part = String(part || '').trim();
+      if (!part) return;
+      if (part.indexOf(':dislike') >= 0) dislikes++;
+      else likes++;
+    });
+  }
+  s.likes = likes;
+  s.dislikes = dislikes;
+  s.votes = Number(s.votes != null && s.votes !== '' ? s.votes : (likes - dislikes));
+  return s;
+}
+
 function getSuggestions(p) {
-  var rows = sheetToObjects('Suggestions');
-  rows = rows.map(function (s) {
-    var likes = Number(s.likes || 0);
-    var dislikes = Number(s.dislikes || 0);
-    if (!likes && !dislikes && s.voters) {
-      String(s.voters).split(',').forEach(function (part) {
-        part = String(part || '').trim();
-        if (!part) return;
-        if (part.indexOf(':dislike') >= 0) dislikes++;
-        else likes++;
-      });
-    }
-    s.likes = likes;
-    s.dislikes = dislikes;
-    s.votes = Number(s.votes != null && s.votes !== '' ? s.votes : (likes - dislikes));
-    return s;
+  var adminView = (p.adminView === true || p.adminView === 'true' || p.adminView === '1') && isAdminRequester(p);
+  var rows = sheetToObjects('Suggestions').map(normalizeSuggestion);
+  if (!adminView) {
+    rows = rows.filter(function (s) {
+      var st = String(s.status || 'open').toLowerCase();
+      return st === 'approved' || st === 'open'; // legacy open = approved
+    }).map(function (s) {
+      return {
+        id: s.id,
+        title: s.title,
+        body: s.body,
+        votes: s.votes,
+        likes: s.likes,
+        dislikes: s.dislikes,
+        createdAt: s.createdAt,
+        status: s.status === 'open' ? 'approved' : s.status
+        // intentionally omit userEmail / userName (anonymous to staff)
+      };
+    });
+  }
+  rows.sort(function (a, b) {
+    return Number(b.likes != null ? b.likes : b.votes || 0) - Number(a.likes != null ? a.likes : a.votes || 0);
   });
-  rows.sort(function (a, b) { return Number(b.votes || 0) - Number(a.votes || 0); });
-  return { success: true, data: { suggestions: rows } };
+  return { success: true, data: { suggestions: rows, adminView: !!adminView } };
 }
 
 function addSuggestion(p) {
@@ -1661,10 +1716,35 @@ function addSuggestion(p) {
     dislikes: 0,
     voters: '',
     createdAt: nowIso(),
-    status: 'open'
+    status: 'pending' // C36
   };
   appendRow('Suggestions', row, ['id', 'userEmail', 'userName', 'title', 'body', 'votes', 'likes', 'dislikes', 'voters', 'createdAt', 'status']);
-  return { success: true, data: { suggestion: row } };
+  return {
+    success: true,
+    data: {
+      suggestion: {
+        id: row.id,
+        title: row.title,
+        body: row.body,
+        status: row.status,
+        votes: 0,
+        likes: 0,
+        dislikes: 0
+      }
+    }
+  };
+}
+
+function approveSuggestion(p) {
+  requirePasscode(p, 'admin');
+  var r = updateRowById('Suggestions', p.id, { status: 'approved' });
+  return { success: !!r, data: { suggestion: r } };
+}
+
+function rejectSuggestion(p) {
+  requirePasscode(p, 'admin');
+  var r = updateRowById('Suggestions', p.id, { status: 'rejected' });
+  return { success: !!r, data: { suggestion: r } };
 }
 
 function voteSuggestion(p) {
@@ -1672,6 +1752,8 @@ function voteSuggestion(p) {
   var found = null;
   for (var i = 0; i < rows.length; i++) if (String(rows[i].id) === String(p.id)) found = rows[i];
   if (!found) return { success: false, error: 'Not found' };
+  var st = String(found.status || 'open').toLowerCase();
+  if (st !== 'approved' && st !== 'open') return { success: false, error: 'Suggestion not approved yet' };
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   if (!email) return { success: false, error: 'User required' };
   var dir = String(p.vote || p.direction || 'like').toLowerCase();
@@ -1685,7 +1767,7 @@ function voteSuggestion(p) {
     if (!part) return;
     var bits = part.split(':');
     if (bits.length >= 2) map[bits[0].toLowerCase()] = bits[1];
-    else map[bits[0].toLowerCase()] = 'like'; // legacy upvote-only
+    else map[bits[0].toLowerCase()] = 'like';
   });
   var prev = map[email];
   if (prev === dir) return { success: false, error: 'Already ' + dir + 'd' };

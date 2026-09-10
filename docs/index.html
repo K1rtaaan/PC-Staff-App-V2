@@ -130,7 +130,9 @@ body {
 .btn-primary:disabled { opacity: .5; }
 .nav-item.active { color: #2dd4bf; }
 .nav-item.active i, .nav-item.active svg { transform: translateY(-2px); }
-.safe-bottom { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.primary-tab-nav { border-bottom: 1px solid rgba(20,184,166,0.15); }
+.primary-tab-nav .nav-item.active { color: #2dd4bf; border-bottom: 2px solid #14b8a6; }
 .modal-bg { background: rgba(6,13,24,0.75); backdrop-filter: blur(4px); }
 input, select, textarea {
   background: rgba(6,13,24,0.6) !important;
@@ -174,7 +176,7 @@ input:focus, select:focus, textarea:focus {
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.5.1';
+const APP_VERSION = '2.5.2';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -313,25 +315,27 @@ const DEMO_KEY = 'pcr_v2_demo_db';
   </div>
 
   <div id="view-main" class="hidden flex-1 flex flex-col safe-bottom">
-    <header class="app-header-motif glass-strong sticky top-0 z-40 px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
-      <div class="flex items-center gap-2.5 min-w-0">
-        <img src="assets/golden-logo.jpg" alt="" class="h-8 w-8 rounded-lg object-contain bg-white/90 p-0.5 opacity-95" aria-hidden="true"/>
-        <div class="min-w-0">
-          <p class="text-xs text-teal-400/90 font-medium">Paradise Cove</p>
-          <h2 id="header-title" class="text-sm font-semibold truncate">Home</h2>
+    <div class="sticky top-0 z-40 no-print">
+      <header class="app-header-motif glass-strong px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <img src="assets/golden-logo.jpg" alt="" class="h-8 w-8 rounded-lg object-contain bg-white/90 p-0.5 opacity-95" aria-hidden="true"/>
+          <div class="min-w-0">
+            <p class="text-xs text-teal-400/90 font-medium">Paradise Cove</p>
+            <h2 id="header-title" class="text-sm font-semibold truncate">Home</h2>
+          </div>
         </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <span id="fiji-clock" class="text-[10px] text-sand-200/50 hidden sm:inline"></span>
-        <button id="btn-logout" class="text-sand-200/60 hover:text-teal-400 text-sm px-2 py-1" title="Sign out">
-          <i class="fa-solid fa-arrow-right-from-bracket"></i>
-        </button>
-      </div>
-    </header>
+        <div class="flex items-center gap-2">
+          <span id="fiji-clock" class="text-[10px] text-sand-200/50 hidden sm:inline"></span>
+          <button id="btn-logout" class="text-sand-200/60 hover:text-teal-400 text-sm px-2 py-1" title="Sign out">
+            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+          </button>
+        </div>
+      </header>
+      <nav class="primary-tab-nav glass-strong px-1 pt-0.5 pb-0.5 z-40">
+        <div class="flex justify-around max-w-lg mx-auto" id="bottom-nav"></div>
+      </nav>
+    </div>
     <main id="main-content" class="flex-1 overflow-y-auto p-4"></main>
-    <nav class="fixed bottom-0 inset-x-0 glass-strong border-t border-teal-500/15 px-1 pt-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] z-50 no-print">
-      <div class="flex justify-around max-w-lg mx-auto" id="bottom-nav"></div>
-    </nav>
   </div>
 </div>
 
@@ -404,8 +408,12 @@ function defaultDemoDb() {
       { id:'run2', date: fijiDateString(), time:'16:30', route:'Resort → Denarau', capacity:24, notes:'Afternoon', active:true },
       { id:'run3', date: fijiDateString(addFijiDays(getFijiNow(),1)), time:'07:00', route:'Denarau → Resort', capacity:20, notes:'', active:true }
     ],
-    boatBookings: [], dinnerOrders: [], lunchOrders: [], reminders: [],
-    suggestions: [{ id:'sug1', userEmail:'ana.tui@paradisecoveresortfiji.com', userName:'Ana Tui', title:'More shade at jetty', body:'Umbrellas for afternoon boats', votes:3, voters:'a,b,c', createdAt:formatFiji(), status:'open' }],
+    boatBookings: [], dinnerOrders: [], lunchOrders: [],
+    reminders: [
+      { id:'rem1', userEmail:'', title:'Staff meeting Friday 3pm', body:'All departments — Rec Hall', dueDate:'', done:false, priority:'high', important:true, audience:'all', createdAt:formatFiji() },
+      { id:'rem2', userEmail:'', title:'Boat capacity check', body:'Confirm afternoon run seats', dueDate:'', done:false, priority:'normal', important:false, audience:'all', createdAt:formatFiji() }
+    ],
+    suggestions: [{ id:'sug1', userEmail:'ana.tui@paradisecoveresortfiji.com', userName:'Ana Tui', title:'More shade at jetty', body:'Umbrellas for afternoon boats', votes:3, likes:3, dislikes:0, voters:'a:like,b:like,c:like', createdAt:formatFiji(), status:'approved' }],
     leaveRequests: [],
     alertEmails: [
       'leanne@paradisecoveresortfiji.com','agm@paradisecoveresortfiji.com','cesare@paradisecoveresortfiji.com',
@@ -857,28 +865,67 @@ function demoApi(action, p) {
       saveDemo(db); return Promise.resolve(ok({ order:o }));
     }
     case 'getReminders': {
-      const email = (p.userEmail||state.user.email).toLowerCase();
-      return Promise.resolve(ok({ reminders: db.reminders.filter(r=>r.userEmail===email) }));
+      let rows = (db.reminders||[]).filter(r => !(r.done===true || r.done==='TRUE'));
+      rows = rows.slice().sort((a,b)=>{
+        const ai = (a.important===true||a.important==='TRUE'||String(a.priority).toLowerCase()==='high')?1:0;
+        const bi = (b.important===true||b.important==='TRUE'||String(b.priority).toLowerCase()==='high')?1:0;
+        if (bi!==ai) return bi-ai;
+        return String(b.dueDate||b.createdAt||'').localeCompare(String(a.dueDate||a.createdAt||''));
+      });
+      return Promise.resolve(ok({ reminders: rows }));
     }
     case 'addReminder': {
-      const row = { id:uid('rem'), userEmail:state.user.email, title:p.title, body:p.body||'', dueDate:p.dueDate||'', done:false, createdAt:formatFiji() };
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required (2025 or 2026)'));
+      const row = { id:uid('rem'), userEmail:'', title:p.title, body:p.body||'', dueDate:p.dueDate||'', done:false,
+        priority: (String(p.priority||'normal').toLowerCase()==='high'?'high':'normal'),
+        important: !!(p.important===true||p.important==='true'||p.important===1||String(p.priority).toLowerCase()==='high'),
+        audience:'all', createdAt:formatFiji() };
       db.reminders.push(row); saveDemo(db); return Promise.resolve(ok({ reminder:row }));
     }
     case 'completeReminder': {
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
       const r = db.reminders.find(x=>x.id===p.id); if(r) r.done=true; saveDemo(db); return Promise.resolve(ok({ reminder:r }));
     }
     case 'deleteReminder': {
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required (2025 or 2026)'));
       db.reminders = db.reminders.filter(x=>x.id!==p.id); saveDemo(db); return Promise.resolve(ok({}));
     }
-    case 'getSuggestions':
-      return Promise.resolve(ok({ suggestions: [...db.suggestions].sort((a,b)=>b.votes-a.votes) }));
+    case 'getSuggestions': {
+      const role = state.user && state.user.role;
+      const isAdm = ['super_admin','admin','hod'].includes(role) && (p.adminView===true||p.adminView==='true'||p.adminView===1);
+      let rows = [...(db.suggestions||[])];
+      if (!isAdm) {
+        rows = rows.filter(s => {
+          const st = String(s.status||'open').toLowerCase();
+          return st==='approved' || st==='open';
+        }).map(s => {
+          const o = Object.assign({}, s);
+          delete o.userEmail; delete o.userName;
+          return o;
+        });
+      }
+      rows.sort((a,b)=> Number(b.likes!=null?b.likes:b.votes||0) - Number(a.likes!=null?a.likes:a.votes||0));
+      return Promise.resolve(ok({ suggestions: rows, adminView: !!isAdm }));
+    }
     case 'addSuggestion': {
-      const row = { id:uid('sug'), userEmail:state.user.email, userName:state.user.firstName+' '+state.user.lastName, title:p.title, body:p.body||'', votes:0, voters:'', createdAt:formatFiji(), status:'open' };
-      db.suggestions.push(row); saveDemo(db); return Promise.resolve(ok({ suggestion:row }));
+      const row = { id:uid('sug'), userEmail:state.user.email, userName:state.user.firstName+' '+state.user.lastName, title:p.title, body:p.body||'', votes:0, likes:0, dislikes:0, voters:'', createdAt:formatFiji(), status:'pending' };
+      db.suggestions.push(row); saveDemo(db); return Promise.resolve(ok({ suggestion:{ id:row.id, title:row.title, body:row.body, status:row.status, votes:0, likes:0, dislikes:0 } }));
+    }
+    case 'approveSuggestion': {
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      const s = db.suggestions.find(x=>x.id===p.id); if(!s) return Promise.resolve(fail('not found'));
+      s.status='approved'; saveDemo(db); return Promise.resolve(ok({ suggestion:s }));
+    }
+    case 'rejectSuggestion': {
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      const s = db.suggestions.find(x=>x.id===p.id); if(!s) return Promise.resolve(fail('not found'));
+      s.status='rejected'; saveDemo(db); return Promise.resolve(ok({ suggestion:s }));
     }
     case 'voteSuggestion': {
       const s = db.suggestions.find(x=>x.id===p.id);
       if (!s) return Promise.resolve(fail('not found'));
+      const vst = String(s.status||'open').toLowerCase();
+      if (vst!=='approved' && vst!=='open') return Promise.resolve(fail('Suggestion not approved yet'));
       let dir = String(p.vote||p.direction||'like').toLowerCase();
       if (dir==='up'||dir==='upvote') dir='like';
       if (dir==='down'||dir==='downvote') dir='dislike';
@@ -1004,8 +1051,10 @@ function navItems(){
   ];
 }
 function renderNav(){
+  const mainTabs = ['home','dinner','lunch','boat','more'];
+  const activeMain = mainTabs.includes(state.tab) ? state.tab : (state.tab==='meals'?'dinner':'more');
   $('#bottom-nav').innerHTML = navItems().map(n =>
-    '<button class="nav-item flex flex-col items-center gap-0.5 px-2 py-1 text-[10px] '+(state.tab===n.id?'active text-teal-400':'text-sand-200/50')+'" data-tab="'+n.id+'"><i class="fa-solid '+n.icon+' text-base transition-transform"></i><span>'+n.label+'</span></button>'
+    '<button class="nav-item flex flex-col items-center gap-0.5 px-3 py-1.5 text-[10px] border-b-2 '+(activeMain===n.id?'active text-teal-400 border-teal-500':'text-sand-200/50 border-transparent')+'" data-tab="'+n.id+'"><i class="fa-solid '+n.icon+' text-base transition-transform"></i><span>'+n.label+'</span></button>'
   ).join('');
   $$('#bottom-nav .nav-item').forEach(b => b.onclick = () => navigate(b.dataset.tab));
 }
@@ -1033,14 +1082,11 @@ function quickBtn(tab, icon, label, accent){
 function renderHome(){
   const u = state.user;
   const di = dinnerCutoffInfo(), li = lunchCutoffInfo();
+  if (state._homeRemTimer) { clearInterval(state._homeRemTimer); state._homeRemTimer = null; }
   let tiles =
-      quickBtn('dinner','fa-moon','Dinner','from-orange-500/20 to-amber-600/5')+
-      quickBtn('lunch','fa-sun','Lunch','from-yellow-500/20 to-amber-500/5')+
       quickBtn('boat','fa-ship','Book a Boat','from-sky-500/20 to-cyan-600/5')+
       quickBtn('bookings','fa-ticket','My Bookings','from-indigo-500/20 to-blue-600/5')+
-      quickBtn('schedule','fa-calendar-check','My Schedule','from-violet-500/20 to-purple-600/5')+
-      quickBtn('reminders','fa-bell','Reminders','from-rose-500/20 to-pink-600/5')+
-      quickBtn('suggestions','fa-lightbulb','Suggestions','from-yellow-500/20 to-lime-600/5');
+      quickBtn('schedule','fa-calendar-check','My Schedule','from-violet-500/20 to-purple-600/5');
   if (canKitchen()) tiles += quickBtn('kitchen','fa-fire-burner','Kitchen','from-red-500/20 to-orange-700/5');
   if (canAdmin()) tiles += quickBtn('users','fa-users','Directory','from-teal-500/20 to-emerald-600/5');
   if (canAdmin()) tiles += quickBtn('admin','fa-gear','Admin','from-slate-500/20 to-slate-700/5');
@@ -1059,42 +1105,97 @@ function renderHome(){
         '</div>'+
       '</div>'+
     '</div>'+
+    '<div class="ui-card glass rounded-xl p-3" id="home-reminders-card">'+
+      '<div class="flex items-center justify-between mb-1.5">'+
+        '<p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-bell text-teal-400 mr-1"></i>Reminders</p>'+
+        '<button onclick="navigate(\'reminders\')" class="text-[10px] text-teal-400">All</button></div>'+
+      '<div id="home-rem-box" class="min-h-[3.25rem] rounded-lg bg-slate-900/40 border border-slate-700/60 px-3 py-2">'+
+        '<p class="text-xs text-slate-500">Loading…</p></div></div>'+
+    '<div class="ui-card glass rounded-xl p-3" id="home-suggestions-card">'+
+      '<div class="flex items-center justify-between mb-1.5">'+
+        '<p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-lightbulb text-amber-300 mr-1"></i>Suggestions</p>'+
+        '<button onclick="navigate(\'suggestions\')" class="text-[10px] text-teal-400">Box</button></div>'+
+      '<div id="home-sug-list" class="space-y-2"><p class="text-xs text-slate-500">Loading…</p></div></div>'+
     '<div class="grid grid-cols-2 gap-3">'+
-      '<div class="ui-card glass rounded-xl p-3 '+(di.open?'meal-open-glow border-teal-600/40':'')+'">'+
+      '<button onclick="navigate(\'dinner\')" class="ui-card glass rounded-xl p-3 text-left '+(di.open?'meal-open-glow border-teal-600/40':'')+'">'+
         '<p class="text-[10px] uppercase tracking-wide text-slate-400">Dinner</p>'+
         '<p class="text-sm font-medium mt-1">'+(di.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
         '<p class="text-[10px] text-slate-500">Service '+di.serviceDate+'</p>'+
-        '<p class="text-[10px] text-slate-500">'+di.cutoffLabel+'</p></div>'+
-      '<div class="ui-card glass rounded-xl p-3 '+(li.open?'meal-open-glow border-teal-600/40':'')+'">'+
+        '<p class="text-[10px] text-slate-500">'+di.cutoffLabel+'</p></button>'+
+      '<button onclick="navigate(\'lunch\')" class="ui-card glass rounded-xl p-3 text-left '+(li.open?'meal-open-glow border-teal-600/40':'')+'">'+
         '<p class="text-[10px] uppercase tracking-wide text-slate-400">Lunch</p>'+
         '<p class="text-sm font-medium mt-1">'+(li.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
         '<p class="text-[10px] text-slate-500">Service '+li.serviceDate+'</p>'+
-        '<p class="text-[10px] text-slate-500">'+li.cutoffLabel+'</p></div></div>'+
-    '<div class="flex gap-1 overflow-x-auto pb-1 text-[11px] no-print" id="home-page-tabs">'+
-      [['home','Dashboard'],['dinner','Dinner'],['lunch','Lunch'],['boat','Boat'],['bookings','My Bookings'],['schedule','My Schedule']].map(function(x){
-        const active = state.tab===x[0];
-        return '<button onclick="navigate(\''+x[0]+'\')" class="shrink-0 px-3 py-1.5 rounded-full border '+(active?'bg-teal-600/30 border-teal-500/50 text-teal-200':'border-slate-700 text-slate-400')+'">'+x[1]+'</button>';
-      }).join('')+
-      (canAdmin()?'<button onclick="navigate(\'admin\')" class="shrink-0 px-3 py-1.5 rounded-full border border-slate-700 text-slate-400">Admin</button>':'')+
-    '</div>'+
+        '<p class="text-[10px] text-slate-500">'+li.cutoffLabel+'</p></button></div>'+
     '<div class="grid grid-cols-2 gap-2" id="home-quick-tiles">'+tiles+'</div>'+
-    '<div class="ui-card glass rounded-xl p-3 space-y-2">'+
-      '<p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-bell text-teal-400 mr-1"></i>Reminders & suggestions</p>'+
-      '<div class="flex gap-2">'+
-        '<button onclick="navigate(\'reminders\')" class="flex-1 ui-btn ui-btn-secondary ui-btn-sm rounded-lg">View reminders</button>'+
-        '<button onclick="navigate(\'suggestions\')" class="flex-1 ui-btn ui-btn-secondary ui-btn-sm rounded-lg">Suggestion box</button>'+
-      '</div></div>'+
     '<p class="text-[10px] text-center text-slate-500">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p>'+
     '<p class="text-[9px] text-center text-teal-700/70">Paradise Cove Resort · Yasawa Islands Fiji</p></div>';
-  // soft stagger via CSS delays
   setTimeout(function(){
     $$('#home-quick-tiles .quick-tile').forEach(function(el,i){
       el.style.animation = 'fade-in 0.45s ease-out both';
       el.style.animationDelay = (i*0.05)+'s';
     });
   }, 0);
+  loadHomeRemindersAndSuggestions();
 }
-
+function reminderPriorityScore(r){
+  const high = r.important===true||r.important==='TRUE'||r.important===1||String(r.priority||'').toLowerCase()==='high';
+  return high ? 1 : 0;
+}
+function sortRemindersHome(list){
+  return (list||[]).slice().sort(function(a,b){
+    const d = reminderPriorityScore(b) - reminderPriorityScore(a);
+    if (d) return d;
+    return String(b.dueDate||b.createdAt||'').localeCompare(String(a.dueDate||a.createdAt||''));
+  });
+}
+async function loadHomeRemindersAndSuggestions(){
+  const remBox = $('#home-rem-box'), sugList = $('#home-sug-list');
+  if (!remBox || !sugList) return;
+  try {
+    const [rr, sr] = await Promise.all([api('getReminders'), api('getSuggestions')]);
+    const reminders = sortRemindersHome((rr.data && rr.data.reminders) || []).filter(r => !(r.done===true||r.done==='TRUE'));
+    let suggestions = ((sr.data && sr.data.suggestions) || []).slice();
+    suggestions.sort(function(a,b){ return Number(b.likes!=null?b.likes:b.votes||0) - Number(a.likes!=null?a.likes:a.votes||0); });
+    if (!reminders.length) {
+      remBox.innerHTML = '<p class="text-xs text-slate-500">No active reminders</p>';
+    } else {
+      let idx = 0;
+      const paint = function(){
+        const r = reminders[idx % reminders.length];
+        const pri = reminderPriorityScore(r);
+        remBox.innerHTML =
+          '<div class="fade-in">'+
+          (pri?'<span class="ui-badge bg-rose-600/30 text-rose-200 mb-1">Important</span> ':'')+
+          '<p class="text-sm font-medium text-slate-100">'+esc(r.title)+'</p>'+
+          (r.body?'<p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">'+esc(r.body)+'</p>':'')+
+          (reminders.length>1?'<p class="text-[9px] text-slate-600 mt-1">'+(idx%reminders.length+1)+' / '+reminders.length+'</p>':'')+
+          '</div>';
+      };
+      paint();
+      if (reminders.length > 1) {
+        state._homeRemTimer = setInterval(function(){
+          if (!$('#home-rem-box')) { clearInterval(state._homeRemTimer); state._homeRemTimer=null; return; }
+          idx++; paint();
+        }, 4000);
+      }
+    }
+    if (!suggestions.length) {
+      sugList.innerHTML = '<p class="text-xs text-slate-500">No approved suggestions yet</p>';
+    } else {
+      sugList.innerHTML = suggestions.slice(0,5).map(function(s){
+        const likes = s.likes!=null ? s.likes : (s.votes||0);
+        return '<div class="rounded-lg bg-slate-900/35 border border-slate-700/50 px-2.5 py-2 flex justify-between gap-2">'+
+          '<div class="min-w-0"><p class="text-xs font-medium text-slate-100 truncate">'+esc(s.title)+'</p>'+
+          (s.body?'<p class="text-[10px] text-slate-500 line-clamp-1">'+esc(s.body)+'</p>':'')+'</div>'+
+          '<span class="text-[10px] text-teal-300 shrink-0"><i class="fa-solid fa-thumbs-up mr-0.5"></i>'+likes+'</span></div>';
+      }).join('');
+    }
+  } catch(e){
+    if (remBox) remBox.innerHTML = '<p class="text-xs text-slate-500">Unable to load reminders</p>';
+    if (sugList) sugList.innerHTML = '<p class="text-xs text-slate-500">Unable to load suggestions</p>';
+  }
+}
 async function renderDinner(){
   const di = dinnerCutoffInfo();
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="dinner-root"><p class="text-sm text-sand-200/50">Loading…</p></div>';
@@ -1304,7 +1405,7 @@ function renderMore(){
   let html = '<div class="fade-in max-w-lg mx-auto space-y-2">'+
     moreRow('schedule','fa-calendar','My schedule / leave')+
     moreRow('profile','fa-user','My profile / photo')+
-    moreRow('reminders','fa-bell','Reminders')+moreRow('suggestions','fa-lightbulb','Suggestion box')+
+    moreRow('reminders','fa-bell','Reminders (staff-wide)')+moreRow('suggestions','fa-lightbulb','Suggestion box')+
     moreRow('bookings','fa-ticket','My boat bookings');
   if (canKitchen()) html += moreRow('kitchen','fa-fire-burner','Kitchen dashboard');
   if (canAdmin()) html += moreRow('users','fa-users','Staff directory');
@@ -1328,66 +1429,112 @@ async function checkHealth(){
 async function renderReminders(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="rem-root">Loading…</div>';
   const r = await api('getReminders');
-  const list = (r.data && r.data.reminders) || [];
-  let html = '<button id="btn-add-rem" class="btn-primary w-full rounded-xl py-2 text-sm text-white mb-2"><i class="fa-solid fa-plus mr-1"></i>Add reminder</button>';
-  if (!list.length) html += '<p class="text-sm text-sand-200/50">No reminders</p>';
+  let list = sortRemindersHome((r.data && r.data.reminders) || []).filter(x => !(x.done===true||x.done==='TRUE'));
+  const adm = canAdmin();
+  let html = '';
+  if (adm) {
+    html += '<button id="btn-add-rem" class="btn-primary w-full rounded-xl py-2 text-sm text-white mb-2"><i class="fa-solid fa-bullhorn mr-1"></i>Broadcast reminder (admin)</button>';
+  } else {
+    html += '<p class="text-[10px] text-slate-500 mb-1">Staff-wide reminders — posted by admin only</p>';
+  }
+  if (!list.length) html += '<p class="text-sm text-sand-200/50">No active reminders</p>';
   list.forEach(x => {
-    const done = x.done || x.done==='TRUE';
-    html += '<div class="glass rounded-xl p-3 flex gap-3 items-start '+(done?'opacity-50':'')+'">'+
-      '<button class="text-teal-400 mt-0.5 rem-done" data-id="'+x.id+'"><i class="fa-solid fa-circle-check"></i></button>'+
-      '<div class="flex-1"><p class="text-sm font-medium">'+esc(x.title)+'</p><p class="text-xs text-sand-200/60">'+esc(x.body)+'</p>'+
-      (x.dueDate?'<p class="text-[10px] text-sand-200/40">Due '+esc(x.dueDate)+'</p>':'')+'</div>'+
-      '<button class="text-red-400/70 rem-del" data-id="'+x.id+'"><i class="fa-solid fa-trash text-xs"></i></button></div>';
+    const pri = reminderPriorityScore(x);
+    html += '<div class="glass rounded-xl p-3 flex gap-3 items-start">'+
+      '<div class="flex-1"><div class="flex items-center gap-2 flex-wrap">'+
+      (pri?'<span class="ui-badge bg-rose-600/30 text-rose-200">Important</span>':'')+
+      '<p class="text-sm font-medium">'+esc(x.title)+'</p></div>'+
+      '<p class="text-xs text-sand-200/60 mt-1">'+esc(x.body||'')+'</p>'+
+      (x.dueDate?'<p class="text-[10px] text-sand-200/40 mt-1">Due '+esc(x.dueDate)+'</p>':'')+
+      '</div>'+
+      (adm?'<button class="text-red-400/70 rem-del" data-id="'+x.id+'"><i class="fa-solid fa-trash text-xs"></i></button>':'')+
+      '</div>';
   });
   $('#rem-root').innerHTML = html;
-  $('#btn-add-rem').onclick = () => {
-    openModal('<h3 class="font-semibold mb-3">New reminder</h3><input id="rm-title" class="w-full rounded-xl px-3 py-2 text-sm mb-2" placeholder="Title"/>'+
+  const addBtn = $('#btn-add-rem');
+  if (addBtn) addBtn.onclick = async () => {
+    const passcode = await askPasscode('admin'); if (!passcode) return;
+    openModal('<h3 class="font-semibold mb-3">Broadcast reminder</h3>'+
+      '<input id="rm-title" class="w-full rounded-xl px-3 py-2 text-sm mb-2" placeholder="Title"/>'+
       '<textarea id="rm-body" class="w-full rounded-xl px-3 py-2 text-sm mb-2" rows="2" placeholder="Details"></textarea>'+
-      '<input id="rm-due" type="date" class="w-full rounded-xl px-3 py-2 text-sm mb-3"/>'+
-      '<button id="rm-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Save</button>');
+      '<input id="rm-due" type="date" class="w-full rounded-xl px-3 py-2 text-sm mb-2"/>'+
+      '<label class="flex items-center gap-2 text-xs text-slate-300 mb-2"><input type="checkbox" id="rm-important"/> Mark important / high priority</label>'+
+      '<button id="rm-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Post to all staff</button>');
     $('#rm-save').onclick = async () => {
-      await api('addReminder',{ title:$('#rm-title').value, body:$('#rm-body').value, dueDate:$('#rm-due').value });
-      closeModal(); toast('Saved','ok'); renderReminders();
+      const important = $('#rm-important').checked;
+      const res = await api('addReminder',{ title:$('#rm-title').value, body:$('#rm-body').value, dueDate:$('#rm-due').value, priority: important?'high':'normal', important, audience:'all', passcode });
+      if (!res.success) { toast(res.error||'Failed','error'); return; }
+      closeModal(); toast('Broadcast posted','ok'); renderReminders();
     };
   };
-  $$('.rem-done').forEach(b=>b.onclick=async()=>{ await api('completeReminder',{id:b.dataset.id}); renderReminders(); });
-  $$('.rem-del').forEach(b=>b.onclick=async()=>{ await api('deleteReminder',{id:b.dataset.id}); renderReminders(); });
+  $$('.rem-del').forEach(b=>b.onclick=async()=>{
+    const passcode = await askPasscode('admin'); if (!passcode) return;
+    const res = await api('deleteReminder',{id:b.dataset.id, passcode});
+    if (!res.success) toast(res.error||'Failed','error'); else { toast('Deleted','ok'); renderReminders(); }
+  });
 }
-
 async function renderSuggestions(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="sug-root">Loading…</div>';
-  const r = await api('getSuggestions');
-  const list = (r.data && r.data.suggestions) || [];
+  const adm = canAdmin();
+  const r = await api('getSuggestions', adm ? { adminView: true } : {});
+  let list = ((r.data && r.data.suggestions) || []).slice();
+  list.sort(function(a,b){ return Number(b.likes!=null?b.likes:b.votes||0) - Number(a.likes!=null?a.likes:a.votes||0); });
   let html = '<button id="btn-add-sug" class="btn-primary w-full rounded-xl py-2 text-sm text-white"><i class="fa-solid fa-plus mr-1"></i>New suggestion</button>';
+  html += '<p class="text-[10px] text-slate-500">Ideas are anonymous to staff. New posts need admin approval before they appear on Home.</p>';
   if (!list.length) html += '<p class="text-sm text-sand-200/50">No suggestions yet</p>';
   list.forEach(s => {
     const likes = s.likes != null ? s.likes : 0;
     const dislikes = s.dislikes != null ? s.dislikes : 0;
+    const st = String(s.status||'open').toLowerCase();
+    const approved = st==='approved' || st==='open';
+    const pending = st==='pending';
     html += '<div class="glass rounded-xl p-3"><div class="flex justify-between gap-2"><div class="min-w-0">'+
-      '<p class="font-medium text-sm">'+esc(s.title)+'</p><p class="text-xs text-sand-200/60 mt-1">'+esc(s.body)+'</p>'+
-      '<p class="text-[10px] text-sand-200/40 mt-1">'+esc(s.userName)+'</p></div>'+
-      '<div class="flex flex-col items-center gap-1 shrink-0">'+
-      '<button class="text-teal-400 vote-sug" data-id="'+s.id+'" data-vote="like" title="Like"><i class="fa-solid fa-thumbs-up"></i> <span class="text-[10px]">'+likes+'</span></button>'+
-      '<span class="text-xs font-semibold text-slate-300">'+(s.votes||0)+'</span>'+
-      '<button class="text-rose-400 vote-sug" data-id="'+s.id+'" data-vote="dislike" title="Dislike"><i class="fa-solid fa-thumbs-down"></i> <span class="text-[10px]">'+dislikes+'</span></button>'+
-      '</div></div></div>';
+      '<div class="flex items-center gap-2 flex-wrap">'+
+      (pending?'<span class="ui-badge bg-amber-600/30 text-amber-200">Pending</span>':'')+
+      (st==='rejected'?'<span class="ui-badge bg-rose-700/30 text-rose-200">Rejected</span>':'')+
+      '<p class="font-medium text-sm">'+esc(s.title)+'</p></div>'+
+      '<p class="text-xs text-sand-200/60 mt-1">'+esc(s.body)+'</p>'+
+      (adm && (s.userName||s.userEmail)?'<p class="text-[10px] text-sand-200/40 mt-1">'+esc(s.userName||s.userEmail)+'</p>':'')+
+      '</div>';
+    if (approved) {
+      html += '<div class="flex flex-col items-center gap-1 shrink-0">'+
+        '<button class="text-teal-400 vote-sug" data-id="'+s.id+'" data-vote="like" title="Like"><i class="fa-solid fa-thumbs-up"></i> <span class="text-[10px]">'+likes+'</span></button>'+
+        '<span class="text-xs font-semibold text-slate-300">'+(s.votes||0)+'</span>'+
+        '<button class="text-rose-400 vote-sug" data-id="'+s.id+'" data-vote="dislike" title="Dislike"><i class="fa-solid fa-thumbs-down"></i> <span class="text-[10px]">'+dislikes+'</span></button>'+
+        '</div>';
+    } else if (adm && pending) {
+      html += '<div class="flex flex-col gap-1 shrink-0">'+
+        '<button class="text-[10px] text-teal-300 sug-approve" data-id="'+s.id+'">Approve</button>'+
+        '<button class="text-[10px] text-rose-300 sug-reject" data-id="'+s.id+'">Reject</button></div>';
+    }
+    html += '</div></div>';
   });
   $('#sug-root').innerHTML = html;
   $('#btn-add-sug').onclick = () => {
-    openModal('<h3 class="font-semibold mb-3">Suggestion</h3><input id="sg-title" class="w-full rounded-xl px-3 py-2 text-sm mb-2" placeholder="Title"/>'+
+    openModal('<h3 class="font-semibold mb-3">Suggestion</h3><p class="text-[10px] text-slate-400 mb-2">Anonymous to staff. Needs admin approval for the home feed.</p><input id="sg-title" class="w-full rounded-xl px-3 py-2 text-sm mb-2" placeholder="Title"/>'+
       '<textarea id="sg-body" class="w-full rounded-xl px-3 py-2 text-sm mb-3" rows="3" placeholder="Your idea"></textarea>'+
       '<button id="sg-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Submit</button>');
     $('#sg-save').onclick = async () => {
-      await api('addSuggestion',{ title:$('#sg-title').value, body:$('#sg-body').value });
-      closeModal(); toast('Submitted','ok'); renderSuggestions();
+      const res = await api('addSuggestion',{ title:$('#sg-title').value, body:$('#sg-body').value });
+      if (!res.success) { toast(res.error||'Failed','error'); return; }
+      closeModal(); toast('Submitted for approval','ok'); renderSuggestions();
     };
   };
   $$('.vote-sug').forEach(b=>b.onclick=async()=>{
     const res = await api('voteSuggestion',{ id:b.dataset.id, vote:b.dataset.vote });
     if (!res.success) toast(res.error,'error'); else { toast(b.dataset.vote==='dislike'?'Disliked':'Liked','ok'); renderSuggestions(); }
   });
+  $$('.sug-approve').forEach(b=>b.onclick=async()=>{
+    const passcode = await askPasscode('admin'); if (!passcode) return;
+    const res = await api('approveSuggestion',{ id:b.dataset.id, passcode });
+    if (!res.success) toast(res.error,'error'); else { toast('Approved','ok'); renderSuggestions(); }
+  });
+  $$('.sug-reject').forEach(b=>b.onclick=async()=>{
+    const passcode = await askPasscode('admin'); if (!passcode) return;
+    const res = await api('rejectSuggestion',{ id:b.dataset.id, passcode });
+    if (!res.success) toast(res.error,'error'); else { toast('Rejected','ok'); renderSuggestions(); }
+  });
 }
-
 async function renderMyProfile(){
   const u = state.user;
   const photo = u.photoUrl || localPhoto(u.email) || '';
@@ -1460,9 +1607,9 @@ async function renderKitchen(){
       if (meal==='lunch') {
         const lunchTotal = pack.total!=null ? pack.total : (pack.orders||[]).length;
         h += '<div class="grid grid-cols-2 gap-2 mb-3 text-[10px]">'+
-          '<div class="glass rounded-lg p-2 border border-teal-600/30"><p class="text-slate-400 uppercase tracking-wide">Today's lunch total</p><strong class="text-lg text-teal-300">'+lunchTotal+'</strong></div>'+
+          '<div class="glass rounded-lg p-2 border border-teal-600/30"><p class="text-slate-400 uppercase tracking-wide">Today\'s lunch total</p><strong class="text-lg text-teal-300">'+lunchTotal+'</strong></div>'+
           '<div class="glass rounded-lg p-2"><p class="text-slate-400">Cutoff</p><p class="text-slate-200">'+(pack.cutoff && pack.cutoff.open?'Open until 10am':'Closed 10am Fiji')+'</p></div></div>'+
-          '<p class="text-[10px] text-slate-400 mb-2">Chef tally (counts by meal choice for today's service)</p>';
+          '<p class="text-[10px] text-slate-400 mb-2">Chef tally (counts by meal choice for today\'s service)</p>';
       }
       const late = pack.late || [];
       if (late.length) {
@@ -1869,6 +2016,8 @@ async function renderAdmin(){
     return;
   }
   let body = '<button onclick="navigate(\'users\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-users text-teal-400 mr-2"></i>Staff Directory / approve</button>'+
+    '<button onclick="navigate(\'reminders\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-bullhorn text-teal-400 mr-2"></i>Broadcast reminders</button>'+
+    '<button onclick="navigate(\'suggestions\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-lightbulb text-teal-400 mr-2"></i>Review suggestions</button>'+
     '<button onclick="navigate(\'kitchen\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-fire-burner text-teal-400 mr-2"></i>Kitchen ops / prep list</button>'+
     '<button onclick="navigate(\'boat\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-ship text-teal-400 mr-2"></i>Boat ops</button>';
   if (full) {
