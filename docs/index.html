@@ -118,18 +118,8 @@ body {
     var(--hero-banner-2);
   background-size: cover; background-position: center 40%;
 }
-/* home banner (C52): full-bleed strip under sticky header, ~2× old compact height */
-.home-accent {
-  background-image:
-    linear-gradient(to top, #0a1628 0%, rgba(10,22,40,0.55) 45%, rgba(10,22,40,0.15) 100%),
-    var(--aerial);
-  background-size: cover;
-  background-position: center 40%;
-  height: 11rem; /* h-44 ≈ 176px */
-}
-@media (min-width: 640px) {
-  .home-accent { height: 12rem; } /* h-48 ≈ 192px on wider */
-}
+/* home banner hidden (C53): no full-bleed strip under sticky header */
+.home-accent { display: none; }
 
 .btn-primary {
   background: #0d9488;
@@ -212,7 +202,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.6.4';
+const APP_VERSION = '2.6.5';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -352,12 +342,12 @@ const DEMO_KEY = 'pcr_v2_demo_db';
 
   <div id="view-main" class="hidden flex-1 flex flex-col safe-bottom">
     <div id="app-sticky" class="sticky top-0 z-40 no-print">
-      <header id="app-header" class="app-header-motif glass-strong px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
-        <div class="flex items-center gap-2.5 min-w-0">
-          <img src="assets/golden-logo.jpg" alt="" class="h-8 w-8 rounded-lg object-contain bg-white/90 p-0.5 opacity-95" aria-hidden="true"/>
+      <header id="app-header" class="app-header-motif glass-strong px-4 py-6 flex items-center justify-between border-b border-teal-500/10 min-h-[4.5rem]">
+        <div class="flex items-center gap-3 min-w-0">
+          <img src="assets/golden-logo.jpg" alt="" class="h-12 w-12 rounded-xl object-contain bg-white/90 p-0.5 opacity-95" aria-hidden="true"/>
           <div class="min-w-0">
-            <p class="text-xs text-teal-400/90 font-medium">Paradise Cove</p>
-            <h2 id="header-title" class="text-sm font-semibold truncate">Home</h2>
+            <p class="text-sm text-teal-400/90 font-medium">Paradise Cove</p>
+            <h2 id="header-title" class="text-base font-semibold truncate">Home</h2>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -1387,7 +1377,6 @@ function renderHome(){
 
   $('#main-content').innerHTML =
   '<div class="animate-fade-in">'+
-    '<div class="home-accent home-banner relative -mx-4 -mt-4 mb-4 w-[calc(100%+2rem)] max-w-none overflow-hidden border-b border-teal-800/30" role="img" aria-label="Paradise Cove resort"></div>'+
     '<div class="space-y-4 max-w-lg mx-auto">'+
       '<div class="ui-card glass rounded-xl p-3 flex items-center gap-3">'+
         homeAvatarHtml(u)+
