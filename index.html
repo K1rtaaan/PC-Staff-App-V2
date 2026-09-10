@@ -202,7 +202,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.6.1';
+const APP_VERSION = '2.6.2';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -2809,7 +2809,25 @@ function boot(){
   }
   const tick = () => { const el=$('#fiji-clock'); if(el) el.textContent = formatFiji(); };
   tick(); setInterval(tick, 30000);
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').then(function(reg){
+      function reloadOnce(){
+        var key = 'pcr-sw-reloaded-' + APP_VERSION;
+        if (sessionStorage.getItem(key)) return;
+        sessionStorage.setItem(key, '1');
+        location.reload();
+      }
+      if (reg.waiting) reloadOnce();
+      reg.addEventListener('updatefound', function(){
+        var w = reg.installing;
+        if (!w) return;
+        w.addEventListener('statechange', function(){
+          if (w.state === 'installed' && navigator.serviceWorker.controller) reloadOnce();
+        });
+      });
+      navigator.serviceWorker.addEventListener('controllerchange', reloadOnce);
+    }).catch(function(){});
+  }
   const session = loadSession();
   if (session && session.email) {
     state.user = session;
