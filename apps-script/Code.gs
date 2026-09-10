@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.5.0';
+var APP_VERSION = '2.5.1';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -1426,8 +1426,16 @@ function placeDinnerOrder(p) {
 function placeLunchOrder(p) {
   var info = lunchCutoffInfo();
   var late = !info.open;
-  if (late && !p.allowLate) {
-    return { success: false, error: 'Lunch ordering closed at 10am Fiji for today\'s service (' + info.serviceDate + ')', cutoff: info };
+  // Staff cannot late-order lunch. allowLate is admin-only (passcode 2025/2026).
+  if (late) {
+    if (!p.allowLate) {
+      return { success: false, error: 'Lunch ordering closed at 10am Fiji for today\'s service (' + info.serviceDate + ')', cutoff: info };
+    }
+    try {
+      requirePasscode(p, 'admin');
+    } catch (e) {
+      return { success: false, error: 'Lunch ordering closed at 10am Fiji. Late lunch is not available to staff.', cutoff: info };
+    }
   }
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
@@ -1554,7 +1562,7 @@ function getKitchenDashboard(p) {
         lateCount: lateDinner.length,
         total: dinners.length
       },
-      lunch: { orders: lunches, late: lateLunch, tally: tally(lunches), cutoff: lunchInfo },
+      lunch: { orders: lunches, late: lateLunch, tally: tally(lunches), cutoff: lunchInfo, total: lunches.length },
       stats: {
         tomorrowTotal: dinners.length,
         perItem: tally(dinners),
