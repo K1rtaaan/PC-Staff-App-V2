@@ -443,8 +443,13 @@ function publicUser(u){
   return { id:u.id, email:u.email, firstName:u.firstName||'', lastName:u.lastName||'',
     department:u.department||'', contact:u.contact||'', role:u.role||'staff',
     roster:u.roster||'', village:u.village||'', active:!!u.active, verified:!!u.verified,
+    photoUrl: u.photoUrl || localPhoto(u.email) || '',
     needsProfile: !(u.firstName && u.lastName && u.department) };
 }
+function photoKey(email){ return 'pcr_v2_photo_' + String(email||'').toLowerCase(); }
+function localPhoto(email){ try { return localStorage.getItem(photoKey(email)) || ''; } catch(e){ return ''; } }
+function saveLocalPhoto(email, dataUrl){ try { if (dataUrl) localStorage.setItem(photoKey(email), dataUrl); else localStorage.removeItem(photoKey(email)); } catch(e){} }
+
 function isDemoMode(){
   const params = new URLSearchParams(location.search);
   return !API_URL || !API_URL.trim() || params.get('demo') === '1';
@@ -561,14 +566,17 @@ function demoApi(action, p) {
       if (p.village === true || p.village === 'true') villageVal = 'Village';
       else if (p.village === false || p.village === 'false') villageVal = 'Resort';
       else if (p.village) villageVal = String(p.village);
+      const photoUrl = String(p.photoUrl||'');
       const row = {
         id: uid('usr'), email, password,
         firstName: p.firstName||'', lastName: p.lastName||'',
         department: p.department||'', contact: p.contact||'',
         role: 'staff', roster: p.roster || p.rosterPattern || '', village: villageVal,
-        active: false, verified: false, createdAt: new Date().toISOString()
+        active: false, verified: false, createdAt: new Date().toISOString(),
+        photoUrl: photoUrl.length > 45000 ? '' : photoUrl
       };
       db.users.push(row); saveDemo(db);
+      if (photoUrl) saveLocalPhoto(email, photoUrl);
       if (isPcr && !isSuper) {
         return Promise.resolve(ok({ pendingApproval:true, message:'Account created. Pending admin approval.' }));
       }
@@ -611,9 +619,16 @@ function demoApi(action, p) {
       const email = (p.targetEmail||p.email||'').toLowerCase();
       const u = db.users.find(x => x.email === email);
       if (!u) return Promise.resolve(fail('User not found'));
-      ['firstName','lastName','contact','department','roster','village','role','password'].forEach(k => {
+      const self = state.user && state.user.email === email;
+      ['firstName','lastName','contact','department','roster','village','password'].forEach(k => {
         if (p[k] !== undefined) u[k] = p[k];
       });
+      if (p.photoUrl !== undefined) {
+        u.photoUrl = String(p.photoUrl||'').length > 45000 ? '' : p.photoUrl;
+        if (p.photoUrl) saveLocalPhoto(email, p.photoUrl);
+      }
+      if (!self && p.role !== undefined) u.role = p.role;
+      if (self && p.role !== undefined && p.role !== u.role) return Promise.resolve(fail('Staff cannot change role'));
       if (p.active !== undefined) u.active = p.active===true || p.active==='true';
       saveDemo(db);
       return Promise.resolve(ok({ user: publicUser(u) }));
@@ -857,10 +872,23 @@ function demoApi(action, p) {
     case 'voteSuggestion': {
       const s = db.suggestions.find(x=>x.id===p.id);
       if (!s) return Promise.resolve(fail('not found'));
-      const voters = (s.voters||'').split(',').filter(Boolean);
-      if (voters.includes(state.user.email)) return Promise.resolve(fail('Already voted'));
-      voters.push(state.user.email); s.voters=voters.join(','); s.votes=Number(s.votes||0)+1;
-      saveDemo(db); return Promise.resolve(ok({ votes:s.votes }));
+      let dir = String(p.vote||p.direction||'like').toLowerCase();
+      if (dir==='up'||dir==='upvote') dir='like';
+      if (dir==='down'||dir==='downvote') dir='dislike';
+      if (dir!=='like'&&dir!=='dislike') dir='like';
+      const email = (state.user.email||'').toLowerCase();
+      const map = {};
+      String(s.voters||'').split(',').filter(Boolean).forEach(part=>{
+        const bits = part.split(':');
+        if (bits.length>=2) map[bits[0].toLowerCase()] = bits[1];
+        else map[bits[0].toLowerCase()] = 'like';
+      });
+      if (map[email]===dir) return Promise.resolve(fail('Already '+dir+'d'));
+      map[email]=dir;
+      let likes=0, dislikes=0; const parts=[];
+      Object.keys(map).forEach(em=>{ parts.push(em+':'+map[em]); if(map[em]==='dislike') dislikes++; else likes++; });
+      s.voters=parts.join(','); s.likes=likes; s.dislikes=dislikes; s.votes=likes-dislikes;
+      saveDemo(db); return Promise.resolve(ok({ votes:s.votes, likes, dislikes, myVote:dir }));
     }
     case 'getLeaveRequests': {
       let rows = db.leaveRequests;
@@ -946,6 +974,13 @@ function roleLabel(r){
 }
 function canAdmin(){ return ['super_admin','admin','hod'].includes(state.user && state.user.role); }
 function canKitchen(){ return ['super_admin','admin','kitchen','hod'].includes(state.user && state.user.role); }
+function isStaffOnly(){ const r = state.user && state.user.role; return !r || r === 'staff' || r === 'boat'; }
+function canPrivilegedTab(tab){
+  if (tab === 'admin' || tab === 'users') return canAdmin();
+  if (tab === 'kitchen') return canKitchen();
+  return true;
+}
+
 function saveSession(){ localStorage.setItem(SESSION_KEY, JSON.stringify(state.user)); }
 function loadSession(){ try { return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); } catch(e){ return null; } }
 function cacheUsers(users){ try { localStorage.setItem(CACHE_USERS_KEY, JSON.stringify({ at:Date.now(), users })); } catch(e){} }
@@ -968,14 +1003,18 @@ function renderNav(){
   $$('#bottom-nav .nav-item').forEach(b => b.onclick = () => navigate(b.dataset.tab));
 }
 function navigate(tab){
+  if (!canPrivilegedTab(tab)) {
+    toast('Basic staff access only — that area is restricted','error');
+    tab = 'home';
+  }
   state.tab = tab;
-  const titles = { home:'Home', meals:'Meals', boat:'Boat Schedule', schedule:'My Schedule', more:'More', users:'Staff Directory', kitchen:'Kitchen', reminders:'Reminders', suggestions:'Suggestions', bookings:'My Bookings', admin:'Admin' };
+  const titles = { home:'Home', meals:'Meals', boat:'Boat Schedule', schedule:'My Schedule', more:'More', users:'Staff Directory', kitchen:'Kitchen', reminders:'Reminders', suggestions:'Suggestions', bookings:'My Bookings', admin:'Admin', profile:'My Profile' };
   $('#header-title').textContent = titles[tab] || tab;
   renderNav();
   const map = {
     home: renderHome, meals: renderMeals, boat: renderBoat, schedule: renderSchedule,
     more: renderMore, users: renderUsers, kitchen: renderKitchen, reminders: renderReminders,
-    suggestions: renderSuggestions, bookings: renderMyBookings, admin: renderAdmin
+    suggestions: renderSuggestions, bookings: renderMyBookings, admin: renderAdmin, profile: renderMyProfile
   };
   (map[tab]||renderHome)();
 }
@@ -1003,7 +1042,7 @@ function renderHome(){
     '<div class="relative overflow-hidden rounded-2xl border border-teal-800/40 shadow-lg shadow-teal-950/40 home-accent">'+
       '<div class="relative z-10 flex items-end gap-3 p-4 pt-16">'+
         '<div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/95 shadow-md">'+
-          '<img src="assets/golden-logo.jpg" alt="" class="h-11 w-11 object-contain p-0.5"/>'+
+          ((u.photoUrl||localPhoto(u.email))?'<img src="'+esc(u.photoUrl||localPhoto(u.email))+'" alt="" class="h-full w-full object-cover"/>':'<img src="assets/golden-logo.jpg" alt="" class="h-11 w-11 object-contain p-0.5"/>')+
         '</div>'+
         '<div class="min-w-0 flex-1">'+
           '<h2 class="text-xl font-bold text-white drop-shadow">Bula, '+esc(u.firstName||'friend')+'!</h2>'+
@@ -1225,11 +1264,13 @@ function moreRow(tab, icon, label){
 }
 function renderMore(){
   let html = '<div class="fade-in max-w-lg mx-auto space-y-2">'+
+    moreRow('profile','fa-user','My profile / photo')+
     moreRow('reminders','fa-bell','Reminders')+moreRow('suggestions','fa-lightbulb','Suggestion box')+
     moreRow('bookings','fa-ticket','My boat bookings');
   if (canKitchen()) html += moreRow('kitchen','fa-fire-burner','Kitchen dashboard');
   if (canAdmin()) html += moreRow('users','fa-users','Staff directory');
   if (canAdmin()) html += moreRow('admin','fa-gear','Admin tools');
+  if (isStaffOnly()) html += '<p class="text-[10px] text-slate-500 px-1 pt-2">Staff access: meals, boats, suggestions, leave & profile. Admin/kitchen tools are hidden.</p>';
   html += '<div class="glass rounded-xl p-3 mt-4 text-[10px] text-sand-200/40 space-y-1">'+
     '<p>Backend: '+(state.demo?'Demo (localStorage)':esc((API_URL||'').slice(0,48)+'…'))+'</p>'+
     '<p>API version: '+esc(state.backendVersion||'—')+'</p><p>Fiji now: '+formatFiji()+'</p>'+
@@ -1281,10 +1322,16 @@ async function renderSuggestions(){
   let html = '<button id="btn-add-sug" class="btn-primary w-full rounded-xl py-2 text-sm text-white"><i class="fa-solid fa-plus mr-1"></i>New suggestion</button>';
   if (!list.length) html += '<p class="text-sm text-sand-200/50">No suggestions yet</p>';
   list.forEach(s => {
-    html += '<div class="glass rounded-xl p-3"><div class="flex justify-between gap-2"><div>'+
+    const likes = s.likes != null ? s.likes : 0;
+    const dislikes = s.dislikes != null ? s.dislikes : 0;
+    html += '<div class="glass rounded-xl p-3"><div class="flex justify-between gap-2"><div class="min-w-0">'+
       '<p class="font-medium text-sm">'+esc(s.title)+'</p><p class="text-xs text-sand-200/60 mt-1">'+esc(s.body)+'</p>'+
       '<p class="text-[10px] text-sand-200/40 mt-1">'+esc(s.userName)+'</p></div>'+
-      '<button class="flex flex-col items-center text-teal-400 vote-sug" data-id="'+s.id+'"><i class="fa-solid fa-caret-up text-lg"></i><span class="text-xs font-semibold">'+(s.votes||0)+'</span></button></div></div>';
+      '<div class="flex flex-col items-center gap-1 shrink-0">'+
+      '<button class="text-teal-400 vote-sug" data-id="'+s.id+'" data-vote="like" title="Like"><i class="fa-solid fa-thumbs-up"></i> <span class="text-[10px]">'+likes+'</span></button>'+
+      '<span class="text-xs font-semibold text-slate-300">'+(s.votes||0)+'</span>'+
+      '<button class="text-rose-400 vote-sug" data-id="'+s.id+'" data-vote="dislike" title="Dislike"><i class="fa-solid fa-thumbs-down"></i> <span class="text-[10px]">'+dislikes+'</span></button>'+
+      '</div></div></div>';
   });
   $('#sug-root').innerHTML = html;
   $('#btn-add-sug').onclick = () => {
@@ -1297,9 +1344,55 @@ async function renderSuggestions(){
     };
   };
   $$('.vote-sug').forEach(b=>b.onclick=async()=>{
-    const res = await api('voteSuggestion',{ id:b.dataset.id });
-    if (!res.success) toast(res.error,'error'); else { toast('Voted','ok'); renderSuggestions(); }
+    const res = await api('voteSuggestion',{ id:b.dataset.id, vote:b.dataset.vote });
+    if (!res.success) toast(res.error,'error'); else { toast(b.dataset.vote==='dislike'?'Disliked':'Liked','ok'); renderSuggestions(); }
   });
+}
+
+async function renderMyProfile(){
+  const u = state.user;
+  const photo = u.photoUrl || localPhoto(u.email) || '';
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="prof-root">'+
+    '<div class="glass rounded-2xl p-4 space-y-3">'+
+    '<div class="flex items-center gap-3"><div class="h-16 w-16 rounded-xl overflow-hidden bg-slate-800 border border-slate-600 flex items-center justify-center">'+
+    (photo?'<img id="pf2-img" src="'+esc(photo)+'" class="h-full w-full object-cover" alt=""/>':'<i class="fa-solid fa-user text-slate-500 text-xl" id="pf2-ph"></i><img id="pf2-img" class="hidden h-full w-full object-cover" alt=""/>')+
+    '</div><div><p class="font-semibold text-sm">'+esc(u.firstName)+' '+esc(u.lastName)+'</p>'+
+    '<p class="text-[10px] text-slate-400">'+esc(u.email)+' · '+esc(roleLabel(u.role))+'</p></div></div>'+
+    '<label class="text-xs text-slate-400">Profile photo</label>'+
+    '<input type="file" id="pf2-photo" accept="image/*" class="block w-full text-xs text-slate-400"/>'+
+    '<input id="pf2-fn" class="ui-input" placeholder="First name" value="'+esc(u.firstName)+'"/>'+
+    '<input id="pf2-ln" class="ui-input" placeholder="Last name" value="'+esc(u.lastName)+'"/>'+
+    '<input id="pf2-contact" class="ui-input" placeholder="Contact" value="'+esc(u.contact||'')+'"/>'+
+    '<input id="pf2-dept" class="ui-input" placeholder="Department" value="'+esc(u.department||'')+'"/>'+
+    '<button id="pf2-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Save profile</button>'+
+    '<p class="text-[10px] text-slate-500">Role is fixed at registration (staff). Ask an admin to change privileges.</p></div></div>';
+  let pendingPhoto = photo;
+  $('#pf2-photo').onchange = function(){
+    const file = this.files && this.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e){
+      pendingPhoto = e.target.result;
+      const img = $('#pf2-img'); img.src = pendingPhoto; img.classList.remove('hidden');
+      const ph = $('#pf2-ph'); if (ph) ph.classList.add('hidden');
+    };
+    reader.readAsDataURL(file);
+  };
+  $('#pf2-save').onclick = async () => {
+    saveLocalPhoto(u.email, pendingPhoto);
+    const payload = {
+      targetEmail: u.email, email: u.email,
+      firstName: $('#pf2-fn').value.trim(), lastName: $('#pf2-ln').value.trim(),
+      contact: $('#pf2-contact').value.trim(), department: $('#pf2-dept').value.trim(),
+      photoUrl: (pendingPhoto && pendingPhoto.length < 45000) ? pendingPhoto : ''
+    };
+    const res = await api('updateProfile', payload);
+    if (!res.success) { toast(res.error,'error'); return; }
+    state.user = res.data.user;
+    if (pendingPhoto) state.user.photoUrl = pendingPhoto;
+    saveSession();
+    toast('Profile saved','ok');
+    renderMyProfile();
+  };
 }
 
 async function renderKitchen(){
@@ -1846,19 +1939,31 @@ function maybeProfileModal(){
   if (!state.user || !state.user.needsProfile) return;
   const DEPTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Management','IT/Office','Other'];
   const deptOpts = DEPTS.map(d => '<option value="'+d.replace(/"/g,'')+'"'+(state.user.department===d?' selected':'')+'>'+d+'</option>').join('');
+  const curPhoto = state.user.photoUrl || localPhoto(state.user.email) || '';
   openModal('<h3 class="font-semibold mb-1 text-slate-100">Complete Your Profile</h3>'+
     '<p class="text-xs text-slate-400 mb-3">First name, last name and department are required.</p><div class="space-y-2">'+
+    '<div class="flex items-center gap-2"><img id="pf-img" src="'+(curPhoto?esc(curPhoto):'')+'" class="'+(curPhoto?'':'hidden')+' h-14 w-14 rounded-xl object-cover border border-slate-600" alt=""/>'+
+    '<input type="file" id="pf-photo" accept="image/*" class="text-xs text-slate-400"/></div>'+
     '<input id="pf-fn" class="ui-input" placeholder="First name" value="'+esc(state.user.firstName)+'"/>'+
     '<input id="pf-ln" class="ui-input" placeholder="Last name" value="'+esc(state.user.lastName)+'"/>'+
     '<select id="pf-dept" class="ui-input"><option value="">Select department…</option>'+deptOpts+'</select>'+
     '<input id="pf-contact" class="ui-input" placeholder="Contact" value="'+esc(state.user.contact)+'"/>'+
     '<button id="pf-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Save profile</button></div>');
+  let pendingPhoto = curPhoto;
+  const pfin = $('#pf-photo');
+  if (pfin) pfin.onchange = function(){
+    const file = this.files && this.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e){ pendingPhoto = e.target.result; const img=$('#pf-img'); img.src=pendingPhoto; img.classList.remove('hidden'); };
+    reader.readAsDataURL(file);
+  };
   $('#pf-save').onclick = async () => {
     const firstName=$('#pf-fn').value.trim(), lastName=$('#pf-ln').value.trim(), department=$('#pf-dept').value.trim();
     if (!firstName||!lastName||!department) { toast('All three required','error'); return; }
-    const res = await api('updateProfile',{ targetEmail:state.user.email, email:state.user.email, firstName, lastName, department, contact:$('#pf-contact').value });
+    if (pendingPhoto) saveLocalPhoto(state.user.email, pendingPhoto);
+    const res = await api('updateProfile',{ targetEmail:state.user.email, email:state.user.email, firstName, lastName, department, contact:$('#pf-contact').value, photoUrl:(pendingPhoto&&pendingPhoto.length<45000)?pendingPhoto:'' });
     if (!res.success) { toast(res.error,'error'); return; }
-    state.user = res.data.user; saveSession(); closeModal(); toast('Profile saved','ok'); navigate('home');
+    state.user = res.data.user; if (pendingPhoto) state.user.photoUrl = pendingPhoto; saveSession(); closeModal(); toast('Profile saved','ok'); navigate('home');
   };
 }
 
@@ -1981,13 +2086,17 @@ $('#register-form').onsubmit = async (e) => {
     return;
   }
   if (password !== password2) { showLoginError('Passwords do not match'); toast('Passwords do not match','error'); return; }
+  let photoUrl = '';
+  try { photoUrl = sessionStorage.getItem('pcr_reg_photo') || ''; } catch(err){}
   const payload = {
     email, password, firstName, lastName, department,
     contact: $('#reg-contact').value.trim(),
     village: $('#reg-village').value,
-    roster: $('#reg-roster').value
+    roster: $('#reg-roster').value,
+    photoUrl: (photoUrl && photoUrl.length < 45000) ? photoUrl : ''
   };
   const r = await api('register', payload);
+  if (photoUrl) saveLocalPhoto(email, photoUrl);
   if (!r.success) {
     showLoginError(r.error || 'Registration failed');
     toast(r.error || 'Registration failed', 'error');
