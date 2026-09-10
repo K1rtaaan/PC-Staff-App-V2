@@ -202,7 +202,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.6.6';
+const APP_VERSION = '2.7.0';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -459,6 +459,47 @@ function seedDemoSamples(db){
       }
     });
   }
+  if (!db.rosterUploads) db.rosterUploads = [];
+  if (!db.rosterShifts) db.rosterShifts = [];
+  if (!db.notifications) db.notifications = [];
+  // Seed a few roster shifts for Ana (demo staff) if empty
+  if (!db.rosterShifts.length) {
+    const today = getFijiNow();
+    const day = today.getUTCDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    const monday = addFijiDays(today, mondayOffset);
+    const ana = 'ana.tui@paradisecoveresortfiji.com';
+    const uploadId = 'rup_demo_seed';
+    db.rosterUploads.push({
+      id: uploadId, period:'week', department:'Housekeeping', fileName:'demo-week.csv', fileType:'csv',
+      uploadedBy:'hod.fb@pcr.com', uploadedAt:formatFiji(), rowCount:5, matchedCount:1, unmatchedJson:'[]', notes:'demo seed'
+    });
+    for (let i=0;i<5;i++){
+      const d = fijiDateString(addFijiDays(monday, i));
+      const off = i===3;
+      db.rosterShifts.push({
+        id: uid('rsh'), uploadId, period:'week', userEmail:ana, userName:'Ana Tui', department:'Housekeeping',
+        date:d, start: off?'': '07:00', end: off?'':'16:00', dayOff: off, roleLabel:'', rawName:'Ana Tui', createdAt:formatFiji()
+      });
+    }
+    const ym = fijiDateString(today).slice(0,7);
+    db.rosterUploads.push({
+      id:'rup_demo_month', period:'month', department:'Housekeeping', fileName:'demo-month.csv', fileType:'csv',
+      uploadedBy:'hod.fb@pcr.com', uploadedAt:formatFiji(), rowCount:2, matchedCount:1, unmatchedJson:'[]', notes:'demo seed'
+    });
+    db.rosterShifts.push({
+      id: uid('rsh'), uploadId:'rup_demo_month', period:'month', userEmail:ana, userName:'Ana Tui', department:'Housekeeping',
+      date: ym+'-01', start:'08:00', end:'17:00', dayOff:false, roleLabel:'', rawName:'Ana Tui', createdAt:formatFiji()
+    });
+    db.rosterShifts.push({
+      id: uid('rsh'), uploadId:'rup_demo_month', period:'month', userEmail:ana, userName:'Ana Tui', department:'Housekeeping',
+      date: ym+'-15', start:'', end:'', dayOff:true, roleLabel:'', rawName:'Ana Tui', createdAt:formatFiji()
+    });
+    db.notifications.push({
+      id: uid('ntf'), userEmail:ana, title:'Roster updated', body:'Your weekly roster was updated (0 → 5 shifts).',
+      kind:'roster_change', relatedId:uploadId, read:false, createdAt:formatFiji()
+    });
+  }
   return added;
 }
 const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -529,7 +570,10 @@ function defaultDemoDb() {
       });
       return rows;
     })(),
-    dinnerPrepSnapshots: []
+    dinnerPrepSnapshots: [],
+    rosterUploads: [],
+    rosterShifts: [],
+    notifications: []
   };
 }
 function loadDemo() {
@@ -1118,15 +1162,162 @@ function demoApi(action, p) {
       }
       saveDemo(db); return Promise.resolve(ok({ request:r, escalation:escOn }));
     }
+    case 'uploadRosterParsed': {
+      if (!db.rosterUploads) db.rosterUploads = [];
+      if (!db.rosterShifts) db.rosterShifts = [];
+      if (!db.notifications) db.notifications = [];
+      const period = String(p.period||'').toLowerCase();
+      if (period!=='week' && period!=='month') return Promise.resolve(fail('period must be week or month'));
+      let department = String(p.department||'').trim() || 'ALL';
+      if (!canFullAdmin()) department = state.user.department || department;
+      if (canFullAdmin() && !passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      if (!canHod()) return Promise.resolve(fail('HOD/admin required'));
+      const chunkIndex = Number(p.chunkIndex||0);
+      const totalChunks = Number(p.totalChunks||1);
+      const isFinal = chunkIndex >= totalChunks-1 || p.isFinal===true || p.isFinal==='true';
+      let shiftsIn = p.shiftsJson;
+      if (typeof shiftsIn==='string') { try { shiftsIn = JSON.parse(shiftsIn); } catch(e){ return Promise.resolve(fail('Invalid shiftsJson')); } }
+      if (!Array.isArray(shiftsIn)) shiftsIn = [];
+      let uploadId = String(p.uploadId||'').trim();
+      const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
+      const fp = s => [String(s.date||'').slice(0,10), String(s.start||''), String(s.end||''), s.dayOff?'1':'0'].join('|');
+      const listFp = arr => (arr||[]).map(fp).sort().join(';');
+      let oldByUser = {};
+      if (chunkIndex===0 || !uploadId) {
+        uploadId = uid('rup');
+        const old = db.rosterShifts.filter(s => String(s.period).toLowerCase()===period && (
+          department.toUpperCase()==='ALL' || norm(s.department)===norm(department) ||
+          norm(s.department).includes(norm(department)) || norm(department).includes(norm(s.department))
+        ));
+        old.forEach(s => {
+          const em = String(s.userEmail).toLowerCase();
+          if (!oldByUser[em]) oldByUser[em]=[];
+          oldByUser[em].push(s);
+        });
+        db._rosterOld = db._rosterOld || {};
+        db._rosterOld[uploadId] = oldByUser;
+        db.rosterShifts = db.rosterShifts.filter(s => {
+          if (String(s.period).toLowerCase()!==period) return true;
+          if (department.toUpperCase()==='ALL') return false;
+          const matchDept = norm(s.department)===norm(department) || norm(s.department).includes(norm(department)) || norm(department).includes(norm(s.department));
+          return !matchDept;
+        });
+        db.rosterUploads.push({
+          id:uploadId, period, department, fileName:p.fileName||'roster.csv', fileType:p.fileType||'csv',
+          uploadedBy:state.user.email, uploadedAt:formatFiji(), rowCount:0, matchedCount:0, unmatchedJson:'[]', notes:p.notes||''
+        });
+      } else {
+        oldByUser = (db._rosterOld && db._rosterOld[uploadId]) || {};
+      }
+      const unmatched = [];
+      const matchUser = (rawName, rowDept) => {
+        const cell = norm(rawName);
+        let best=null, bestScore=0;
+        db.users.forEach(u => {
+          const first=norm(u.firstName), last=norm(u.lastName);
+          const full=(first+' '+last).trim(), rev=(last+' '+first).trim();
+          const local=norm(String(u.email||'').split('@')[0].replace(/[._]/g,' '));
+          let score=0;
+          if (full && cell===full) score=100;
+          else if (rev && cell===rev) score=95;
+          else if (first && last && cell.includes(first) && cell.includes(last)) score=85;
+          else if (local && cell===local) score=70;
+          else return;
+          if (rowDept && norm(u.department)===norm(rowDept)) score+=20;
+          if (score>bestScore){ bestScore=score; best=u; }
+        });
+        return best;
+      };
+      const cleared = (db._rosterCleared = db._rosterCleared||{});
+      if (!cleared[uploadId]) cleared[uploadId]={};
+      shiftsIn.forEach(row => {
+        const rawName = String(row.rawName||row.name||'').trim();
+        const rowDept = String(row.department||row.dept||department).trim();
+        if (!rawName){ unmatched.push('(blank)'); return; }
+        const u = matchUser(rawName, rowDept);
+        if (!u){ unmatched.push(rawName); return; }
+        const em = String(u.email).toLowerCase();
+        if (!cleared[uploadId][em]) {
+          db.rosterShifts = db.rosterShifts.filter(s => !(String(s.period).toLowerCase()===period && String(s.userEmail).toLowerCase()===em && String(s.uploadId)!==uploadId));
+          cleared[uploadId][em]=true;
+        }
+        const dayOff = row.dayOff===true || row.dayOff==='TRUE' || row.dayOff==='true' || /^(yes|y|off)/i.test(String(row.dayOff||''));
+        db.rosterShifts.push({
+          id:uid('rsh'), uploadId, period, userEmail:em, userName:(u.firstName||'')+' '+(u.lastName||''),
+          department:u.department||rowDept, date:String(row.date||'').slice(0,10), start:String(row.start||''), end:String(row.end||''),
+          dayOff, roleLabel:String(row.roleLabel||''), rawName, createdAt:formatFiji()
+        });
+      });
+      const allFor = db.rosterShifts.filter(s=>s.uploadId===uploadId);
+      const matchedUsers = [...new Set(allFor.map(s=>String(s.userEmail).toLowerCase()))];
+      const up = db.rosterUploads.find(x=>x.id===uploadId);
+      if (up){ up.rowCount=allFor.length; up.matchedCount=matchedUsers.length; up.unmatchedJson=JSON.stringify([...new Set(unmatched)].slice(0,100)); }
+      let notified=0;
+      if (isFinal) {
+        const oldMap = (db._rosterOld && db._rosterOld[uploadId]) || {};
+        const newBy={};
+        allFor.forEach(s=>{ const em=String(s.userEmail).toLowerCase(); if(!newBy[em])newBy[em]=[]; newBy[em].push(s); });
+        const emails = new Set([...Object.keys(oldMap), ...Object.keys(newBy)]);
+        const periodLabel = period==='week'?'weekly':'monthly';
+        emails.forEach(em=>{
+          if (listFp(oldMap[em])===listFp(newBy[em])) return;
+          db.notifications.push({
+            id:uid('ntf'), userEmail:em, title:'Roster updated',
+            body:'Your '+periodLabel+' roster was updated ('+((oldMap[em]||[]).length)+' → '+((newBy[em]||[]).length)+' shifts).',
+            kind:'roster_change', relatedId:uploadId, read:false, createdAt:formatFiji()
+          });
+          notified++;
+        });
+        if (db._rosterOld) delete db._rosterOld[uploadId];
+        if (db._rosterCleared) delete db._rosterCleared[uploadId];
+      }
+      saveDemo(db);
+      return Promise.resolve(ok({
+        uploadId, period, department, chunkIndex, totalChunks, isFinal,
+        rowCount:allFor.length, matchedCount:matchedUsers.length, unmatched:[...new Set(unmatched)], unmatchedCount:[...new Set(unmatched)].length,
+        notified, fijiNow:formatFiji()
+      }));
+    }
+    case 'getMyNotifications': {
+      if (!db.notifications) db.notifications=[];
+      const rows = db.notifications.filter(n=>String(n.userEmail).toLowerCase()===state.user.email).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+      const unread = rows.filter(n=>!n.read);
+      return Promise.resolve(ok({ notifications:rows.slice(0,50), unread, unreadCount:unread.length, fijiNow:formatFiji() }));
+    }
+    case 'markNotificationRead': {
+      if (!db.notifications) db.notifications=[];
+      if (p.markAll===true || p.markAll==='true') {
+        let n=0; db.notifications.forEach(x=>{ if(String(x.userEmail).toLowerCase()===state.user.email && !x.read){ x.read=true; n++; } });
+        saveDemo(db); return Promise.resolve(ok({ marked:n }));
+      }
+      const found = db.notifications.find(x=>x.id===p.id);
+      if (!found) return Promise.resolve(fail('Not found'));
+      found.read=true; saveDemo(db); return Promise.resolve(ok({ notification:found }));
+    }
+    case 'listRosterUploads': {
+      if (!canHod()) return Promise.resolve(fail('HOD/admin required'));
+      if (!db.rosterUploads) db.rosterUploads=[];
+      const normDept = s => String(s||'').toLowerCase().trim();
+      let rows = db.rosterUploads.slice().sort((a,b)=>String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
+      if (!canFullAdmin()) rows = rows.filter(r=>normDept(r.department)===normDept(state.user.department));
+      return Promise.resolve(ok({ uploads:rows.slice(0,40), fijiNow:formatFiji() }));
+    }
     case 'getMySchedule': {
       const u = db.users.find(x=>x.email===state.user.email);
       const flags = db.appSettings || {};
+      if (!db.rosterShifts) db.rosterShifts=[];
+      if (!db.notifications) db.notifications=[];
+      const mine = db.rosterShifts.filter(s=>String(s.userEmail).toLowerCase()===state.user.email);
+      const weeklyShifts = mine.filter(s=>String(s.period).toLowerCase()==='week').sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+      const monthlyShifts = mine.filter(s=>String(s.period).toLowerCase()==='month').sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+      const unreadNotifications = db.notifications.filter(n=>String(n.userEmail).toLowerCase()===state.user.email && !n.read);
       return Promise.resolve(ok({
         user:publicUser(u), roster:u && u.roster || '',
         leave: db.leaveRequests.filter(r=>r.userEmail===state.user.email),
         featureLiveRoster: String(flags.feature_live_roster)==='true',
         featureLeaveEscalation: String(flags.feature_leave_escalation)==='true',
         liveRoster: null,
+        weeklyShifts, monthlyShifts, unreadNotifications,
         fijiNow:formatFiji()
       }));
     }
@@ -1765,11 +1956,49 @@ async function renderSchedule(){
     stopTips();
     const leave = (r.data && r.data.leave) || [];
     const live = r.data && r.data.liveRoster;
-    let html = '<div class="glass rounded-2xl p-4"><h3 class="font-semibold text-sm mb-1"><i class="fa-solid fa-clipboard-list text-teal-400 mr-2"></i>My roster pattern</h3>'+
+    const weekly = (r.data && r.data.weeklyShifts) || [];
+    const monthly = (r.data && r.data.monthlyShifts) || [];
+    const unread = (r.data && r.data.unreadNotifications) || [];
+    let html = '';
+    if (unread.length) {
+      html += '<div class="glass rounded-2xl p-3 border border-amber-500/40 space-y-2" id="sch-notif">'+
+        '<div class="flex items-center justify-between gap-2"><h3 class="font-semibold text-sm text-amber-200"><i class="fa-solid fa-bell mr-2"></i>Roster notices ('+unread.length+')</h3>'+
+        '<button id="btn-notif-all" class="text-[10px] text-teal-400">Mark all read</button></div>';
+      unread.slice(0,5).forEach(n => {
+        html += '<div class="rounded-lg bg-slate-900/50 px-3 py-2 text-xs flex justify-between gap-2 items-start">'+
+          '<div><p class="font-medium text-sand-100">'+esc(n.title||'Notice')+'</p><p class="text-sand-200/70">'+esc(n.body||'')+'</p></div>'+
+          '<button class="text-teal-400 shrink-0 ntf-read" data-id="'+esc(n.id)+'">OK</button></div>';
+      });
+      html += '</div>';
+    }
+    html += '<div class="glass rounded-2xl p-4"><h3 class="font-semibold text-sm mb-1"><i class="fa-solid fa-clipboard-list text-teal-400 mr-2"></i>My roster pattern</h3>'+
       '<p class="text-sm text-sand-200/80">'+esc((r.data && r.data.roster) || 'No roster set — ask your HOD')+'</p>'+
       '<p class="text-[10px] text-sand-200/40 mt-2">Fiji: '+esc((r.data && r.data.fijiNow) || formatFiji())+'</p></div>';
+
+    html += '<div class="glass rounded-2xl p-4 space-y-2"><h3 class="font-semibold text-sm"><i class="fa-solid fa-calendar-week text-teal-400 mr-2"></i>This week</h3>';
+    if (!weekly.length) {
+      html += '<p class="text-xs text-sand-200/50">No roster uploaded yet — your HOD will upload soon.</p>';
+    } else {
+      weekly.forEach(s => {
+        html += '<div class="rounded-lg bg-slate-900/40 px-3 py-2 text-xs flex justify-between gap-2"><span>'+esc(s.date||'—')+(s.roleLabel?' · '+esc(s.roleLabel):'')+'</span>'+
+          (s.dayOff===true||s.dayOff==='TRUE'||s.dayOff==='true'?'<span class="text-amber-300">DAY OFF</span>':'<span class="text-teal-300">'+esc(s.start)+' – '+esc(s.end)+'</span>')+'</div>';
+      });
+    }
+    html += '</div>';
+
+    html += '<div class="glass rounded-2xl p-4 space-y-2"><h3 class="font-semibold text-sm"><i class="fa-solid fa-calendar-days text-teal-400 mr-2"></i>This month</h3>';
+    if (!monthly.length) {
+      html += '<p class="text-xs text-sand-200/50">No roster uploaded yet — your HOD will upload soon.</p>';
+    } else {
+      monthly.forEach(s => {
+        html += '<div class="rounded-lg bg-slate-900/40 px-3 py-2 text-xs flex justify-between gap-2"><span>'+esc(s.date||'—')+'</span>'+
+          (s.dayOff===true||s.dayOff==='TRUE'||s.dayOff==='true'?'<span class="text-amber-300">DAY OFF</span>':'<span class="text-teal-300">'+esc(s.start)+' – '+esc(s.end)+'</span>')+'</div>';
+      });
+    }
+    html += '</div>';
+
     if (featureOn('feature_live_roster') || (r.data && r.data.featureLiveRoster)) {
-      html += '<div class="glass rounded-2xl p-4 space-y-2"><h3 class="font-semibold text-sm"><i class="fa-solid fa-calendar-week text-teal-400 mr-2"></i>Live shifts (this week)</h3>';
+      html += '<div class="glass rounded-2xl p-4 space-y-2"><h3 class="font-semibold text-sm"><i class="fa-solid fa-satellite-dish text-teal-400 mr-2"></i>Live shifts (external sheet)</h3>';
       if (r.data && r.data.liveRosterError) {
         html += '<p class="text-xs text-red-300">'+esc(r.data.liveRosterError)+'</p><p class="text-[10px] text-slate-500">Superadmin can disable feature_live_roster in Settings if needed.</p>';
       } else if (!live || !live.matched) {
@@ -1784,6 +2013,25 @@ async function renderSchedule(){
       if (canHod()) html += '<button id="btn-dept-roster" class="text-xs text-teal-400 pt-1">Department live roster →</button>';
       html += '</div>';
     }
+
+    if (canHod() || canFullAdmin()) {
+      html += '<div class="glass rounded-2xl p-4 space-y-3" id="sch-upload">'+
+        '<h3 class="font-semibold text-sm"><i class="fa-solid fa-file-arrow-up text-teal-400 mr-2"></i>Upload staff roster</h3>'+
+        '<p class="text-[10px] text-slate-400">Excel/CSV preferred (auto-match names). PDF/image: text PDF tried; otherwise store as reference — export CSV for auto-match. No cloud OCR in v1.</p>'+
+        '<div class="flex gap-2 text-xs">'+
+        '<label class="flex-1 rounded-lg bg-slate-900/50 px-2 py-2 text-center cursor-pointer border border-slate-600"><input type="radio" name="roster-period" value="week" checked class="mr-1"/>Weekly</label>'+
+        '<label class="flex-1 rounded-lg bg-slate-900/50 px-2 py-2 text-center cursor-pointer border border-slate-600"><input type="radio" name="roster-period" value="month" class="mr-1"/>Monthly</label></div>'+
+        (canFullAdmin()
+          ? '<input id="roster-dept" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Department filter (blank = ALL)"/>'
+          : '<p class="text-[10px] text-slate-500">Department: '+esc(state.user.department||'—')+'</p>')+
+        '<input id="roster-file" type="file" accept=".xlsx,.xls,.csv,.pdf,image/*" class="w-full text-xs text-sand-200"/>'+
+        '<p class="text-[10px] text-slate-500">CSV template: <code class="text-teal-400">name,department,date,start,end,dayOff</code></p>'+
+        '<div id="roster-preview" class="hidden space-y-2 text-xs"></div>'+
+        '<button id="btn-roster-parse" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Parse file</button>'+
+        '<button id="btn-roster-uploads" class="w-full text-xs text-teal-400 py-1">Recent uploads →</button>'+
+        '</div>';
+    }
+
     html += '<div class="glass rounded-2xl p-4 space-y-3"><h3 class="font-semibold text-sm">Request leave</h3>'+
       '<input id="lv-start" type="date" class="w-full rounded-xl px-3 py-2 text-sm"/>'+
       '<input id="lv-end" type="date" class="w-full rounded-xl px-3 py-2 text-sm"/>'+
@@ -1799,6 +2047,7 @@ async function renderSchedule(){
     html += '</div>';
     if (canHod() || canFullAdmin()) html += '<button id="btn-lv-admin" class="w-full text-xs text-teal-400 py-2">Leave inbox →</button>';
     $('#sch-root').innerHTML = html;
+
     $('#btn-leave').onclick = async () => {
       const res = await api('requestLeave',{ startDate:$('#lv-start').value, endDate:$('#lv-end').value, reason:$('#lv-reason').value });
       if (!res.success) toast(res.error,'error'); else { toast('Leave submitted','ok'); renderSchedule(); }
@@ -1807,7 +2056,321 @@ async function renderSchedule(){
     if (ba) ba.onclick = () => renderLeaveAdmin();
     const dr = $('#btn-dept-roster');
     if (dr) dr.onclick = () => renderDepartmentRoster();
+    const markAll = $('#btn-notif-all');
+    if (markAll) markAll.onclick = async () => {
+      await api('markNotificationRead', { markAll:true });
+      toast('Notices cleared','ok'); renderSchedule();
+    };
+    $$('.ntf-read').forEach(b => b.onclick = async () => {
+      await api('markNotificationRead', { id: b.dataset.id });
+      renderSchedule();
+    });
+    const btnParse = $('#btn-roster-parse');
+    if (btnParse) btnParse.onclick = () => handleRosterFileParse();
+    const btnUp = $('#btn-roster-uploads');
+    if (btnUp) btnUp.onclick = () => showRosterUploads();
   } catch(e){ stopTips(); $('#sch-root').innerHTML = '<p class="text-red-300">'+esc(e.message)+'</p>'; }
+}
+
+let _pendingRoster = null;
+
+async function showRosterUploads(){
+  const r = await api('listRosterUploads', {});
+  if (!r.success) { toast(r.error||'Failed','error'); return; }
+  const rows = (r.data && r.data.uploads) || [];
+  let html = '<h3 class="font-semibold mb-2">Recent roster uploads</h3><div class="space-y-2 max-h-[60vh] overflow-y-auto">';
+  if (!rows.length) html += '<p class="text-xs text-sand-200/50">None yet</p>';
+  rows.forEach(u => {
+    html += '<div class="glass rounded-xl p-2 text-xs"><p class="font-medium">'+esc(u.fileName)+' · '+esc(u.period)+' · '+esc(u.department)+'</p>'+
+      '<p class="text-sand-200/60">'+esc(u.uploadedAt)+' · matched '+esc(String(u.matchedCount))+' / rows '+esc(String(u.rowCount))+'</p></div>';
+  });
+  html += '</div>';
+  openModal(html);
+}
+
+async function handleRosterFileParse(){
+  const fileInput = $('#roster-file');
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) { toast('Choose a file first','error'); return; }
+  const periodEl = document.querySelector('input[name="roster-period"]:checked');
+  const period = periodEl ? periodEl.value : 'week';
+  let department = '';
+  if (canFullAdmin()) department = (($('#roster-dept') && $('#roster-dept').value) || '').trim() || 'ALL';
+  else department = state.user.department || '';
+  const preview = $('#roster-preview');
+  preview.classList.remove('hidden');
+  preview.innerHTML = '<p class="text-slate-400">Parsing…</p>';
+  try {
+    const parsed = await parseRosterFile(file, department);
+    if (parsed.note && !(parsed.shifts||[]).length) {
+      preview.innerHTML = '<p class="text-amber-300">'+esc(parsed.note)+'</p>'+
+        '<p class="text-[10px] text-slate-500">File: '+esc(file.name)+'</p>'+
+        '<button id="btn-roster-ref" class="mt-2 text-xs text-teal-400">Save reference note only</button>';
+      $('#btn-roster-ref').onclick = async () => {
+        let passcode = null;
+        if (canFullAdmin()) { passcode = await askPasscode(); if (!passcode) return; }
+        const res = await api('uploadRosterParsed', {
+          period, department, fileName: file.name, fileType: parsed.fileType||'pdf',
+          shiftsJson: [], notes: parsed.note, passcode, chunkIndex:0, totalChunks:1, isFinal:true
+        });
+        if (!res.success) toast(res.error||'Failed','error');
+        else { toast('Reference saved (no auto-matched shifts)','ok'); renderSchedule(); }
+      };
+      _pendingRoster = null;
+      return;
+    }
+    const shifts = parsed.shifts || [];
+    // Local preview match against cached users if available
+    let matchedGuess = shifts.length;
+    preview.innerHTML = '<p class="text-teal-300">Parsed <b>'+shifts.length+'</b> shift row(s) from '+esc(file.name)+'</p>'+
+      '<p class="text-[10px] text-slate-500">Confirm to match names to Users and replace this '+esc(period)+' roster for '+esc(department||'ALL')+'.</p>'+
+      '<div class="max-h-32 overflow-y-auto rounded bg-slate-900/40 p-2 space-y-1">'+
+      shifts.slice(0,12).map(s => '<p>'+esc(s.rawName||s.name||'')+' · '+esc(s.date||'')+' · '+(s.dayOff?'OFF':esc((s.start||'')+'-'+(s.end||'')))+'</p>').join('')+
+      (shifts.length>12?'<p class="text-slate-500">… +'+(shifts.length-12)+' more</p>':'')+
+      '</div>'+
+      '<button id="btn-roster-confirm" class="btn-primary w-full rounded-xl py-2 text-sm text-white mt-2">Confirm upload</button>';
+    _pendingRoster = { shifts, period, department, fileName: file.name, fileType: parsed.fileType||'csv', notes: parsed.note||'' };
+    $('#btn-roster-confirm').onclick = () => confirmRosterUpload();
+  } catch (e) {
+    preview.innerHTML = '<p class="text-red-300">'+esc(e.message||String(e))+'</p>';
+  }
+}
+
+async function confirmRosterUpload(){
+  if (!_pendingRoster) { toast('Parse a file first','error'); return; }
+  let passcode = null;
+  if (canFullAdmin()) { passcode = await askPasscode(); if (!passcode) return; }
+  const { shifts, period, department, fileName, fileType, notes } = _pendingRoster;
+  const CHUNK = 35;
+  const chunks = [];
+  for (let i=0;i<Math.max(shifts.length,1);i+=CHUNK) chunks.push(shifts.slice(i, i+CHUNK));
+  if (!shifts.length) chunks.length = 1;
+  let uploadId = null;
+  let last = null;
+  try {
+    for (let i=0;i<chunks.length;i++) {
+      const payload = {
+        period, department, fileName, fileType, notes,
+        shiftsJson: chunks[i],
+        chunkIndex: i, totalChunks: chunks.length, isFinal: i===chunks.length-1,
+        passcode
+      };
+      if (uploadId) payload.uploadId = uploadId;
+      const res = await api('uploadRosterParsed', payload);
+      if (!res.success) throw new Error(res.error||'Upload failed');
+      last = res.data;
+      uploadId = res.data.uploadId;
+      const prev = $('#roster-preview');
+      if (prev) prev.innerHTML = '<p class="text-slate-400">Uploading chunk '+(i+1)+'/'+chunks.length+'…</p>';
+    }
+    const unmatched = (last && last.unmatched) || [];
+    toast('Roster uploaded · matched '+(last&&last.matchedCount||0)+(unmatched.length?' · unmatched '+unmatched.length:''),'ok');
+    if (unmatched.length) {
+      openModal('<h3 class="font-semibold mb-2">Unmatched names</h3><p class="text-xs text-slate-400 mb-2">Fix spelling in the file or add Users, then re-upload.</p><div class="space-y-1 text-xs max-h-60 overflow-y-auto">'+
+        unmatched.map(n=>'<p>'+esc(n)+'</p>').join('')+'</div>');
+    }
+    _pendingRoster = null;
+    renderSchedule();
+  } catch (e) {
+    toast(e.message||String(e),'error');
+  }
+}
+
+let _xlsxReady = null;
+function ensureSheetJS(){
+  if (typeof XLSX !== 'undefined') return Promise.resolve();
+  if (_xlsxReady) return _xlsxReady;
+  _xlsxReady = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => { _xlsxReady = null; reject(new Error('Failed to load SheetJS')); };
+    document.head.appendChild(s);
+  });
+  return _xlsxReady;
+}
+
+let _pdfjsReady = null;
+function ensurePdfJs(){
+  if (typeof pdfjsLib !== 'undefined') return Promise.resolve();
+  if (_pdfjsReady) return _pdfjsReady;
+  _pdfjsReady = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.async = true;
+    s.onload = () => {
+      try {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      } catch(_){}
+      resolve();
+    };
+    s.onerror = () => { _pdfjsReady = null; reject(new Error('Failed to load pdf.js')); };
+    document.head.appendChild(s);
+  });
+  return _pdfjsReady;
+}
+
+function rosterHeaderKey(h){
+  const s = String(h||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  if (/^(name|staff|staffname|employeename|employee)$/.test(s)) return 'name';
+  if (/^(department|dept|section)$/.test(s)) return 'department';
+  if (/^(date|shiftdate|day)$/.test(s)) return 'date';
+  if (/^(start|starttime|from|begin)$/.test(s)) return 'start';
+  if (/^(end|endtime|to|finish)$/.test(s)) return 'end';
+  if (/^(dayoff|off|rdo|leave)$/.test(s)) return 'dayOff';
+  if (/^(role|rolelabel|position)$/.test(s)) return 'roleLabel';
+  return '';
+}
+
+function sheetRowsToShifts(aoa, defaultDept){
+  if (!aoa || !aoa.length) return [];
+  // Detect header row
+  let headerIdx = 0;
+  let map = {};
+  for (let r=0;r<Math.min(8,aoa.length);r++){
+    const row = aoa[r]||[];
+    const trial = {};
+    let hits=0;
+    row.forEach((cell,c)=>{
+      const k = rosterHeaderKey(cell);
+      if (k){ trial[k]=c; hits++; }
+    });
+    if (hits>=2 && trial.name!==undefined){ headerIdx=r; map=trial; break; }
+  }
+  const shifts = [];
+  if (map.name!==undefined){
+    for (let r=headerIdx+1;r<aoa.length;r++){
+      const row = aoa[r]||[];
+      const name = String(row[map.name]||'').trim();
+      if (!name) continue;
+      let dayOff = false;
+      if (map.dayOff!==undefined){
+        const v = String(row[map.dayOff]||'').trim();
+        dayOff = /^(true|yes|y|1|off|day\s*off)$/i.test(v);
+      }
+      let start = map.start!==undefined ? String(row[map.start]||'').trim() : '';
+      let end = map.end!==undefined ? String(row[map.end]||'').trim() : '';
+      const dateRaw = map.date!==undefined ? String(row[map.date]||'').trim() : '';
+      if (!dayOff && /off|day\s*off/i.test(start+end+dateRaw)) dayOff = true;
+      // Excel serial date
+      let date = dateRaw;
+      if (/^\d+(\.\d+)?$/.test(dateRaw) && typeof XLSX!=='undefined'){
+        try {
+          const dc = XLSX.SSF.parse_date_code(Number(dateRaw));
+          if (dc) date = dc.y+'-'+String(dc.m).padStart(2,'0')+'-'+String(dc.d).padStart(2,'0');
+        } catch(_){}
+      } else {
+        date = normalizeRosterDateClient(dateRaw) || dateRaw;
+      }
+      shifts.push({
+        rawName:name,
+        department: map.department!==undefined ? String(row[map.department]||defaultDept||'').trim() : (defaultDept||''),
+        date, start, end, dayOff,
+        roleLabel: map.roleLabel!==undefined ? String(row[map.roleLabel]||'').trim() : ''
+      });
+    }
+    return shifts;
+  }
+  // Wide grid best-effort: first col name, header row dates
+  let dateRow=-1, dates=[];
+  for (let r=0;r<Math.min(10,aoa.length);r++){
+    let hits=0; const rowDates=[];
+    (aoa[r]||[]).forEach(cell=>{
+      const d = normalizeRosterDateClient(String(cell||''));
+      rowDates.push(d); if (d) hits++;
+    });
+    if (hits>=3){ dateRow=r; dates=rowDates; break; }
+  }
+  if (dateRow>=0){
+    for (let r=dateRow+1;r<aoa.length;r++){
+      const row = aoa[r]||[];
+      let name='', nameCol=0;
+      for (let c=0;c<Math.min(3,row.length);c++){
+        const cand=String(row[c]||'').trim();
+        if (cand && !/^(start|end)$/i.test(cand) && !/^\d{1,2}:\d{2}/.test(cand)){ name=cand; nameCol=c; break; }
+      }
+      if (!name) continue;
+      for (let c=nameCol+1;c<row.length;c++){
+        const cell=String(row[c]||'').trim();
+        if (!cell) continue;
+        const date = dates[c]||'';
+        if (/day\s*off|off|rdo/i.test(cell)){
+          shifts.push({ rawName:name, department:defaultDept||'', date, start:'', end:'', dayOff:true, roleLabel:'' });
+          continue;
+        }
+        const range = cell.match(/(\d{1,2}:\d{2})\s*[-–to]+\s*(\d{1,2}:\d{2})/i);
+        if (range){
+          shifts.push({ rawName:name, department:defaultDept||'', date, start:range[1], end:range[2], dayOff:false, roleLabel:'' });
+        }
+      }
+    }
+  }
+  return shifts;
+}
+
+function normalizeRosterDateClient(v){
+  v = String(v||'').trim();
+  if (!v) return '';
+  const iso = v.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[1]+'-'+iso[2]+'-'+iso[3];
+  const dmy = v.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (dmy){
+    const y = dmy[3].length===2 ? ('20'+dmy[3]) : dmy[3];
+    return y+'-'+String(Number(dmy[2])).padStart(2,'0')+'-'+String(Number(dmy[1])).padStart(2,'0');
+  }
+  return '';
+}
+
+async function parseRosterFile(file, defaultDept){
+  const name = file.name||'roster';
+  const lower = name.toLowerCase();
+  if (/\.(xlsx|xls|csv)$/.test(lower) || /sheet|excel|csv/.test(file.type||'')) {
+    await ensureSheetJS();
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array', cellDates:true });
+    const sheetName = wb.SheetNames[0];
+    const sheet = wb.Sheets[sheetName];
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header:1, raw:false, defval:'' });
+    const shifts = sheetRowsToShifts(aoa, defaultDept);
+    if (!shifts.length) throw new Error('No shift rows found. Use CSV columns: name,department,date,start,end,dayOff');
+    return { shifts, fileType: /\.csv$/i.test(lower)?'csv':'excel' };
+  }
+  if (/\.pdf$/i.test(lower) || file.type==='application/pdf') {
+    try {
+      await ensurePdfJs();
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      let text = '';
+      const maxPages = Math.min(pdf.numPages, 5);
+      for (let i=1;i<=maxPages;i++){
+        const page = await pdf.getPage(i);
+        const tc = await page.getTextContent();
+        text += tc.items.map(it=>it.str).join(' ') + '\n';
+      }
+      text = text.replace(/\s+/g,' ').trim();
+      if (text.length > 40) {
+        // very weak: look for lines like Name date time-time — otherwise reference only
+        return {
+          shifts: [],
+          fileType:'pdf',
+          note: 'PDF text found but structured columns not detected — image/PDF reference. Please paste/export CSV for auto-match. Preview: '+text.slice(0,180)
+        };
+      }
+    } catch (e) {
+      return { shifts:[], fileType:'pdf', note:'PDF could not be text-extracted — image/PDF reference. Export CSV for auto-match. ('+(e.message||e)+')' };
+    }
+    return { shifts:[], fileType:'pdf', note:'image/PDF reference — paste/export CSV for auto-match' };
+  }
+  // image
+  if ((file.type||'').indexOf('image/')===0 || /\.(png|jpe?g|webp|gif)$/i.test(lower)) {
+    if (file.size <= 30*1024) {
+      // accept small base64 note only — do not send huge payloads via GET
+      return { shifts:[], fileType:'image', note:'image/PDF reference (small file noted: '+name+') — paste/export CSV for auto-match' };
+    }
+    return { shifts:[], fileType:'image', note:'image/PDF reference — paste/export CSV for auto-match (file too large to store via GET)' };
+  }
+  throw new Error('Unsupported file type. Use .xlsx, .xls, .csv (preferred), or PDF/image as reference.');
 }
 
 async function renderDepartmentRoster(){

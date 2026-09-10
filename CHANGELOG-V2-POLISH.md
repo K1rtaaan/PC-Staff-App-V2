@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.6.6**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.7.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -153,4 +153,11 @@ Version **2.6.6**. Revert any item later by asking for its ID (e.g. “revert C7
 | ID | Change |
 |----|--------|
 | C54 | Sample high-occupancy broadcast reminder (weeks ending 20 & 27 Sep; priority high / important; due 2026-09-27). `seedSampleReminders()` + `seedVillageBoatRuns()` (Soso Express 05:00/06:30/12:30/17:00/23:00 for 14 Fiji days) called from `initializeSheets`; action `seedVillageBoatSchedule` / `seedStaffSamples` (admin passcode). Boat tab info card: Staff Boat Transfer Schedule — Soso Express. Demo seeds same. `appendRow` writes by live sheet header names (fixes priority/fullNotification column drift); seed repairs misaligned reminder + deactivates broken Soso rows. `APP_VERSION` → **2.6.6**; SW cache `pcr-staff-v2.6.6`. |
+
+
+## Uploaded roster / My Schedule (2.7.0)
+
+| ID | Change |
+|----|--------|
+| C55 | **Uploaded weekly/monthly rosters** on My Schedule (works even when `feature_live_roster` is OFF). HOD / assistant_hod / admin / super_admin upload Excel/CSV (SheetJS in-browser) or PDF/image (pdf.js text try; otherwise reference note — no OpenAI/OCR). Client sends parsed shift rows via `uploadRosterParsed` (chunked GET-safe JSON). Fuzzy name match to Users (first last / last first / email local-part; prefer same department). Sheets: `Roster Uploads`, `Roster Shifts`, `Notifications`. Re-upload replaces shifts for period+(department OR matched users); diffs notify affected staff in-app (`Roster updated`). `getMySchedule` returns `weeklyShifts` / `monthlyShifts` + unread notices. CSV template: `name,department,date,start,end,dayOff`. **Limits:** Excel/CSV best; wide grids best-effort; PDF/image limited (no cloud AI OCR); large files must be parsed client-side (no base64 via GET). `APP_VERSION` → **2.7.0**; SW cache `pcr-staff-v2.7.0`. SCRIPT_URL unchanged. |
 
