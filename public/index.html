@@ -8,8 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <title>PCR Staff — Paradise Cove Resort</title>
 <link rel="manifest" href="manifest.json"/>
-<link rel="icon" href="assets/pcr-logo.png"/>
-<link rel="apple-touch-icon" href="assets/pcr-logo.png"/>
+<link rel="icon" href="assets/golden-logo.jpg"/>
+<link rel="apple-touch-icon" href="assets/golden-logo.jpg"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
 <script src="https://unpkg.com/lucide@0.468.0"></script>
 <script type="module">
@@ -174,7 +174,7 @@ input:focus, select:focus, textarea:focus {
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.5.0';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -187,7 +187,7 @@ const DEMO_KEY = 'pcr_v2_demo_db';
     <div class="glass ui-card rounded-2xl p-6 w-full max-w-md animate-fade-in border-slate-700/80">
       <div class="text-center mb-5">
         <div class="mx-auto mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white/95 shadow-xl shadow-teal-900/40 ring-1 ring-white/30 animate-float">
-          <img src="assets/pcr-logo.png" alt="Paradise Cove" class="h-[72px] w-[72px] object-contain p-1.5"/>
+          <img src="assets/golden-logo.jpg" alt="Paradise Cove" class="h-[72px] w-[72px] object-contain p-1.5"/>
         </div>
         <h1 class="text-2xl font-bold tracking-tight text-slate-100">PCR Staff App</h1>
         <p class="text-xs text-slate-300 mt-1">Paradise Cove Resort Fiji · Yasawa Islands</p>
@@ -315,7 +315,7 @@ const DEMO_KEY = 'pcr_v2_demo_db';
   <div id="view-main" class="hidden flex-1 flex flex-col safe-bottom">
     <header class="app-header-motif glass-strong sticky top-0 z-40 px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
       <div class="flex items-center gap-2.5 min-w-0">
-        <img src="assets/pcr-logo.png" alt="" class="h-8 w-8 rounded-lg object-contain bg-white/90 p-0.5 opacity-95" aria-hidden="true"/>
+        <img src="assets/golden-logo.jpg" alt="" class="h-8 w-8 rounded-lg object-contain bg-white/90 p-0.5 opacity-95" aria-hidden="true"/>
         <div class="min-w-0">
           <p class="text-xs text-teal-400/90 font-medium">Paradise Cove</p>
           <h2 id="header-title" class="text-sm font-semibold truncate">Home</h2>
@@ -363,6 +363,22 @@ function formatFiji(d=getFijiNow()) {
   return fijiDateString(d)+' '+pad2(d.getUTCHours())+':'+pad2(d.getUTCMinutes())+' FJT';
 }
 function addFijiDays(d, days) { return new Date(d.getTime() + days * 86400000); }
+const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DEFAULT_DINNER_MENUS = {
+    0:['Lamb Neck Curry','Chicken Burger/Chips','Chicken cheese Pizza','Roasted Chicken / Potato Salad / Vegs'],
+    1:['Chicken Pizza','Beef Curry / Rice / Chutney','Chicken Burger','Sausages / Potato Salad / Gravy'],
+    2:['Oven Roasted Lamb neck / Vegs/ Cassava','Chicken In Black Bean Sauce / Rice','Chicken Pizza'],
+    3:['Chicken In Tomato sauce / Rice / Sliced cucumber','Chicken Pizza','Chicken Burger','Beef Soup / Veg / Kumala'],
+    4:['Stew Chicken /Veg/ Rice','Grilled Sausages / Kumala /Salad / Tomato Sauce','Chicken cheese Pizza','Chicken Fried Rice'],
+    5:['Fish Lolo / Cassava / Vegetables','Chicken Palau / Salad','Chicken Burger','Chicken Pizza'],
+    6:['Chicken Black Bean / Rice','Beef Curry /Rice/Papadum','Chicken Burger/Chips','Chicken cheese Pizza']
+  };
+function fijiWeekday(d=getFijiNow()){ return d.getUTCDay(); }
+function statusBadge(st){
+  const s=String(st||'');
+  const map={pending:'bg-amber-500/20 text-amber-300',approved:'bg-teal-500/20 text-teal-300',late_pending:'bg-orange-500/20 text-orange-300',late_approved:'bg-teal-600/30 text-teal-200',rejected:'bg-red-500/20 text-red-300',prepared:'bg-sky-500/20 text-sky-300',served:'bg-emerald-500/20 text-emerald-300',ordered:'bg-slate-500/20 text-slate-300'};
+  return '<span class="badge '+(map[s]||'bg-slate-600/30 text-slate-300')+'">'+esc(s||'—')+'</span>';
+}
 /** Dinner: closes 8pm Fiji today for tomorrow service */
 function dinnerCutoffInfo(now=getFijiNow()) {
   return { open: now.getUTCHours() < 20, serviceDate: fijiDateString(addFijiDays(now,1)),
@@ -395,7 +411,25 @@ function defaultDemoDb() {
       'leanne@paradisecoveresortfiji.com','agm@paradisecoveresortfiji.com','cesare@paradisecoveresortfiji.com',
       'wood.nicolas@gmail.com','pranav619kumar@gmail.com'
     ].map((email,i)=>({ email, label:'Default '+(i+1), active:true })),
-    verificationCodes: []
+    verificationCodes: [],
+    dinnerMenus: (function(){
+      const names = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const def = {
+    0:['Lamb Neck Curry','Chicken Burger/Chips','Chicken cheese Pizza','Roasted Chicken / Potato Salad / Vegs'],
+    1:['Chicken Pizza','Beef Curry / Rice / Chutney','Chicken Burger','Sausages / Potato Salad / Gravy'],
+    2:['Oven Roasted Lamb neck / Vegs/ Cassava','Chicken In Black Bean Sauce / Rice','Chicken Pizza'],
+    3:['Chicken In Tomato sauce / Rice / Sliced cucumber','Chicken Pizza','Chicken Burger','Beef Soup / Veg / Kumala'],
+    4:['Stew Chicken /Veg/ Rice','Grilled Sausages / Kumala /Salad / Tomato Sauce','Chicken cheese Pizza','Chicken Fried Rice'],
+    5:['Fish Lolo / Cassava / Vegetables','Chicken Palau / Salad','Chicken Burger','Chicken Pizza'],
+    6:['Chicken Black Bean / Rice','Beef Curry /Rice/Papadum','Chicken Burger/Chips','Chicken cheese Pizza']
+  };
+      const rows=[];
+      Object.keys(def).forEach(wd=>{
+        def[wd].forEach((name,i)=>rows.push({ id:uid('dmenu'), weekday:Number(wd), weekdayName:names[wd], itemName:name, sortOrder:i+1, active:true, updatedAt:formatFiji() }));
+      });
+      return rows;
+    })(),
+    dinnerPrepSnapshots: []
   };
 }
 function loadDemo() {
@@ -439,6 +473,63 @@ async function api(action, payload={}) {
   catch(e) {
     throw new Error('Non-JSON response from API. Check SCRIPT_URL and redeploy Apps Script as Web App (Execute as: Me, Anyone).');
   }
+}
+
+
+function ensureDemoMenus(db){
+  if (!db.dinnerMenus) db.dinnerMenus = [];
+  if (db.dinnerMenus.length) return;
+  Object.keys(DEFAULT_DINNER_MENUS).forEach(wd=>{
+    DEFAULT_DINNER_MENUS[wd].forEach((name,i)=>{
+      db.dinnerMenus.push({ id:uid('dmenu'), weekday:Number(wd), weekdayName:WEEKDAY_NAMES[wd], itemName:name, sortOrder:i+1, active:true, updatedAt:formatFiji() });
+    });
+  });
+}
+function demoParseHour(createdAt){
+  const m = String(createdAt||'').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  return m ? Number(m[4]) : 0;
+}
+function demoBuildPrep(db, serviceDate){
+  const orders = (db.dinnerOrders||[]).filter(o=>o.serviceDate===serviceDate && o.status!=='cancelled' && o.status!=='rejected');
+  const tally = {};
+  orders.forEach(o=>{ const k=o.mealChoice||'Standard'; tally[k]=(tally[k]||0)+1; });
+  const byItem = {};
+  Object.keys(tally).sort().forEach(k=>byItem[k]=[]);
+  orders.forEach(o=>{ const k=o.mealChoice||'Standard'; if(!byItem[k]) byItem[k]=[]; byItem[k].push({ userName:o.userName, department:o.department, orderedAt:o.createdAt, status:o.status, late:!!o.late }); });
+  return {
+    serviceDate, totalOrders:orders.length, tally, byItem,
+    pending: orders.filter(o=>o.status==='pending'||o.status==='late_pending').length,
+    approved: orders.filter(o=>['approved','late_approved','prepared','served'].includes(o.status)).length,
+    late: orders.filter(o=>o.late).length, orders
+  };
+}
+function demoProcessDinnerWorkflow(db){
+  ensureDemoMenus(db);
+  if (!db.dinnerPrepSnapshots) db.dinnerPrepSnapshots = [];
+  const now = getFijiNow();
+  const hour = now.getUTCHours(), minute = now.getUTCMinutes();
+  const info = dinnerCutoffInfo(now);
+  const serviceDate = info.serviceDate;
+  const approved = { wave12:0, wave17:0, wave19:0 };
+  const orders = (db.dinnerOrders||[]).filter(o=>o.serviceDate===serviceDate && o.status!=='cancelled' && o.status!=='rejected');
+  function wave(cut, key){
+    orders.forEach(o=>{
+      if (o.status!=='pending' || o.late) return;
+      if (demoParseHour(o.createdAt) < cut) { o.status='approved'; approved[key]++; }
+    });
+  }
+  if (hour>=12) wave(12,'wave12');
+  if (hour>=17) wave(17,'wave17');
+  if (hour>=19) wave(19,'wave19');
+  let snap = null;
+  const autoReady = hour>20 || (hour===20 && minute>=30);
+  if (autoReady) {
+    const payload = demoBuildPrep(db, serviceDate);
+    snap = db.dinnerPrepSnapshots.find(s=>s.serviceDate===serviceDate);
+    if (snap) { snap.generatedAt=formatFiji(); snap.autoGenerated=true; snap.totalOrders=payload.totalOrders; snap.payloadJson=JSON.stringify(payload); }
+    else { snap = { id:uid('dprep'), serviceDate, generatedAt:formatFiji(), autoGenerated:true, totalOrders:payload.totalOrders, payloadJson:JSON.stringify(payload) }; db.dinnerPrepSnapshots.push(snap); }
+  }
+  return { fijiNow:formatFiji(now), serviceDate, approved, autoPrepReady:autoReady, snapshot:snap?{id:snap.id,generatedAt:snap.generatedAt,autoGenerated:snap.autoGenerated,totalOrders:snap.totalOrders}:null, note:'Apps Script time triggers can also call processDinnerWorkflow' };
 }
 
 function demoApi(action, p) {
@@ -617,18 +708,20 @@ function demoApi(action, p) {
     case 'getBoatBookings':
       return Promise.resolve(ok({ bookings: db.boatBookings.filter(b => !p.runId || b.runId===p.runId) }));
     case 'placeDinnerOrder': {
+      demoProcessDinnerWorkflow(db);
       const info = dinnerCutoffInfo();
       const late = !info.open;
       if (late && !p.allowLate) return Promise.resolve({ success:false, error:'Dinner closed at 8pm Fiji', cutoff:info });
       const email = (p.userEmail||state.user.email).toLowerCase();
       const u = db.users.find(x=>x.email===email);
-      let o = db.dinnerOrders.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled');
-      if (o) { o.mealChoice=p.mealChoice; o.notes=p.notes||''; o.late=late; }
+      const status = late ? 'late_pending' : 'pending';
+      let o = db.dinnerOrders.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled' && x.status!=='rejected');
+      if (o) { o.mealChoice=p.mealChoice; o.notes=p.notes||''; o.late=late; o.status=status; }
       else {
-        o = { id:uid('din'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:u.firstName+' '+u.lastName, department:u.department, mealChoice:p.mealChoice||'Standard', notes:p.notes||'', status:'ordered', late, createdAt:formatFiji() };
+        o = { id:uid('din'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:u.firstName+' '+u.lastName, department:u.department, mealChoice:p.mealChoice||'Standard', notes:p.notes||'', status, late, createdAt:formatFiji() };
         db.dinnerOrders.push(o);
       }
-      saveDemo(db); return Promise.resolve(ok({ order:o, late, cutoff:info }));
+      demoProcessDinnerWorkflow(db); saveDemo(db); return Promise.resolve(ok({ order:o, late, cutoff:info }));
     }
     case 'placeLunchOrder': {
       const info = lunchCutoffInfo();
@@ -645,10 +738,15 @@ function demoApi(action, p) {
       saveDemo(db); return Promise.resolve(ok({ order:o, late, cutoff:info }));
     }
     case 'getDinnerOrders': {
+      const wf = demoProcessDinnerWorkflow(db); saveDemo(db);
       let orders = db.dinnerOrders;
       if (p.serviceDate) orders = orders.filter(o=>o.serviceDate===p.serviceDate);
       if (p.userEmail) orders = orders.filter(o=>o.userEmail===p.userEmail);
-      return Promise.resolve(ok({ orders, cutoff: dinnerCutoffInfo() }));
+      const sd = p.serviceDate || dinnerCutoffInfo().serviceDate;
+      const parts = String(sd).split('-');
+      const wd = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2])).getUTCDay();
+      const menus = (db.dinnerMenus||[]).filter(m=>Number(m.weekday)===wd && m.active!==false);
+      return Promise.resolve(ok({ orders, cutoff: dinnerCutoffInfo(), menus, workflow: wf }));
     }
     case 'getLunchOrders': {
       let orders = db.lunchOrders;
@@ -656,18 +754,79 @@ function demoApi(action, p) {
       if (p.userEmail) orders = orders.filter(o=>o.userEmail===p.userEmail);
       return Promise.resolve(ok({ orders, cutoff: lunchCutoffInfo() }));
     }
+    case 'getDinnerMenus': {
+      ensureDemoMenus(db);
+      let items = (db.dinnerMenus||[]).filter(m => p.includeInactive ? true : m.active!==false);
+      if (p.weekday!==undefined && p.weekday!=='') items = items.filter(m=>Number(m.weekday)===Number(p.weekday));
+      if (p.serviceDate) {
+        const parts = String(p.serviceDate).split('-');
+        const wd = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2])).getUTCDay();
+        items = items.filter(m=>Number(m.weekday)===wd);
+      }
+      items.sort((a,b)=>Number(a.weekday)-Number(b.weekday)||Number(a.sortOrder)-Number(b.sortOrder));
+      const byWeekday = {}; for (let i=0;i<7;i++) byWeekday[i]=[];
+      items.forEach(it => { byWeekday[Number(it.weekday)].push(it); });
+      const tomorrowWd = fijiWeekday(addFijiDays(getFijiNow(),1));
+      return Promise.resolve(ok({ items, byWeekday, tomorrowWeekday:tomorrowWd, tomorrowWeekdayName:WEEKDAY_NAMES[tomorrowWd], serviceDate:dinnerCutoffInfo().serviceDate, cutoff:dinnerCutoffInfo() }));
+    }
+    case 'saveDinnerMenuItem': {
+      if (!passOk(p.passcode,'super')) return Promise.resolve(fail('Superadmin passcode required (2026)'));
+      ensureDemoMenus(db);
+      const weekday = Number(p.weekday);
+      if (p.id) {
+        const it = db.dinnerMenus.find(x=>x.id===p.id);
+        if (!it) return Promise.resolve(fail('not found'));
+        Object.assign(it, { weekday, weekdayName:WEEKDAY_NAMES[weekday], itemName:p.itemName, sortOrder:Number(p.sortOrder||it.sortOrder), active:p.active!==false&&p.active!=='false', updatedAt:formatFiji() });
+        saveDemo(db); return Promise.resolve(ok({ item:it }));
+      }
+      const row = { id:uid('dmenu'), weekday, weekdayName:WEEKDAY_NAMES[weekday], itemName:p.itemName, sortOrder:Number(p.sortOrder||99), active:true, updatedAt:formatFiji() };
+      db.dinnerMenus.push(row); saveDemo(db); return Promise.resolve(ok({ item:row }));
+    }
+    case 'deleteDinnerMenuItem': {
+      if (!passOk(p.passcode,'super')) return Promise.resolve(fail('Superadmin passcode required (2026)'));
+      db.dinnerMenus = (db.dinnerMenus||[]).filter(x=>x.id!==p.id); saveDemo(db); return Promise.resolve(ok({}));
+    }
+    case 'approveLateDinnerOrder': {
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      const o = db.dinnerOrders.find(x=>x.id===p.id);
+      if (!o) return Promise.resolve(fail('Order not found'));
+      o.status = p.status==='rejected' ? 'rejected' : 'late_approved';
+      o.late = true; saveDemo(db); return Promise.resolve(ok({ order:o }));
+    }
+    case 'processDinnerWorkflow': {
+      const wf = demoProcessDinnerWorkflow(db); saveDemo(db); return Promise.resolve(ok(wf));
+    }
+    case 'getDinnerPrepList': {
+      const wf = demoProcessDinnerWorkflow(db); saveDemo(db);
+      const di = dinnerCutoffInfo();
+      const serviceDate = p.serviceDate || di.serviceDate;
+      const prep = demoBuildPrep(db, serviceDate);
+      const snap = (db.dinnerPrepSnapshots||[]).filter(s=>s.serviceDate===serviceDate).slice(-1)[0]||null;
+      const now = getFijiNow();
+      const autoReady = now.getUTCHours()>20 || (now.getUTCHours()===20 && now.getUTCMinutes()>=30);
+      return Promise.resolve(ok({ serviceDate, prep, snapshot:snap, autoGeneratedAt830: !!(autoReady && snap && snap.autoGenerated), fijiNow:formatFiji(), cutoff:di, workflow:wf }));
+    }
     case 'getKitchenDashboard': {
+      const wf = demoProcessDinnerWorkflow(db); saveDemo(db);
       const di = dinnerCutoffInfo(), li = lunchCutoffInfo();
       const dinnerDate = p.dinnerDate || di.serviceDate;
       const lunchDate = p.lunchDate || li.serviceDate;
-      const dinners = db.dinnerOrders.filter(o=>o.serviceDate===dinnerDate && o.status!=='cancelled');
+      const dinners = db.dinnerOrders.filter(o=>o.serviceDate===dinnerDate && o.status!=='cancelled' && o.status!=='rejected');
       const lunches = db.lunchOrders.filter(o=>o.serviceDate===lunchDate && o.status!=='cancelled');
       const tally = (arr) => arr.reduce((m,o)=>{ const k=o.mealChoice||'Standard'; m[k]=(m[k]||0)+1; return m; },{});
+      const pending = dinners.filter(o=>o.status==='pending'||o.status==='late_pending');
+      const approved = dinners.filter(o=>['approved','late_approved','prepared','served'].includes(o.status));
+      const parts = String(dinnerDate).split('-');
+      const wd = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2])).getUTCDay();
+      const menus = (db.dinnerMenus||[]).filter(m=>Number(m.weekday)===wd && m.active!==false);
+      const last7=[];
+      for(let i=6;i>=0;i--){ const d=addFijiDays(new Date(Date.UTC(+parts[0],+parts[1]-1,+parts[2])), -i); const ds=fijiDateString(d); last7.push({date:ds,total:db.dinnerOrders.filter(o=>o.serviceDate===ds&&o.status!=='cancelled'&&o.status!=='rejected').length}); }
       return Promise.resolve(ok({
         dinnerDate, lunchDate,
-        dinner:{ orders:dinners, late:dinners.filter(o=>o.late), tally:tally(dinners), cutoff:di },
+        dinner:{ orders:dinners, late:dinners.filter(o=>o.late), tally:tally(dinners), cutoff:di, pendingCount:pending.length, approvedCount:approved.length, lateCount:dinners.filter(o=>o.late).length, total:dinners.length },
         lunch:{ orders:lunches, late:lunches.filter(o=>o.late), tally:tally(lunches), cutoff:li },
-        fijiNow: formatFiji()
+        stats:{ tomorrowTotal:dinners.length, perItem:tally(dinners), lateCount:dinners.filter(o=>o.late).length, approved:approved.length, pending:pending.length, last7Days:last7 },
+        menus, workflow:wf, fijiNow: formatFiji()
       }));
     }
     case 'markOrderStatus': {
@@ -844,7 +1003,7 @@ function renderHome(){
     '<div class="relative overflow-hidden rounded-2xl border border-teal-800/40 shadow-lg shadow-teal-950/40 home-accent">'+
       '<div class="relative z-10 flex items-end gap-3 p-4 pt-16">'+
         '<div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/95 shadow-md">'+
-          '<img src="assets/pcr-logo.png" alt="" class="h-11 w-11 object-contain p-0.5"/>'+
+          '<img src="assets/golden-logo.jpg" alt="" class="h-11 w-11 object-contain p-0.5"/>'+
         '</div>'+
         '<div class="min-w-0 flex-1">'+
           '<h2 class="text-xl font-bold text-white drop-shadow">Bula, '+esc(u.firstName||'friend')+'!</h2>'+
@@ -892,22 +1051,33 @@ function renderHome(){
 async function renderMeals(){
   const di = dinnerCutoffInfo(), li = lunchCutoffInfo();
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="meals-root"><p class="text-sm text-sand-200/50">Loading…</p></div>';
-  let myDinner=[], myLunch=[];
+  let myDinner=[], myLunch=[], menuItems=[];
   try {
-    const [d,l] = await Promise.all([
+    const [d,l,m] = await Promise.all([
       api('getDinnerOrders',{ userEmail: state.user.email, serviceDate: di.serviceDate }),
-      api('getLunchOrders',{ userEmail: state.user.email, serviceDate: li.serviceDate })
+      api('getLunchOrders',{ userEmail: state.user.email, serviceDate: li.serviceDate }),
+      api('getDinnerMenus',{ serviceDate: di.serviceDate })
     ]);
-    myDinner = (d.data && d.data.orders) || []; myLunch = (l.data && l.data.orders) || [];
+    myDinner = (d.data && d.data.orders) || [];
+    myLunch = (l.data && l.data.orders) || [];
+    menuItems = (m.data && m.data.items) || (d.data && d.data.menus) || [];
   } catch(e){}
+  const wd = fijiWeekday(addFijiDays(getFijiNow(),1));
+  let dinnerOpts = menuItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('');
+  if (!dinnerOpts) dinnerOpts = '<option value="Standard">Standard</option><option value="Vegetarian">Vegetarian</option><option value="No meal">No meal</option>';
+  const cur = myDinner[0];
+  const statusHtml = cur ? ('<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(cur.mealChoice)+'</strong> '+statusBadge(cur.status)+(cur.late?' <span class="text-amber-400">LATE</span>':'')+'</p>') : '';
   $('#meals-root').innerHTML =
     '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-moon text-teal-400 mr-2"></i>Dinner</h3>'+
-    '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+di.serviceDate+'</strong></p>'+
-    '<p class="text-[10px] '+(di.open?'text-teal-400':'text-amber-400')+'">'+(di.open?'Ordering open':'Closed')+' — '+di.cutoffLabel+'</p></div>'+
-    (myDinner[0]?'<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(myDinner[0].mealChoice)+'</strong></p>':'')+
-    '<select id="dinner-choice" class="w-full rounded-xl px-3 py-2 text-sm"><option>Standard</option><option>Vegetarian</option><option>Fish</option><option>Chicken</option><option>No meal</option></select>'+
+    '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+di.serviceDate+'</strong> · '+WEEKDAY_NAMES[wd]+'</p>'+
+    '<p class="text-[10px] '+(di.open?'text-teal-400':'text-amber-400')+'">'+(di.open?'Ordering open':'Closed — late requests only')+' — '+di.cutoffLabel+'</p></div>'+
+    statusHtml+
+    '<label class="text-[10px] text-slate-400">Tomorrow\'s menu</label>'+
+    '<select id="dinner-choice" class="w-full rounded-xl px-3 py-2 text-sm">'+dinnerOpts+'</select>'+
     '<input id="dinner-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes / allergies"/>'+
-    '<button id="btn-dinner" class="btn-primary w-full rounded-xl py-2 text-sm text-white">'+(di.open?'Place dinner order':'Submit late request')+'</button></div>'+
+    '<button id="btn-dinner" class="btn-primary w-full rounded-xl py-2 text-sm text-white">'+(di.open?'Place dinner order':'Submit late request')+'</button>'+
+    (!di.open?'<p class="text-[10px] text-amber-300/80">After 8pm Fiji, late requests need admin approval (2025/2026).</p>':'')+
+    '</div>'+
     '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-sun text-teal-400 mr-2"></i>Lunch / Duty Meal</h3>'+
     '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+li.serviceDate+'</strong></p>'+
     '<p class="text-[10px] '+(li.open?'text-teal-400':'text-amber-400')+'">'+(li.open?'Ordering open':'Closed')+' — '+li.cutoffLabel+'</p></div>'+
@@ -915,10 +1085,18 @@ async function renderMeals(){
     '<select id="lunch-choice" class="w-full rounded-xl px-3 py-2 text-sm"><option>Duty Meal</option><option>Vegetarian</option><option>Fish</option><option>Chicken</option><option>No meal</option></select>'+
     '<input id="lunch-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes"/>'+
     '<button id="btn-lunch" class="btn-primary w-full rounded-xl py-2 text-sm text-white">'+(li.open?'Place lunch order':'Submit late request')+'</button></div>';
+  if (cur && cur.mealChoice) {
+    const sel = $('#dinner-choice');
+    if (sel) {
+      let found=false;
+      [...sel.options].forEach(o=>{ if(o.value===cur.mealChoice){ o.selected=true; found=true; }});
+      if (!found) { const o=document.createElement('option'); o.value=cur.mealChoice; o.textContent=cur.mealChoice; o.selected=true; sel.appendChild(o); }
+    }
+  }
   $('#btn-dinner').onclick = async () => {
     const r = await api('placeDinnerOrder',{ mealChoice:$('#dinner-choice').value, notes:$('#dinner-notes').value, allowLate: !di.open });
     if (!r.success) { toast(r.error,'error'); return; }
-    toast(r.data.late?'Late dinner request submitted':'Dinner ordered','ok'); renderMeals();
+    toast(r.data.late?'Late dinner request submitted (pending admin)':'Dinner ordered (pending auto-approve)','ok'); renderMeals();
   };
   $('#btn-lunch').onclick = async () => {
     const r = await api('placeLunchOrder',{ mealChoice:$('#lunch-choice').value, notes:$('#lunch-notes').value, allowLate: !li.open });
@@ -1127,8 +1305,10 @@ async function renderSuggestions(){
 async function renderKitchen(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root">Loading kitchen…</div>';
   try {
-    const r = await api('getKitchenDashboard');
+    const [r, prepR] = await Promise.all([api('getKitchenDashboard'), api('getDinnerPrepList')]);
     const d = r.data;
+    const prepData = (prepR && prepR.data) || {};
+    const stats = d.stats || {};
     function block(title, meal, pack, date) {
       let h = '<div class="glass rounded-2xl p-4"><div class="flex justify-between items-center mb-2"><h3 class="font-semibold text-sm">'+title+'</h3>'+
         '<button class="text-xs text-teal-400 print-check" data-meal="'+meal+'">Print checklist</button></div>'+
@@ -1138,35 +1318,141 @@ async function renderKitchen(){
       if (!keys.length) h += '<span class="text-xs text-sand-200/40">No orders</span>';
       keys.forEach(k => { h += '<span class="badge bg-teal-600/30 text-teal-200">'+esc(k)+': '+tally[k]+'</span>'; });
       h += '</div>';
+      if (meal==='dinner') {
+        h += '<div class="grid grid-cols-2 gap-2 mb-3 text-[10px]">'+
+          '<div class="glass rounded-lg p-2">Total <strong class="text-slate-100">'+(pack.total|| (pack.orders||[]).length)+'</strong></div>'+
+          '<div class="glass rounded-lg p-2">Late <strong class="text-amber-300">'+(pack.lateCount!=null?pack.lateCount:(pack.late||[]).length)+'</strong></div>'+
+          '<div class="glass rounded-lg p-2">Approved <strong class="text-teal-300">'+(pack.approvedCount||0)+'</strong></div>'+
+          '<div class="glass rounded-lg p-2">Pending <strong class="text-amber-200">'+(pack.pendingCount||0)+'</strong></div></div>';
+      }
       const late = pack.late || [];
       if (late.length) {
         h += '<div class="mb-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30"><p class="text-xs text-amber-300 font-medium"><i class="fa-solid fa-clock mr-1"></i>Late requests ('+late.length+')</p>';
-        late.forEach(o => { h += '<p class="text-[10px] text-sand-200/70">'+esc(o.userName)+' — '+esc(o.mealChoice)+'</p>'; });
+        late.forEach(o => {
+          h += '<div class="flex justify-between items-center gap-2 py-0.5"><p class="text-[10px] text-sand-200/70">'+esc(o.userName)+' — '+esc(o.mealChoice)+' '+statusBadge(o.status)+'</p>';
+          if (canAdmin() && o.status==='late_pending') {
+            h += '<button class="text-[10px] text-teal-400 late-approve" data-id="'+o.id+'">Approve</button>';
+          }
+          h += '</div>';
+        });
         h += '</div>';
       }
-      h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Meal</th><th></th></tr></thead><tbody>';
+      h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Meal</th><th>Status</th><th></th></tr></thead><tbody>';
       (pack.orders||[]).forEach(o => {
-        h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(o.userName)+'</td><td>'+esc(o.department)+'</td><td>'+esc(o.mealChoice)+'</td>'+
-          '<td><button class="text-teal-400 mark-ord" data-id="'+o.id+'" data-meal="'+meal+'">'+(o.status==='prepared'?'✓':'Mark')+'</button></td></tr>';
+        h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(o.userName)+'</td><td>'+esc(o.department)+'</td><td>'+esc(o.mealChoice)+'</td><td>'+statusBadge(o.status)+'</td>'+
+          '<td><button class="text-teal-400 mark-ord" data-id="'+o.id+'" data-meal="'+meal+'">'+(o.status==='prepared'||o.status==='served'?'✓':'Mark')+'</button></td></tr>';
       });
       h += '</tbody></table></div></div>';
       return h;
     }
-    $('#kit-root').innerHTML = block('Dinner','dinner',d.dinner,d.dinnerDate) + block('Lunch / Duty','lunch',d.lunch,d.lunchDate);
+    let statsHtml = '';
+    if (stats.last7Days && stats.last7Days.length) {
+      statsHtml = '<div class="glass rounded-2xl p-4"><h3 class="font-semibold text-sm mb-2">Last 7 days (dinner)</h3><div class="flex flex-wrap gap-1.5">'+
+        stats.last7Days.map(x=>'<span class="badge bg-slate-700/50 text-slate-200">'+esc(x.date.slice(5))+': '+x.total+'</span>').join('')+'</div></div>';
+    }
+    const autoNote = prepData.autoGeneratedAt830
+      ? '<p class="text-[10px] text-teal-300 mb-2"><i class="fa-solid fa-magic mr-1"></i>Auto-generated at 8:30pm'+(prepData.snapshot&&prepData.snapshot.generatedAt?' · '+esc(prepData.snapshot.generatedAt):'')+'</p>'
+      : '<p class="text-[10px] text-slate-500 mb-2">Prep list auto-locks after 8:30pm Fiji for tomorrow\'s service.</p>';
+    let html = '<div class="glass rounded-2xl p-4 space-y-2">'+
+      '<div class="flex flex-wrap justify-between items-center gap-2"><h3 class="font-semibold text-sm"><i class="fa-solid fa-print text-teal-400 mr-2"></i>Dinner Prep List</h3>'+
+      '<div class="flex gap-2"><button id="btn-prep-gen" class="text-xs text-teal-400">Generate</button>'+
+      '<button id="btn-prep-print" class="text-xs text-teal-400">Print</button>'+
+      '<button id="btn-prep-dl" class="text-xs text-teal-400">Download</button></div></div>'+
+      autoNote+'</div>'+
+      block('Dinner','dinner',d.dinner,d.dinnerDate) + statsHtml + block('Lunch / Duty','lunch',d.lunch,d.lunchDate);
+    $('#kit-root').innerHTML = html;
     $$('.mark-ord').forEach(b=>b.onclick=async()=>{
       await api('markOrderStatus',{ id:b.dataset.id, meal:b.dataset.meal, status:'prepared' });
       toast('Marked','ok'); renderKitchen();
+    });
+    $$('.late-approve').forEach(b=>b.onclick=async()=>{
+      const passcode = await askPasscode('admin'); if (!passcode) return;
+      const res = await api('approveLateDinnerOrder',{ id:b.dataset.id, passcode });
+      if (!res.success) toast(res.error,'error'); else { toast('Late order approved','ok'); renderKitchen(); }
     });
     $$('.print-check').forEach(b=>b.onclick=()=>{
       const pack = b.dataset.meal==='dinner'?d.dinner:d.lunch;
       const date = b.dataset.meal==='dinner'?d.dinnerDate:d.lunchDate;
       $('#print-area').classList.remove('hidden');
       let items = '';
-      (pack.orders||[]).forEach(o => { items += '<li>☐ '+o.userName+' ('+o.department+') — '+o.mealChoice+(o.late?' [LATE]':'')+'</li>'; });
+      (pack.orders||[]).forEach(o => { items += '<li>☐ '+o.userName+' ('+o.department+') — '+o.mealChoice+(o.late?' [LATE]':'')+' '+o.status+'</li>'; });
       $('#print-area').innerHTML = '<h1>PCR Kitchen Checklist — '+b.dataset.meal+' '+date+'</h1><p>Printed '+formatFiji()+'</p><ul>'+items+'</ul>';
       window.print();
       $('#print-area').classList.add('hidden');
     });
+    async function loadPrep(force){
+      const pr = force ? await api('processDinnerWorkflow') : null;
+      const pl = await api('getDinnerPrepList');
+      return pl.data;
+    }
+    function buildPrepHtml(data){
+      const prep = data.prep || {};
+      const tally = prep.tally || {};
+      const byItem = prep.byItem || {};
+      let breakdown = Object.keys(tally).sort().map(k =>
+        '<div style="margin:6px 0;padding:6px 0;border-bottom:1px solid #ddd"><strong>'+esc(k)+'</strong>: '+tally[k]+
+        '<div style="margin-top:4px">Given out: ______</div></div>'
+      ).join('');
+      let sections = Object.keys(byItem).sort().map(k => {
+        const rows = (byItem[k]||[]).map(o =>
+          '<tr><td>'+esc(o.userName)+'</td><td>'+esc(o.department)+'</td><td>'+esc(o.orderedAt)+'</td><td>'+esc(o.status)+(o.late?' LATE':'')+'</td></tr>'
+        ).join('');
+        return '<h3 style="margin-top:18px">'+esc(k)+' ('+(byItem[k]||[]).length+')</h3><table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="4"><thead><tr><th>Name</th><th>Department</th><th>Ordered at</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      }).join('');
+      const logo = 'assets/golden-logo.jpg';
+      return '<div style="font-family:system-ui,sans-serif;color:#111;max-width:800px;margin:0 auto;padding:16px">'+
+        '<div style="text-align:center"><img src="'+logo+'" alt="PCR" style="height:72px;object-fit:contain"/><h1 style="margin:8px 0 4px;font-size:20px">Dinner Prep List — '+esc(data.serviceDate)+' FJT</h1>'+
+        (data.autoGeneratedAt830?'<p style="color:#0d9488;font-size:12px">Auto-generated at 8:30pm</p>':'')+
+        '<p>Total dinner orders: <strong>'+(prep.totalOrders||0)+'</strong></p></div>'+
+        '<h2 style="font-size:14px;margin-top:16px">Breakdown</h2>'+breakdown+
+        '<p style="font-size:11px;color:#666">Sum of counts should equal total.</p>'+
+        sections+
+        '<div style="margin-top:32px;font-size:13px">Signature Chef in charge __________ &nbsp;&nbsp; HOD __________ &nbsp;&nbsp; Date ______</div></div>';
+    }
+    function buildPrepTxt(data){
+      const prep = data.prep || {};
+      const tally = prep.tally || {};
+      const byItem = prep.byItem || {};
+      const nl = String.fromCharCode(10);
+      let t = 'Dinner Prep List — '+data.serviceDate+' FJT'+nl;
+      t += 'Total dinner orders: '+(prep.totalOrders||0)+nl+nl+'Breakdown:'+nl;
+      Object.keys(tally).sort().forEach(k=>{ t += '  '+k+': '+tally[k]+'  Given out: ______'+nl; });
+      Object.keys(byItem).sort().forEach(k=>{
+        t += nl+'== '+k+' =='+nl;
+        (byItem[k]||[]).forEach(o=>{ t += o.userName+' | '+o.department+' | '+o.orderedAt+' | '+o.status+(o.late?' LATE':'')+nl; });
+      });
+      t += nl+'Signature Chef in charge __________  HOD __________  Date ______'+nl;
+      return t;
+    }
+    let lastPrep = prepData;
+    $('#btn-prep-gen').onclick = async () => {
+      lastPrep = await loadPrep(true);
+      toast('Prep list ready','ok');
+      openModal('<h3 class="font-semibold mb-2">Prep list ready</h3><p class="text-xs text-slate-400 mb-2">Service '+esc(lastPrep.serviceDate)+' · '+(lastPrep.prep&&lastPrep.prep.totalOrders||0)+' orders</p>'+
+        '<button id="m-print" class="btn-primary w-full rounded-xl py-2 text-sm text-white mb-2">Print</button>'+
+        '<button id="m-dl-html" class="glass w-full rounded-xl py-2 text-sm mb-2">Download HTML</button>'+
+        '<button id="m-dl-txt" class="glass w-full rounded-xl py-2 text-sm">Download TXT</button>');
+      $('#m-print').onclick = () => { closeModal(); printPrep(lastPrep); };
+      $('#m-dl-html').onclick = () => { downloadText('dinner-prep-'+lastPrep.serviceDate+'.html', buildPrepHtml(lastPrep)); };
+      $('#m-dl-txt').onclick = () => { downloadText('dinner-prep-'+lastPrep.serviceDate+'.txt', buildPrepTxt(lastPrep)); };
+    };
+    function printPrep(data){
+      const html = buildPrepHtml(data);
+      const w = window.open('', '_blank');
+      if (w) { w.document.write('<!doctype html><html><head><title>Dinner Prep List</title></head><body>'+html+'</body></html>'); w.document.close(); w.focus(); setTimeout(()=>w.print(), 300); }
+      else {
+        $('#print-area').classList.remove('hidden');
+        $('#print-area').innerHTML = html;
+        window.print();
+        $('#print-area').classList.add('hidden');
+      }
+    }
+    $('#btn-prep-print').onclick = async () => { lastPrep = await loadPrep(false); printPrep(lastPrep); };
+    $('#btn-prep-dl').onclick = async () => {
+      lastPrep = await loadPrep(false);
+      downloadText('dinner-prep-'+lastPrep.serviceDate+'.html', buildPrepHtml(lastPrep));
+      toast('Downloaded HTML','ok');
+    };
   } catch(e){ $('#kit-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
 }
 
@@ -1240,7 +1526,8 @@ async function renderUsers(){
 function debounce(fn,ms){ let t; return function(){ const a=arguments; clearTimeout(t); t=setTimeout(()=>fn.apply(null,a),ms); }; }
 function csvEscape(v){ const s=String(v==null?'':v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
 function downloadText(name, text){
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'})); a.download=name; a.click();
+  const mime = /\.html?$/i.test(name)?'text/html':(/\.txt$/i.test(name)?'text/plain':'text/csv');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:mime})); a.download=name; a.click();
 }
 
 async function refreshUsers(silent){
@@ -1422,25 +1709,38 @@ async function renderAdmin(){
     state.adminUnlock = passLevel(code);
   }
   const full = state.adminUnlock === 'super';
-  let html = '<div class="animate-fade-in max-w-lg mx-auto space-y-3">'+
+  const sub = state.adminKitchenTab || 'overview';
+  let html = '<div class="animate-fade-in max-w-lg mx-auto space-y-3" id="admin-root">'+
     '<div class="ui-card glass rounded-xl p-3 flex items-center justify-between">'+
       '<div><p class="text-sm font-semibold text-slate-100">Admin tools</p>'+
       '<p class="text-[10px] text-slate-400">Unlock: '+(full?'Superadmin 2026 (full)':'Admin 2025 (limited)')+'</p></div>'+
       '<button id="btn-reunlock" class="text-xs text-teal-400">Re-lock</button></div>'+
-    '<button onclick="navigate(\'users\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-users text-teal-400 mr-2"></i>Staff Directory / approve</button>'+
-    '<button onclick="navigate(\'kitchen\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-fire-burner text-teal-400 mr-2"></i>Kitchen ops</button>'+
-    '<button onclick="navigate(\'boat\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-ship text-teal-400 mr-2"></i>Boat ops</button>';
-  if (full) {
-    html += '<button onclick="openAlertEmails()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-envelope text-teal-400 mr-2"></i>Manage Alert Emails</button>'+
-      '<p class="text-[10px] text-slate-500 px-1">Super-only: alert emails, role promotion, delete users</p>';
-  } else {
-    html += '<p class="text-[10px] text-amber-300/80 px-1">Limited unlock — enter 2026 for alert emails & role promotion.</p>'+
-      '<button id="btn-upgrade-unlock" class="glass w-full rounded-xl px-4 py-3 text-left text-sm text-teal-300"><i class="fa-solid fa-lock-open text-teal-400 mr-2"></i>Upgrade to super unlock (2026)</button>';
-  }
-  html += '<button onclick="checkHealth()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-heart-pulse text-teal-400 mr-2"></i>API health / version</button></div>';
+    '<div class="flex gap-2 border-b border-slate-700 pb-2">'+
+      '<button id="adm-tab-overview" class="auth-tab '+(sub==='overview'?'active':'')+'">Overview</button>'+
+      '<button id="adm-tab-kitchen" class="auth-tab '+(sub==='kitchen'?'active':'')+'">Kitchen</button></div>'+
+    '<div id="admin-body"></div></div>';
   $('#main-content').innerHTML = html;
   const rel = $('#btn-reunlock');
-  if (rel) rel.onclick = () => { state.adminUnlock = null; renderAdmin(); };
+  if (rel) rel.onclick = () => { state.adminUnlock = null; state.adminKitchenTab=null; renderAdmin(); };
+  $('#adm-tab-overview').onclick = () => { state.adminKitchenTab='overview'; renderAdmin(); };
+  $('#adm-tab-kitchen').onclick = () => { state.adminKitchenTab='kitchen'; renderAdmin(); };
+
+  if (sub === 'kitchen') {
+    await renderAdminKitchenTab(full);
+    return;
+  }
+  let body = '<button onclick="navigate(\'users\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-users text-teal-400 mr-2"></i>Staff Directory / approve</button>'+
+    '<button onclick="navigate(\'kitchen\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-fire-burner text-teal-400 mr-2"></i>Kitchen ops / prep list</button>'+
+    '<button onclick="navigate(\'boat\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-ship text-teal-400 mr-2"></i>Boat ops</button>';
+  if (full) {
+    body += '<button onclick="openAlertEmails()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-envelope text-teal-400 mr-2"></i>Manage Alert Emails</button>'+
+      '<p class="text-[10px] text-slate-500 px-1 mb-2">Super-only: alert emails, role promotion, delete users, dinner menu CRUD</p>';
+  } else {
+    body += '<p class="text-[10px] text-amber-300/80 px-1 mb-2">Limited unlock — enter 2026 for alert emails, menu edit & role promotion.</p>'+
+      '<button id="btn-upgrade-unlock" class="glass w-full rounded-xl px-4 py-3 text-left text-sm text-teal-300 mb-2"><i class="fa-solid fa-lock-open text-teal-400 mr-2"></i>Upgrade to super unlock (2026)</button>';
+  }
+  body += '<button onclick="checkHealth()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-heart-pulse text-teal-400 mr-2"></i>API health / version</button>';
+  $('#admin-body').innerHTML = body;
   const up = $('#btn-upgrade-unlock');
   if (up) up.onclick = async () => {
     const code = await askPasscode('super');
@@ -1448,6 +1748,98 @@ async function renderAdmin(){
     state.adminUnlock = 'super';
     renderAdmin();
   };
+}
+
+async function renderAdminKitchenTab(full){
+  const root = $('#admin-body');
+  root.innerHTML = '<p class="text-sm text-slate-400">Loading kitchen…</p>';
+  try {
+    const [dash, menusR] = await Promise.all([api('getKitchenDashboard'), api('getDinnerMenus',{ includeInactive:true })]);
+    const d = dash.data || {};
+    const stats = d.stats || {};
+    const byWeekday = (menusR.data && menusR.data.byWeekday) || {};
+    let html = '<div class="space-y-3">'+
+      '<div class="glass rounded-xl p-3"><p class="text-xs font-semibold text-slate-200 mb-2">Kitchen stats — tomorrow '+esc(d.dinnerDate||'')+'</p>'+
+      '<div class="grid grid-cols-2 gap-2 text-[11px]">'+
+      '<div class="rounded-lg bg-slate-800/50 p-2">Total <strong>'+(stats.tomorrowTotal||0)+'</strong></div>'+
+      '<div class="rounded-lg bg-slate-800/50 p-2">Late <strong class="text-amber-300">'+(stats.lateCount||0)+'</strong></div>'+
+      '<div class="rounded-lg bg-slate-800/50 p-2">Approved <strong class="text-teal-300">'+(stats.approved||0)+'</strong></div>'+
+      '<div class="rounded-lg bg-slate-800/50 p-2">Pending <strong class="text-amber-200">'+(stats.pending||0)+'</strong></div></div>';
+    const per = stats.perItem || {};
+    const pkeys = Object.keys(per);
+    if (pkeys.length) {
+      html += '<div class="flex flex-wrap gap-1.5 mt-2">'+pkeys.map(k=>'<span class="badge bg-teal-600/25 text-teal-200">'+esc(k)+': '+per[k]+'</span>').join('')+'</div>';
+    }
+    if (stats.last7Days) {
+      html += '<p class="text-[10px] text-slate-500 mt-2">Last 7 days</p><div class="flex flex-wrap gap-1">'+
+        stats.last7Days.map(x=>'<span class="badge bg-slate-700/40">'+esc(String(x.date).slice(5))+': '+x.total+'</span>').join('')+'</div>';
+    }
+    html += '</div>';
+    html += '<button onclick="navigate(\'kitchen\')" class="glass w-full rounded-xl px-4 py-2 text-left text-sm"><i class="fa-solid fa-list-check text-teal-400 mr-2"></i>Open prep list / ops</button>';
+
+    // late pending approvals
+    const latePending = ((d.dinner && d.dinner.orders)||[]).filter(o=>o.status==='late_pending');
+    if (latePending.length) {
+      html += '<div class="glass rounded-xl p-3"><p class="text-xs font-semibold text-amber-300 mb-2">Late pending ('+latePending.length+') — admin 2025/2026</p>';
+      latePending.forEach(o=>{
+        html += '<div class="flex justify-between items-center text-xs py-1 border-t border-slate-700/50"><span>'+esc(o.userName)+' · '+esc(o.mealChoice)+'</span>'+
+          '<button class="text-teal-400 adm-late-ok" data-id="'+o.id+'">Approve</button></div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<div class="glass rounded-xl p-3 space-y-2"><div class="flex justify-between items-center"><p class="text-xs font-semibold text-slate-200">Dinner menus by weekday</p>'+
+      (full?'<span class="text-[10px] text-teal-400">Edit unlocked (2026)</span>':'<span class="text-[10px] text-amber-300">View only — need 2026 to edit</span>')+'</div>';
+    for (let wd=0; wd<=6; wd++) {
+      const items = byWeekday[wd] || byWeekday[String(wd)] || [];
+      html += '<div class="border border-slate-700/60 rounded-lg p-2"><p class="text-[11px] font-medium text-teal-300/90 mb-1">'+WEEKDAY_NAMES[wd]+' <span class="text-slate-500">('+wd+')</span></p>';
+      if (!items.length) html += '<p class="text-[10px] text-slate-500">No items</p>';
+      items.sort((a,b)=>Number(a.sortOrder)-Number(b.sortOrder)).forEach(it=>{
+        html += '<div class="flex gap-2 items-center text-[11px] py-0.5"><span class="flex-1 '+(it.active===false||it.active==='FALSE'?'opacity-40 line-through':'')+'">'+esc(it.itemName)+'</span>';
+        if (full) {
+          html += '<button class="text-teal-400 menu-edit" data-id="'+it.id+'" data-wd="'+wd+'" data-name="'+esc(it.itemName)+'" data-sort="'+it.sortOrder+'">Edit</button>'+
+            '<button class="text-red-400 menu-del" data-id="'+it.id+'">Del</button>';
+        }
+        html += '</div>';
+      });
+      if (full) html += '<button class="text-[10px] text-teal-400 mt-1 menu-add" data-wd="'+wd+'"><i class="fa-solid fa-plus mr-1"></i>Add item</button>';
+      html += '</div>';
+    }
+    html += '</div></div>';
+    root.innerHTML = html;
+
+    $$('.adm-late-ok').forEach(b=>b.onclick=async()=>{
+      const passcode = await askPasscode('admin'); if (!passcode) return;
+      const res = await api('approveLateDinnerOrder',{ id:b.dataset.id, passcode });
+      if (!res.success) toast(res.error,'error'); else { toast('Approved','ok'); renderAdmin(); }
+    });
+    if (full) {
+      $$('.menu-add').forEach(b=>b.onclick=async()=>{
+        const name = prompt('Menu item name'); if (!name) return;
+        const sortOrder = prompt('Sort order', '1') || '1';
+        const passcode = await askPasscode('super'); if (!passcode) return;
+        const res = await api('saveDinnerMenuItem',{ weekday:Number(b.dataset.wd), itemName:name, sortOrder:Number(sortOrder), passcode });
+        if (!res.success) toast(res.error,'error'); else { toast('Added','ok'); renderAdmin(); }
+      });
+      $$('.menu-edit').forEach(b=>b.onclick=async()=>{
+        const name = prompt('Item name', b.dataset.name); if (!name) return;
+        const sortOrder = prompt('Sort order', b.dataset.sort) || b.dataset.sort;
+        const passcode = await askPasscode('super'); if (!passcode) return;
+        const res = await api('saveDinnerMenuItem',{ id:b.dataset.id, weekday:Number(b.dataset.wd), itemName:name, sortOrder:Number(sortOrder), passcode });
+        if (!res.success) toast(res.error,'error'); else { toast('Saved','ok'); renderAdmin(); }
+      });
+      $$('.menu-del').forEach(b=>b.onclick=async()=>{
+        if (!confirm('Remove this menu item?')) return;
+        const passcode = await askPasscode('super'); if (!passcode) return;
+        const res = await api('deleteDinnerMenuItem',{ id:b.dataset.id, passcode });
+        if (!res.success) toast(res.error,'error'); else { toast('Removed','ok'); renderAdmin(); }
+      });
+    } else {
+      // allow upgrade prompt when trying to hint
+    }
+  } catch(e) {
+    root.innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>';
+  }
 }
 
 function maybeProfileModal(){

@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.4.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.5.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -49,6 +49,19 @@ Version **2.4.0**. Revert any item later by asking for its ID (e.g. “revert C7
 |----|--------|
 | C22 | `APP_VERSION` → `2.4.0` (public/index.html + apps-script/Code.gs) |
 | C23 | Service worker cache bumped to `pcr-staff-v2.4.0` |
+
+
+## Logo / dinner kitchen (2.5.0)
+
+| ID | Change |
+|----|--------|
+| C24 | Primary brand mark → `public/assets/golden-logo.jpg` (login header, app header, home hero, favicon/apple-touch/manifest); pcr-logo retained as asset fallback only |
+| C25 | Seed weekly dinner menus (Fiji weekday 0=Sun…6=Sat) into sheet `Dinner Menus`; `initializeSheets` + seed if empty; meals dinner picker loads tomorrow’s items via `getDinnerMenus` |
+| C26 | Admin → **Kitchen** sub-tab after unlock; superadmin+2026 CRUD menu items (`saveDinnerMenuItem` / `deleteDinnerMenuItem`); admin 2025 view stats/prep/late approve only |
+| C27 | Printable/downloadable Dinner Prep List (golden logo, totals, per-item Given out blanks, sections by menu item, chef/HOD signatures); auto snapshot after 8:30pm Fiji into `Dinner Prep Snapshots` |
+| C28 | Dinner approval workflow: `pending`/`approved`/`late_pending`/`late_approved`; auto-approve waves 12:00 / 17:00 / 19:00 FJT via `processDinnerWorkflow`; after 20:00 late + `approveLateDinnerOrder` (admin/super) |
+| C29 | Kitchen stats on Admin Kitchen tab + kitchen dashboard: tomorrow totals, per-item, late, approved vs pending, last 7 days |
+| C30 | `APP_VERSION` → `2.5.0` (public/index.html + apps-script/Code.gs); SW cache `pcr-staff-v2.5.0` |
 
 ## Intentionally preserved
 
