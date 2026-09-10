@@ -367,6 +367,19 @@ function initializeSheets() {
   seedVillageBoatRuns();
 }
 
+function sheetCellToValue(v, headerName) {
+  if (!(v instanceof Date)) return v;
+  var utcYear = Number(Utilities.formatDate(v, 'UTC', 'yyyy'));
+  // Time-only serials from Sheets land near 1899/1900
+  if (utcYear < 1950 || headerName === 'time') {
+    return Utilities.formatDate(v, 'UTC', 'HH:mm');
+  }
+  if (headerName === 'date' || headerName === 'dueDate' || headerName === 'serviceDate' || headerName === 'startDate' || headerName === 'endDate') {
+    return Utilities.formatDate(v, 'Pacific/Fiji', 'yyyy-MM-dd');
+  }
+  return Utilities.formatDate(v, 'Pacific/Fiji', 'yyyy-MM-dd HH:mm:ss');
+}
+
 function sheetToObjects(sheetName) {
   var sh = getSS().getSheetByName(sheetName);
   if (!sh || sh.getLastRow() < 2) return [];
@@ -377,8 +390,7 @@ function sheetToObjects(sheetName) {
     var obj = {};
     var empty = true;
     for (var j = 0; j < headers.length; j++) {
-      var v = values[i][j];
-      if (v instanceof Date) v = Utilities.formatDate(v, 'Pacific/Fiji', 'yyyy-MM-dd HH:mm:ss');
+      var v = sheetCellToValue(values[i][j], headers[j]);
       obj[headers[j]] = v;
       if (v !== '' && v !== null && v !== undefined) empty = false;
     }
@@ -392,11 +404,24 @@ function sheetToObjects(sheetName) {
 
 function appendRow(sheetName, obj, headers) {
   var sh = getSS().getSheetByName(sheetName);
-  var row = headers.map(function (h) {
+  if (headers && headers.length) ensureColumns(sh, headers);
+  var lastCol = Math.max(sh.getLastColumn(), 1);
+  var sheetHeaders = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  var useHeaders = sheetHeaders;
+  if (!useHeaders.length || (useHeaders.length === 1 && !String(useHeaders[0] || '').trim())) {
+    useHeaders = headers || Object.keys(obj || {});
+  }
+  var textKeys = { date:1, time:1, dueDate:1, serviceDate:1, startDate:1, endDate:1 };
+  var row = useHeaders.map(function (h) {
+    if (!h) return '';
     var v = obj[h];
     if (v === true) return 'TRUE';
     if (v === false) return 'FALSE';
-    return v === undefined || v === null ? '' : v;
+    if (v === undefined || v === null) return '';
+    if (textKeys[h] && typeof v === 'string' && v !== '' && v.charAt(0) !== "'") {
+      return "'" + v; // force text — avoid Sheets date/time coercion
+    }
+    return v;
   });
   sh.appendRow(row);
 }
@@ -753,15 +778,23 @@ var VILLAGE_BOAT_SLOTS = [
  * Idempotent: skip if same title or fixed id marker already exists.
  * Returns { added: 0|1, skipped: boolean, reminder?: object }
  */
-function seedSampleReminders() {
-  var rows = sheetToObjects('Reminders');
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    if (String(r.id) === SAMPLE_REMINDER_ID || String(r.title) === SAMPLE_REMINDER_TITLE) {
-      return { added: 0, skipped: true, reminder: r };
-    }
+function normalizeDateKey(d) {
+  var m = String(d || '').match(/(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : String(d || '');
+}
+
+function normalizeTimeKey(t) {
+  t = String(t || '').trim();
+  var m = t.match(/^(\d{1,2}):(\d{2})/);
+  if (m && t.indexOf('1899') < 0 && t.length <= 8) {
+    return (m[1].length === 1 ? '0' + m[1] : m[1]) + ':' + m[2];
   }
-  var body = [
+  m = t.match(/(\d{2}):(\d{2})(?::\d{2})?$/);
+  return m ? m[1] + ':' + m[2] : t;
+}
+
+function sampleReminderBody() {
+  return [
     'High occupancy continues across weeks ending 20 Sep & 27 Sep.',
     '',
     'HODs: build rosters for these numbers; submit completed rosters to HR by Friday 8:00 AM.',
@@ -770,6 +803,32 @@ function seedSampleReminders() {
     '',
     'Look after wellbeing: eat well, rest, supportive teamwork.'
   ].join('\n');
+}
+
+function seedSampleReminders() {
+  var body = sampleReminderBody();
+  var rows = sheetToObjects('Reminders');
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (String(r.id) === SAMPLE_REMINDER_ID || String(r.title) === SAMPLE_REMINDER_TITLE) {
+      var needsRepair = String(r.createdAt) === 'high' || r.priority === true || r.priority === 'TRUE' ||
+        String(r.important) === 'all' || String(r.priority) !== 'high';
+      if (needsRepair) {
+        var fixed = updateRowById('Reminders', r.id, {
+          title: SAMPLE_REMINDER_TITLE,
+          body: body,
+          dueDate: '2026-09-27',
+          done: false,
+          priority: 'high',
+          important: true,
+          audience: 'all',
+          createdAt: (String(r.createdAt).indexOf('FJT') >= 0 ? r.createdAt : nowIso())
+        });
+        return { added: 0, repaired: true, skipped: false, reminder: fixed || r };
+      }
+      return { added: 0, skipped: true, repaired: false, reminder: r };
+    }
+  }
   var row = {
     id: SAMPLE_REMINDER_ID,
     userEmail: '',
@@ -783,14 +842,15 @@ function seedSampleReminders() {
     createdAt: nowIso()
   };
   appendRow('Reminders', row, ['id', 'userEmail', 'title', 'body', 'dueDate', 'done', 'priority', 'important', 'audience', 'createdAt']);
-  return { added: 1, skipped: false, reminder: row };
+  return { added: 1, skipped: false, repaired: false, reminder: row };
 }
 
 /**
- * Idempotent village staff transfers (Soso Express) for today + next 13 days (14 Fiji days).
- * Skips any date+time+route combo that already exists (active).
+ * Soft-deactivate misaligned Soso Express seed rows from positional append bug,
+ * then seed today..+13 for each slot (idempotent on date+time+route active).
  */
 function seedVillageBoatRuns() {
+  var deactivated = deactivateBrokenSeedBoatRuns();
   var existing = sheetToObjects('Boat Runs');
   var headers = ['id', 'date', 'time', 'route', 'capacity', 'notes', 'fullNotification', 'active', 'createdBy', 'createdAt'];
   var added = 0;
@@ -803,8 +863,8 @@ function seedVillageBoatRuns() {
       var found = false;
       for (var i = 0; i < existing.length; i++) {
         var r = existing[i];
-        var sameDate = String(r.date).indexOf(date) === 0;
-        var sameTime = String(r.time).indexOf(slot.time) === 0 || String(r.time) === slot.time;
+        var sameDate = normalizeDateKey(r.date) === date;
+        var sameTime = normalizeTimeKey(r.time) === slot.time;
         var sameRoute = String(r.route) === slot.route;
         var active = truthy(r.active) || r.active === '' || r.active === undefined;
         if (sameDate && sameTime && sameRoute && active) { found = true; break; }
@@ -827,7 +887,31 @@ function seedVillageBoatRuns() {
       added++;
     }
   }
-  return { added: added, skipped: skipped, days: 14, slotsPerDay: VILLAGE_BOAT_SLOTS.length };
+  return { added: added, skipped: skipped, deactivated: deactivated, days: 14, slotsPerDay: VILLAGE_BOAT_SLOTS.length };
+}
+
+function deactivateBrokenSeedBoatRuns() {
+  var sh = getSS().getSheetByName('Boat Runs');
+  if (!sh) return 0;
+  var rows = sheetToObjects('Boat Runs');
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  var activeCol = headers.indexOf('active') + 1;
+  if (activeCol < 1) return 0;
+  var deactivated = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var notes = String(r.notes || '');
+    var misaligned = String(r.createdAt) === 'seed' || r.createdBy === true || r.createdBy === 'TRUE' || r.createdBy === 'true';
+    // Positional-append bug left createdAt='seed' / createdBy=TRUE on Soso Express rows
+    if (misaligned && notes.indexOf('Soso Express') >= 0) {
+      if (truthy(r.active) || r.active === '' || r.active === undefined) {
+        sh.getRange(r._row, activeCol).setValue(false);
+        deactivated++;
+      }
+      r.active = false;
+    }
+  }
+  return deactivated;
 }
 
 /* ========== AUTH ========== */
