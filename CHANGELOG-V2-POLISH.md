@@ -117,8 +117,8 @@ Version **2.6.0**. Revert any item later by asking for its ID (e.g. “revert C7
 
 | ID | Change |
 |----|--------|
-| C45 | Combine sticky header (logo, Paradise Cove / Home, logout) into the Bula aerial banner as one card on Home. Hide `#app-sticky` when `state.tab==='home'`; restore via `navigate()` on other tabs. Primary tab nav sits directly under the combined banner on home; other pages keep sticky header + nav. |
-| C46 | Home order: combined banner → Dinner\|Lunch status cards → Reminders slideshow → Suggestions → quick tiles. |
+| C45 | **Home aerial/Bula banner removed.** Sticky header (golden logo, Paradise Cove / title, logout) + primary tab nav remain on all tabs including Home. Compact greeting card only. Slideshow brand assets under `public/assets/slideshow/`. |
+| C46 | Home order: compact greeting → Dinner|Lunch status cards → Reminders slideshow → Suggestions → quick tiles. |
 | C47 | Dashboard suggestions sorted by likes; thumbs up/down via `voteSuggestion` with refresh; **Share idea** opens suggest modal; all staff. |
 | C48 | Quick tile **Request leave** beside/under My Bookings; opens leave request modal (or My Schedule). |
-| C49 | Global press animations (buttons / `.ui-btn` / `.quick-tile` / `.nav-item` / meal cards). Loading states show rotating Paradise Cove resort tips via `showLoadingTips()` (dinner, lunch, boat, schedule, home rem/sug, admin loads). `APP_VERSION` → **2.6.1**; SW cache `pcr-staff-v2.6.1`. |
+| C49 | Global press animations; `showLoadingTips()` with slideshow thumbs; login hero rotates `assets/slideshow/*`; CSS motifs use slideshow. `APP_VERSION` → **2.6.1**; SW `pcr-staff-v2.6.1`. |

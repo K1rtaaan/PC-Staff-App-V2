@@ -37,10 +37,13 @@ tailwind.config = {
   color-scheme: dark;
   --bg: #0a1628;
   --teal: #0d9488;
-  --hero-beach: url('assets/hero-beach.jpg');
-  --hero-pool: url('assets/hero-pool.jpg');
-  --hero-manta: url('assets/hero-manta.jpg');
-  --aerial: url('assets/aerial-resort.jpg');
+  --hero-beach: url('assets/slideshow/beach-house.jpg');
+  --hero-pool: url('assets/slideshow/hero-resort.jpg');
+  --hero-manta: url('assets/slideshow/manta.jpg');
+  --aerial: url('assets/slideshow/hero-banner.jpg');
+  --hero-activities: url('assets/slideshow/hero-activities.jpg');
+  --hero-heli: url('assets/slideshow/hero-helicopter.jpg');
+  --hero-banner-2: url('assets/slideshow/hero-banner-2.jpg');
 }
 * { -webkit-tap-highlight-color: transparent; }
 html, body {
@@ -91,6 +94,7 @@ body {
 .login-hero {
   position: relative; min-height: 100dvh;
   background: var(--hero-beach) center center / cover no-repeat;
+  transition: background-image 1.1s ease-in-out;
 }
 .login-hero::before {
   content: ''; position: absolute; inset: 0; pointer-events: none;
@@ -111,15 +115,12 @@ body {
 .app-header-motif {
   background-image:
     linear-gradient(105deg, rgba(10,22,40,0.94) 0%, rgba(10,40,48,0.88) 55%, rgba(10,22,40,0.92) 100%),
-    var(--hero-pool);
+    var(--hero-banner-2);
   background-size: cover; background-position: center 40%;
 }
-.home-accent {
-  background-image:
-    linear-gradient(to top, #0a1628, rgba(10,22,40,0.75), rgba(10,22,40,0.25)),
-    var(--aerial);
-  background-size: cover; background-position: center;
-}
+/* home aerial banner removed (C45 follow-up) — motifs use slideshow assets instead */
+.home-accent { display: none; }
+
 .btn-primary {
   background: #0d9488;
   transition: transform .15s, box-shadow .15s, background .15s;
@@ -1212,18 +1213,41 @@ function cacheUsers(users){ try { localStorage.setItem(CACHE_USERS_KEY, JSON.str
 function readUsersCache(){ try { const o = JSON.parse(localStorage.getItem(CACHE_USERS_KEY)||'null'); return (o && o.users) || []; } catch(e){ return []; } }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
-const RESORT_TIPS = [
-  { tip: 'Paradise Cove sits on Naukacuvu Island in Fiji’s stunning Yasawa Islands.', img: 'assets/aerial-resort.jpg' },
-  { tip: 'Swim in the resort pools with ocean views after a day on island time.', img: 'assets/hero-pool.jpg' },
-  { tip: 'Beach days at Paradise Cove mean soft sand, blue lagoons, and Bula smiles.', img: 'assets/hero-beach.jpg' },
-  { tip: 'World-class diving and snorkelling — look for reef fish and graceful mantas.', img: 'assets/hero-manta.jpg' },
-  { tip: 'Dining celebrates fresh island flavours with sunset views over the Yasawas.', img: 'assets/golden-logo.jpg' },
-  { tip: 'Visit nearby villages for authentic Fijian culture and warm hospitality.', img: 'assets/aerial-resort.jpg' },
-  { tip: 'Naukacuvu is reached by boat from Denarau — every arrival feels like escape.', img: 'assets/hero-beach.jpg' },
-  { tip: 'Paradise Cove Resort Fiji is a family-friendly hideaway in the Yasawas.', img: 'assets/pcr-logo.png' },
-  { tip: 'From lagoon dips to reef adventures, staff help guests live the island dream.', img: 'assets/hero-pool.jpg' },
-  { tip: 'Golden sunsets over the Yasawa chain are a daily Paradise Cove highlight.', img: 'assets/golden-logo.jpg' }
+const SLIDESHOW_IMGS = [
+  'assets/slideshow/hero-banner.jpg',
+  'assets/slideshow/hero-banner-2.jpg',
+  'assets/slideshow/hero-resort.jpg',
+  'assets/slideshow/hero-activities.jpg',
+  'assets/slideshow/hero-helicopter.jpg',
+  'assets/slideshow/beach-house.jpg',
+  'assets/slideshow/manta.jpg',
+  'assets/slideshow/logo.png'
 ];
+const RESORT_TIPS = [
+  { tip: 'Paradise Cove sits on Naukacuvu Island in Fiji’s stunning Yasawa Islands.', img: 'assets/slideshow/hero-banner.jpg' },
+  { tip: 'Resort exteriors and pools overlook the turquoise Yasawa lagoons.', img: 'assets/slideshow/hero-resort.jpg' },
+  { tip: 'Beach house days mean soft sand, blue water, and Bula smiles.', img: 'assets/slideshow/beach-house.jpg' },
+  { tip: 'World-class diving and snorkelling — look for reef fish and graceful mantas.', img: 'assets/slideshow/manta.jpg' },
+  { tip: 'Island activities and adventures keep guests exploring Naukacuvu.', img: 'assets/slideshow/hero-activities.jpg' },
+  { tip: 'Scenic helicopter and boat transfers make every arrival feel special.', img: 'assets/slideshow/hero-helicopter.jpg' },
+  { tip: 'Visit nearby villages for authentic Fijian culture and warm hospitality.', img: 'assets/slideshow/hero-banner-2.jpg' },
+  { tip: 'Paradise Cove Resort Fiji is a family-friendly hideaway in the Yasawas.', img: 'assets/slideshow/logo.png' },
+  { tip: 'Dining celebrates fresh island flavours with sunset views over the Yasawas.', img: 'assets/slideshow/hero-resort.jpg' },
+  { tip: 'Golden sunsets over the Yasawa chain are a daily Paradise Cove highlight.', img: 'assets/slideshow/hero-banner.jpg' }
+];
+function startLoginHeroRotation(){
+  const el = $('#view-login');
+  if (!el || state._loginHeroTimer) return;
+  let i = 0;
+  const apply = function(){
+    const url = SLIDESHOW_IMGS[i % SLIDESHOW_IMGS.length];
+    el.style.backgroundImage = "url('"+url+"')";
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+  };
+  apply();
+  state._loginHeroTimer = setInterval(function(){ i++; apply(); }, 7000);
+}
 function showLoadingTips(container){
   if (typeof container === 'string') container = $(container);
   if (!container) return function(){};
@@ -1306,14 +1330,14 @@ function navigate(tab){
   const ht = $('#header-title');
   if (ht) ht.textContent = titles[tab] || tab;
   const sticky = $('#app-sticky');
-  if (sticky) sticky.classList.toggle('hidden', tab === 'home');
+  if (sticky) sticky.classList.remove('hidden');
   const map = {
     home: renderHome, dinner: renderDinner, lunch: renderLunch, meals: renderDinner, boat: renderBoat, schedule: renderSchedule,
     more: renderMore, users: renderUsers, kitchen: renderKitchen, reminders: renderReminders,
     suggestions: renderSuggestions, bookings: renderMyBookings, admin: renderAdmin, profile: renderMyProfile
   };
   (map[tab]||renderHome)();
-  if (tab !== 'home') renderNav('#bottom-nav');
+  renderNav('#bottom-nav');
 }
 function quickBtn(tab, icon, label, accent){
   accent = accent || 'from-teal-500/20 to-emerald-600/5';
@@ -1336,29 +1360,15 @@ function renderHome(){
 
   $('#main-content').innerHTML =
   '<div class="animate-fade-in space-y-4 max-w-lg mx-auto">'+
-    '<div class="relative overflow-hidden rounded-2xl border border-teal-800/40 shadow-lg shadow-teal-950/40 home-accent">'+
-      '<div class="relative z-10 flex items-center justify-between px-4 pt-3">'+
-        '<div class="flex items-center gap-2.5 min-w-0">'+
-          '<img src="assets/golden-logo.jpg" alt="" class="h-8 w-8 rounded-lg object-contain bg-white/90 p-0.5 opacity-95" aria-hidden="true"/>'+
-          '<div class="min-w-0">'+
-            '<p class="text-xs text-teal-300/95 font-medium drop-shadow">Paradise Cove</p>'+
-            '<h2 class="text-sm font-semibold truncate text-white drop-shadow">Home</h2>'+
-          '</div></div>'+
-        '<div class="flex items-center gap-2">'+
-          '<span class="text-[10px] text-sand-200/70 hidden sm:inline">'+formatFiji()+'</span>'+
-          '<button type="button" id="btn-logout-home" class="text-sand-100/80 hover:text-teal-300 text-sm px-2 py-1" title="Sign out">'+
-            '<i class="fa-solid fa-arrow-right-from-bracket"></i></button></div></div>'+
-      '<div class="relative z-10 flex items-end gap-3 p-4 pt-10">'+
-        '<div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/95 shadow-md">'+
-          ((u.photoUrl||localPhoto(u.email))?'<img src="'+esc(u.photoUrl||localPhoto(u.email))+'" alt="" class="h-full w-full object-cover"/>':'<img src="assets/golden-logo.jpg" alt="" class="h-11 w-11 object-contain p-0.5"/>')+
-        '</div>'+
-        '<div class="min-w-0 flex-1">'+
-          '<h2 class="text-xl font-bold text-white drop-shadow">Bula, '+esc(u.firstName||'friend')+'!</h2>'+
-          '<p class="truncate text-xs text-slate-200/90">'+esc(roleLabel(u.role))+' · '+esc(u.department||'—')+(u.village?' · '+esc(u.village):'')+(state.demo?' · demo':'')+'</p>'+
-          '<p class="mt-1 flex items-center gap-1 text-[11px] text-teal-200/90"><i class="fa-regular fa-clock animate-pulse-soft"></i> '+formatFiji()+'</p>'+
-        '</div></div></div>'+
-    '<nav class="primary-tab-nav glass-strong rounded-xl px-1 pt-0.5 pb-0.5 -mx-0 border border-slate-700/60">'+
-      '<div class="flex justify-around max-w-lg mx-auto" id="home-bottom-nav"></div></nav>'+
+    '<div class="ui-card glass rounded-xl p-3 flex items-center gap-3">'+
+      '<div class="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/95 shadow-md">'+
+        ((u.photoUrl||localPhoto(u.email))?'<img src="'+esc(u.photoUrl||localPhoto(u.email))+'" alt="" class="h-full w-full object-cover"/>':'<img src="assets/golden-logo.jpg" alt="" class="h-10 w-10 object-contain p-0.5"/>')+
+      '</div>'+
+      '<div class="min-w-0 flex-1">'+
+        '<h2 class="text-base font-semibold text-slate-100">Bula, '+esc(u.firstName||'friend')+'!</h2>'+
+        '<p class="truncate text-[11px] text-slate-400">'+esc(roleLabel(u.role))+' · '+esc(u.department||'—')+(u.village?' · '+esc(u.village):'')+(state.demo?' · demo':'')+'</p>'+
+        '<p class="mt-0.5 text-[10px] text-teal-400/90"><i class="fa-regular fa-clock mr-1"></i>'+formatFiji()+'</p>'+
+      '</div></div>'+
     '<div class="grid grid-cols-2 gap-3">'+
       '<button type="button" onclick="navigate(\'dinner\')" class="meal-card-btn ui-card glass rounded-xl p-3 text-left '+(di.open?'meal-open-glow border-teal-600/40':'')+'">'+
         '<p class="text-[10px] uppercase tracking-wide text-slate-400">Dinner</p>'+
@@ -1385,9 +1395,6 @@ function renderHome(){
     '<div class="grid grid-cols-2 gap-2" id="home-quick-tiles">'+tiles+'</div>'+
     '<p class="text-[10px] text-center text-slate-500">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p>'+
     '<p class="text-[9px] text-center text-teal-700/70">Paradise Cove Resort · Yasawa Islands Fiji</p></div>';
-  renderNav('#home-bottom-nav');
-  const lo = $('#btn-logout-home');
-  if (lo) lo.onclick = doLogout;
   const leaveBtn = $('#home-btn-leave');
   if (leaveBtn) leaveBtn.onclick = () => openLeaveRequestModal();
   const shareBtn = $('#home-share-idea');
@@ -2787,6 +2794,7 @@ function showBackendBanner(msg){
 }
 function boot(){
   $('#ui-version').textContent = APP_VERSION;
+  startLoginHeroRotation();
   state.demo = isDemoMode();
   if (state.demo) {
     $('#demo-badge').classList.remove('hidden');
