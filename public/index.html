@@ -202,7 +202,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.6.5';
+const APP_VERSION = '2.6.6';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -395,6 +395,72 @@ function formatFiji(d=getFijiNow()) {
   return fijiDateString(d)+' '+pad2(d.getUTCHours())+':'+pad2(d.getUTCMinutes())+' FJT';
 }
 function addFijiDays(d, days) { return new Date(d.getTime() + days * 86400000); }
+
+const SAMPLE_REMINDER_ID = 'rem_seed_high_occ_sep2026';
+const SAMPLE_REMINDER_TITLE = 'High occupancy — weeks ending 20 & 27 Sep';
+const SAMPLE_REMINDER_BODY = [
+  'High occupancy continues across weeks ending 20 Sep & 27 Sep.',
+  '',
+  'HODs: build rosters for these numbers; submit completed rosters to HR by Friday 8:00 AM.',
+  '',
+  'Swim groups: first checks out Tue 15 Sep, second checks in same day. Daily room turnover very high during transition.',
+  '',
+  'Look after wellbeing: eat well, rest, supportive teamwork.'
+].join('\n');
+const VILLAGE_BOAT_SLOTS = [
+  { time:'05:00', route:'Soso → PC', notes:'Soso Express — for 6:00 AM shift. Arrive a few minutes early.', purpose:'for 6:00 AM shift' },
+  { time:'06:30', route:'PC → Soso', notes:'Soso Express — pick up 8:00 AM shift. Arrive a few minutes early.', purpose:'pick up 8:00 AM shift' },
+  { time:'12:30', route:'PC → Soso', notes:'Soso Express — pick up 2:00 PM shift. Arrive a few minutes early.', purpose:'pick up 2:00 PM shift' },
+  { time:'17:00', route:'PC → Soso', notes:'Soso Express — staff drop-off. Arrive a few minutes early.', purpose:'staff drop-off' },
+  { time:'23:00', route:'PC → Soso', notes:'Soso Express — final staff drop-off. Arrive a few minutes early.', purpose:'final staff drop-off' }
+];
+function buildVillageBoatRuns(days=14){
+  const runs = [];
+  const today = getFijiNow();
+  for (let d=0; d<days; d++){
+    const date = fijiDateString(addFijiDays(today, d));
+    VILLAGE_BOAT_SLOTS.forEach((slot, i) => {
+      runs.push({
+        id: 'run_seed_'+date.replace(/-/g,'')+'_'+slot.time.replace(':','')+(i+1),
+        date, time: slot.time, route: slot.route, capacity: 20,
+        notes: slot.notes, fullNotification:false, active:true, createdBy:'seed'
+      });
+    });
+  }
+  return runs;
+}
+function seedDemoSamples(db){
+  if (!db.reminders) db.reminders = [];
+  const hasRem = db.reminders.some(r => r.id === SAMPLE_REMINDER_ID || r.title === SAMPLE_REMINDER_TITLE);
+  if (!hasRem) {
+    db.reminders.unshift({
+      id: SAMPLE_REMINDER_ID, userEmail:'', title: SAMPLE_REMINDER_TITLE,
+      body: SAMPLE_REMINDER_BODY, dueDate:'2026-09-27', done:false,
+      priority:'high', important:true, audience:'all', createdAt: formatFiji()
+    });
+  }
+  if (!db.boatRuns) db.boatRuns = [];
+  let added = 0;
+  const today = getFijiNow();
+  for (let d=0; d<14; d++){
+    const date = fijiDateString(addFijiDays(today, d));
+    VILLAGE_BOAT_SLOTS.forEach(slot => {
+      const exists = db.boatRuns.some(r =>
+        String(r.date).indexOf(date)===0 &&
+        (String(r.time).indexOf(slot.time)===0 || String(r.time)===slot.time) &&
+        String(r.route)===slot.route && r.active!==false
+      );
+      if (!exists) {
+        db.boatRuns.push({
+          id: uid('run'), date, time: slot.time, route: slot.route, capacity:20,
+          notes: slot.notes, fullNotification:false, active:true, createdBy:'seed'
+        });
+        added++;
+      }
+    });
+  }
+  return added;
+}
 const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const DEFAULT_DINNER_MENUS = {
     0:['Lamb Neck Curry','Chicken Burger/Chips','Chicken cheese Pizza','Roasted Chicken / Potato Salad / Vegs'],
@@ -432,14 +498,10 @@ function defaultDemoDb() {
       { id:'usr_boat', email:'boat@paradisecoveresortfiji.com', password:'staff123', firstName:'Jone', lastName:'Waqa', department:'Boat', contact:'5555555', role:'boat_captain', permissions:'boat_captain', roster:'Daily', village:'Resort', active:true, verified:true },
       { id:'usr_bmanager', email:'boat.mgr@paradisecoveresortfiji.com', password:'staff123', firstName:'Maya', lastName:'Boat', department:'Boat', contact:'4444444', role:'boat_manager', permissions:'boat_manager', roster:'Daily', village:'Resort', active:true, verified:true }
     ],
-    boatRuns: [
-      { id:'run1', date: fijiDateString(), time:'07:00', route:'Denarau → Resort', capacity:24, notes:'Morning', active:true },
-      { id:'run2', date: fijiDateString(), time:'16:30', route:'Resort → Denarau', capacity:24, notes:'Afternoon', active:true },
-      { id:'run3', date: fijiDateString(addFijiDays(getFijiNow(),1)), time:'07:00', route:'Denarau → Resort', capacity:20, notes:'', active:true }
-    ],
+    boatRuns: buildVillageBoatRuns(14),
     boatBookings: [], dinnerOrders: [], lunchOrders: [],
     reminders: [
-      { id:'rem1', userEmail:'', title:'Staff meeting Friday 3pm', body:'All departments — Rec Hall', dueDate:'', done:false, priority:'high', important:true, audience:'all', createdAt:formatFiji() },
+      { id:SAMPLE_REMINDER_ID, userEmail:'', title:SAMPLE_REMINDER_TITLE, body:SAMPLE_REMINDER_BODY, dueDate:'2026-09-27', done:false, priority:'high', important:true, audience:'all', createdAt:formatFiji() },
       { id:'rem2', userEmail:'', title:'Boat capacity check', body:'Confirm afternoon run seats', dueDate:'', done:false, priority:'normal', important:false, audience:'all', createdAt:formatFiji() }
     ],
     suggestions: [{ id:'sug1', userEmail:'ana.tui@paradisecoveresortfiji.com', userName:'Ana Tui', title:'More shade at jetty', body:'Umbrellas for afternoon boats', votes:3, likes:3, dislikes:0, voters:'a:like,b:like,c:like', createdAt:formatFiji(), status:'approved' }],
@@ -471,8 +533,12 @@ function defaultDemoDb() {
   };
 }
 function loadDemo() {
-  try { const raw = localStorage.getItem(DEMO_KEY); if (raw) return JSON.parse(raw); } catch(e){}
-  const db = defaultDemoDb(); saveDemo(db); return db;
+  let db = null;
+  try { const raw = localStorage.getItem(DEMO_KEY); if (raw) db = JSON.parse(raw); } catch(e){}
+  if (!db) { db = defaultDemoDb(); saveDemo(db); return db; }
+  seedDemoSamples(db);
+  saveDemo(db);
+  return db;
 }
 function saveDemo(db){ localStorage.setItem(DEMO_KEY, JSON.stringify(db)); }
 function uid(p){ return p + '_' + Math.random().toString(36).slice(2,10); }
@@ -1595,7 +1661,20 @@ async function renderBoat(){
     const r = await api('getBoatRuns');
     stopTips();
     const runs = (r.data && r.data.runs) || [];
-    let html = '<div class="flex justify-between items-center"><h3 class="font-semibold text-sm">Upcoming boat runs</h3>'+
+    let html = '<div class="glass rounded-xl p-3 border border-teal-500/30 space-y-2">'+
+      '<p class="text-sm font-semibold text-teal-200"><i class="fa-solid fa-ship mr-1.5"></i>Staff Boat Transfer Schedule — Soso Express</p>'+
+      '<div class="text-xs text-sand-200/85 space-y-1.5">'+
+      '<p><span class="text-teal-300 font-medium">Morning</span></p>'+
+      '<p><span class="font-mono text-teal-200">05:00</span> Soso → PC <span class="text-slate-500">(for 6:00 AM shift)</span></p>'+
+      '<p><span class="font-mono text-teal-200">06:30</span> PC → Soso <span class="text-slate-500">(pick up 8:00 AM shift)</span></p>'+
+      '<p class="pt-1"><span class="text-teal-300 font-medium">Afternoon / evening</span></p>'+
+      '<p><span class="font-mono text-teal-200">12:30</span> PC → Soso <span class="text-slate-500">(pick up 2:00 PM shift)</span></p>'+
+      '<p><span class="font-mono text-teal-200">17:00</span> PC → Soso <span class="text-slate-500">(staff drop-off)</span></p>'+
+      '<p><span class="font-mono text-teal-200">23:00</span> PC → Soso <span class="text-slate-500">(final staff drop-off)</span></p>'+
+      '</div>'+
+      '<p class="text-[10px] text-slate-400 pt-1">Be at pickup a few minutes early. Soso Express in service.</p>'+
+      '</div>';
+    html += '<div class="flex justify-between items-center"><h3 class="font-semibold text-sm">Upcoming boat runs</h3>'+
       (canBoatManager()?'<button id="btn-add-run" class="text-xs text-teal-400"><i class="fa-solid fa-plus mr-1"></i>Add run</button>':'')+'</div>';
     if (canBoatCaptain()) {
       html += '<div class="glass rounded-xl p-3 border border-sky-500/30"><p class="text-xs font-semibold text-sky-200 mb-1"><i class="fa-solid fa-anchor mr-1"></i>Captain board — pax booked</p>'+

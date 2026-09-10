@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.6.5';
+var APP_VERSION = '2.6.6';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -177,7 +177,25 @@ function routeAction(action, p) {
       ensureSuperAdmin();
       seedAlertEmails();
       seedDinnerMenus();
+      seedSampleReminders();
+      seedVillageBoatRuns();
       return { success: true, data: { message: 'Sheets initialized', version: APP_VERSION } };
+
+    case 'seedVillageBoatSchedule':
+    case 'seedStaffSamples': {
+      requirePasscode(p, 'admin');
+      var remStats = seedSampleReminders();
+      var boatStats = seedVillageBoatRuns();
+      return {
+        success: true,
+        data: {
+          reminder: remStats,
+          boatRuns: boatStats,
+          version: APP_VERSION,
+          message: 'Sample reminder + village boat schedule seeded (idempotent)'
+        }
+      };
+    }
 
     default:
       return { success: false, error: 'Unknown action: ' + action };
@@ -345,6 +363,8 @@ function initializeSheets() {
   ]);
   seedAlertEmails();
   seedDinnerMenus();
+  seedSampleReminders();
+  seedVillageBoatRuns();
 }
 
 function sheetToObjects(sheetName) {
@@ -713,6 +733,101 @@ function seedAlertEmails() {
       active: true
     }, ['email', 'label', 'active']);
   });
+}
+
+
+/* ========== SAMPLE REMINDERS / VILLAGE BOAT (C54) ========== */
+
+var SAMPLE_REMINDER_ID = 'rem_seed_high_occ_sep2026';
+var SAMPLE_REMINDER_TITLE = 'High occupancy — weeks ending 20 & 27 Sep';
+
+var VILLAGE_BOAT_SLOTS = [
+  { time: '05:00', route: 'Soso → PC', notes: 'Soso Express — for 6:00 AM shift. Arrive a few minutes early.' },
+  { time: '06:30', route: 'PC → Soso', notes: 'Soso Express — pick up 8:00 AM shift. Arrive a few minutes early.' },
+  { time: '12:30', route: 'PC → Soso', notes: 'Soso Express — pick up 2:00 PM shift. Arrive a few minutes early.' },
+  { time: '17:00', route: 'PC → Soso', notes: 'Soso Express — staff drop-off. Arrive a few minutes early.' },
+  { time: '23:00', route: 'PC → Soso', notes: 'Soso Express — final staff drop-off. Arrive a few minutes early.' }
+];
+
+/**
+ * Idempotent: skip if same title or fixed id marker already exists.
+ * Returns { added: 0|1, skipped: boolean, reminder?: object }
+ */
+function seedSampleReminders() {
+  var rows = sheetToObjects('Reminders');
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (String(r.id) === SAMPLE_REMINDER_ID || String(r.title) === SAMPLE_REMINDER_TITLE) {
+      return { added: 0, skipped: true, reminder: r };
+    }
+  }
+  var body = [
+    'High occupancy continues across weeks ending 20 Sep & 27 Sep.',
+    '',
+    'HODs: build rosters for these numbers; submit completed rosters to HR by Friday 8:00 AM.',
+    '',
+    'Swim groups: first checks out Tue 15 Sep, second checks in same day. Daily room turnover very high during transition.',
+    '',
+    'Look after wellbeing: eat well, rest, supportive teamwork.'
+  ].join('\n');
+  var row = {
+    id: SAMPLE_REMINDER_ID,
+    userEmail: '',
+    title: SAMPLE_REMINDER_TITLE,
+    body: body,
+    dueDate: '2026-09-27',
+    done: false,
+    priority: 'high',
+    important: true,
+    audience: 'all',
+    createdAt: nowIso()
+  };
+  appendRow('Reminders', row, ['id', 'userEmail', 'title', 'body', 'dueDate', 'done', 'priority', 'important', 'audience', 'createdAt']);
+  return { added: 1, skipped: false, reminder: row };
+}
+
+/**
+ * Idempotent village staff transfers (Soso Express) for today + next 13 days (14 Fiji days).
+ * Skips any date+time+route combo that already exists (active).
+ */
+function seedVillageBoatRuns() {
+  var existing = sheetToObjects('Boat Runs');
+  var headers = ['id', 'date', 'time', 'route', 'capacity', 'notes', 'fullNotification', 'active', 'createdBy', 'createdAt'];
+  var added = 0;
+  var skipped = 0;
+  var today = getFijiNow();
+  for (var d = 0; d < 14; d++) {
+    var date = fijiDateString(addFijiDays(today, d));
+    for (var s = 0; s < VILLAGE_BOAT_SLOTS.length; s++) {
+      var slot = VILLAGE_BOAT_SLOTS[s];
+      var found = false;
+      for (var i = 0; i < existing.length; i++) {
+        var r = existing[i];
+        var sameDate = String(r.date).indexOf(date) === 0;
+        var sameTime = String(r.time).indexOf(slot.time) === 0 || String(r.time) === slot.time;
+        var sameRoute = String(r.route) === slot.route;
+        var active = truthy(r.active) || r.active === '' || r.active === undefined;
+        if (sameDate && sameTime && sameRoute && active) { found = true; break; }
+      }
+      if (found) { skipped++; continue; }
+      var row = {
+        id: uid('run'),
+        date: date,
+        time: slot.time,
+        route: slot.route,
+        capacity: 20,
+        notes: slot.notes,
+        fullNotification: false,
+        active: true,
+        createdBy: 'seed',
+        createdAt: nowIso()
+      };
+      appendRow('Boat Runs', row, headers);
+      existing.push(row);
+      added++;
+    }
+  }
+  return { added: added, skipped: skipped, days: 14, slotsPerDay: VILLAGE_BOAT_SLOTS.length };
 }
 
 /* ========== AUTH ========== */

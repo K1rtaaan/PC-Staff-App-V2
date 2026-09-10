@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.6.5**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.6.6**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -147,4 +147,10 @@ Version **2.6.5**. Revert any item later by asking for its ID (e.g. “revert C7
 | ID | Change |
 |----|--------|
 | C53 | Remove full-bleed home banner again (no strip under sticky header; `.home-accent { display: none }`). Double sticky header height (`#app-header` / `.app-header-motif`: `py-3`→`py-6`, logo `h-8`→`h-12`, slightly larger Paradise Cove / title). Keep greeting staff photo/initials; Reminders + Suggestions under quick tiles. `APP_VERSION` → **2.6.5**; SW cache `pcr-staff-v2.6.5`. |
+
+## Occupancy reminder / village boat (2.6.6)
+
+| ID | Change |
+|----|--------|
+| C54 | Sample high-occupancy broadcast reminder (weeks ending 20 & 27 Sep; priority high / important; due 2026-09-27). `seedSampleReminders()` + `seedVillageBoatRuns()` (Soso Express 05:00/06:30/12:30/17:00/23:00 for 14 Fiji days) called from `initializeSheets`; action `seedVillageBoatSchedule` / `seedStaffSamples` (admin passcode). Boat tab info card: Staff Boat Transfer Schedule — Soso Express. Demo seeds same. `APP_VERSION` → **2.6.6**; SW cache `pcr-staff-v2.6.6`. |
 
