@@ -158,10 +158,35 @@ input:focus, select:focus, textarea:focus {
 .auth-tab { flex:1; padding:.5rem 0; font-size:.875rem; font-weight:500; color:#94a3b8; border-bottom:2px solid transparent; }
 .auth-tab.active { color:#f1f5f9; border-bottom-color:#0d9488; }
 .quick-tile {
-  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease, filter .15s ease;
 }
 .quick-tile:hover { transform: translateY(-2px); border-color: rgba(13,148,136,0.45); }
-.quick-tile:active { transform: scale(0.98); }
+.quick-tile:active { transform: scale(0.96); }
+/* C49 — obvious press feedback on interactive controls */
+@keyframes tap-glow {
+  0% { box-shadow: 0 0 0 0 rgba(45,212,191,0.55); }
+  100% { box-shadow: 0 0 0 10px rgba(45,212,191,0); }
+}
+button:not(:disabled), .ui-btn:not(:disabled), .quick-tile, .nav-item, .meal-card-btn {
+  -webkit-tap-highlight-color: rgba(45,212,191,0.22);
+  transition: transform .12s ease, box-shadow .15s ease, filter .15s ease, background .15s ease, border-color .15s ease, color .15s ease;
+}
+button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active, .nav-item:active, .meal-card-btn:active {
+  transform: scale(0.96);
+  filter: brightness(1.12);
+  box-shadow: 0 0 0 2px rgba(45,212,191,0.45), 0 0 18px rgba(13,148,136,0.35);
+  animation: tap-glow .35s ease-out;
+}
+.loading-tips-panel {
+  display: flex; align-items: center; gap: 0.75rem;
+  border-radius: 0.75rem; padding: 0.75rem 0.9rem;
+  background: rgba(15,23,42,0.72); border: 1px solid rgba(45,212,191,0.22);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+}
+.loading-tips-panel img {
+  width: 2.75rem; height: 2.75rem; border-radius: 0.55rem; object-fit: cover;
+  background: rgba(255,255,255,0.9); flex-shrink: 0;
+}
 @media print {
   body * { visibility: hidden; }
   #print-area, #print-area * { visibility: visible; }
@@ -176,7 +201,7 @@ input:focus, select:focus, textarea:focus {
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.6.0';
+const APP_VERSION = '2.6.1';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -315,8 +340,8 @@ const DEMO_KEY = 'pcr_v2_demo_db';
   </div>
 
   <div id="view-main" class="hidden flex-1 flex flex-col safe-bottom">
-    <div class="sticky top-0 z-40 no-print">
-      <header class="app-header-motif glass-strong px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
+    <div id="app-sticky" class="sticky top-0 z-40 no-print">
+      <header id="app-header" class="app-header-motif glass-strong px-4 py-3 flex items-center justify-between border-b border-teal-500/10">
         <div class="flex items-center gap-2.5 min-w-0">
           <img src="assets/golden-logo.jpg" alt="" class="h-8 w-8 rounded-lg object-contain bg-white/90 p-0.5 opacity-95" aria-hidden="true"/>
           <div class="min-w-0">
@@ -331,7 +356,7 @@ const DEMO_KEY = 'pcr_v2_demo_db';
           </button>
         </div>
       </header>
-      <nav class="primary-tab-nav glass-strong px-1 pt-0.5 pb-0.5 z-40">
+      <nav id="app-primary-nav" class="primary-tab-nav glass-strong px-1 pt-0.5 pb-0.5 z-40">
         <div class="flex justify-around max-w-lg mx-auto" id="bottom-nav"></div>
       </nav>
     </div>
@@ -1187,6 +1212,70 @@ function cacheUsers(users){ try { localStorage.setItem(CACHE_USERS_KEY, JSON.str
 function readUsersCache(){ try { const o = JSON.parse(localStorage.getItem(CACHE_USERS_KEY)||'null'); return (o && o.users) || []; } catch(e){ return []; } }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
+const RESORT_TIPS = [
+  { tip: 'Paradise Cove sits on Naukacuvu Island in Fiji’s stunning Yasawa Islands.', img: 'assets/aerial-resort.jpg' },
+  { tip: 'Swim in the resort pools with ocean views after a day on island time.', img: 'assets/hero-pool.jpg' },
+  { tip: 'Beach days at Paradise Cove mean soft sand, blue lagoons, and Bula smiles.', img: 'assets/hero-beach.jpg' },
+  { tip: 'World-class diving and snorkelling — look for reef fish and graceful mantas.', img: 'assets/hero-manta.jpg' },
+  { tip: 'Dining celebrates fresh island flavours with sunset views over the Yasawas.', img: 'assets/golden-logo.jpg' },
+  { tip: 'Visit nearby villages for authentic Fijian culture and warm hospitality.', img: 'assets/aerial-resort.jpg' },
+  { tip: 'Naukacuvu is reached by boat from Denarau — every arrival feels like escape.', img: 'assets/hero-beach.jpg' },
+  { tip: 'Paradise Cove Resort Fiji is a family-friendly hideaway in the Yasawas.', img: 'assets/pcr-logo.png' },
+  { tip: 'From lagoon dips to reef adventures, staff help guests live the island dream.', img: 'assets/hero-pool.jpg' },
+  { tip: 'Golden sunsets over the Yasawa chain are a daily Paradise Cove highlight.', img: 'assets/golden-logo.jpg' }
+];
+function showLoadingTips(container){
+  if (typeof container === 'string') container = $(container);
+  if (!container) return function(){};
+  let i = Math.floor(Math.random() * RESORT_TIPS.length);
+  const paint = function(){
+    if (!container.isConnected) return;
+    const t = RESORT_TIPS[i % RESORT_TIPS.length];
+    container.innerHTML =
+      '<div class="loading-tips-panel fade-in animate-pulse-soft">'+
+        '<img src="'+t.img+'" alt="" onerror="this.src=\'assets/golden-logo.jpg\'"/>'+
+        '<div class="min-w-0">'+
+          '<p class="text-[10px] uppercase tracking-wide text-teal-400/90 font-medium mb-0.5"><i class="fa-solid fa-umbrella-beach mr-1"></i>Paradise Cove tip</p>'+
+          '<p class="text-xs text-slate-200 leading-snug">'+esc(t.tip)+'</p>'+
+          '<p class="text-[9px] text-slate-500 mt-1">Loading…</p>'+
+        '</div></div>';
+  };
+  paint();
+  const timer = setInterval(function(){ i++; paint(); }, 2800);
+  return function(){ clearInterval(timer); };
+}
+function doLogout(){
+  state.user = null; state.adminUnlock = null; localStorage.removeItem(SESSION_KEY);
+  $('#view-main').classList.add('hidden');
+  $('#view-login').classList.remove('hidden');
+}
+function openSuggestModal(onDone){
+  openModal('<h3 class="font-semibold mb-3">Share an idea</h3><p class="text-[10px] text-slate-400 mb-2">Anonymous to staff. Needs admin approval for the home feed.</p><input id="sg-title" class="w-full rounded-xl px-3 py-2 text-sm mb-2" placeholder="Title"/>'+
+    '<textarea id="sg-body" class="w-full rounded-xl px-3 py-2 text-sm mb-3" rows="3" placeholder="Your idea"></textarea>'+
+    '<button id="sg-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Submit</button>');
+  $('#sg-save').onclick = async () => {
+    const res = await api('addSuggestion',{ title:$('#sg-title').value, body:$('#sg-body').value });
+    if (!res.success) { toast(res.error||'Failed','error'); return; }
+    closeModal(); toast('Submitted for approval','ok');
+    if (typeof onDone === 'function') onDone();
+  };
+}
+function openLeaveRequestModal(){
+  openModal('<h3 class="font-semibold mb-3"><i class="fa-solid fa-plane-departure text-teal-400 mr-2"></i>Request leave</h3>'+
+    '<div class="space-y-2">'+
+    '<input id="lv-start" type="date" class="w-full rounded-xl px-3 py-2 text-sm"/>'+
+    '<input id="lv-end" type="date" class="w-full rounded-xl px-3 py-2 text-sm"/>'+
+    '<input id="lv-reason" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Reason"/>'+
+    '<button id="lv-modal-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Submit request</button>'+
+    '<button type="button" id="lv-modal-sch" class="w-full text-xs text-teal-400 py-1">Open My Schedule →</button></div>');
+  $('#lv-modal-save').onclick = async () => {
+    const res = await api('requestLeave',{ startDate:$('#lv-start').value, endDate:$('#lv-end').value, reason:$('#lv-reason').value });
+    if (!res.success) toast(res.error,'error');
+    else { closeModal(); toast('Leave submitted','ok'); }
+  };
+  $('#lv-modal-sch').onclick = () => { closeModal(); navigate('schedule'); };
+}
+
 function navItems(){
   return [
     { id:'home', icon:'fa-house', label:'Home' },
@@ -1196,13 +1285,16 @@ function navItems(){
     { id:'more', icon:'fa-ellipsis', label:'More' }
   ];
 }
-function renderNav(){
+function renderNav(targetSel){
   const mainTabs = ['home','dinner','lunch','boat','more'];
   const activeMain = mainTabs.includes(state.tab) ? state.tab : (state.tab==='meals'?'dinner':'more');
-  $('#bottom-nav').innerHTML = navItems().map(n =>
+  const sel = targetSel || '#bottom-nav';
+  const el = $(sel);
+  if (!el) return;
+  el.innerHTML = navItems().map(n =>
     '<button class="nav-item flex flex-col items-center gap-0.5 px-3 py-1.5 text-[10px] border-b-2 '+(activeMain===n.id?'active text-teal-400 border-teal-500':'text-sand-200/50 border-transparent')+'" data-tab="'+n.id+'"><i class="fa-solid '+n.icon+' text-base transition-transform"></i><span>'+n.label+'</span></button>'
   ).join('');
-  $$('#bottom-nav .nav-item').forEach(b => b.onclick = () => navigate(b.dataset.tab));
+  $$(sel+' .nav-item').forEach(b => b.onclick = () => navigate(b.dataset.tab));
 }
 function navigate(tab){
   if (!canPrivilegedTab(tab)) {
@@ -1211,14 +1303,17 @@ function navigate(tab){
   }
   state.tab = tab;
   const titles = { home:'Home', dinner:'Dinner', lunch:'Lunch', meals:'Dinner', boat:'Boat Schedule', schedule:'My Schedule', more:'More', users:'Staff Directory', kitchen:'Kitchen', reminders:'Reminders', suggestions:'Suggestions', bookings:'My Bookings', admin:'Admin', profile:'My Profile' };
-  $('#header-title').textContent = titles[tab] || tab;
-  renderNav();
+  const ht = $('#header-title');
+  if (ht) ht.textContent = titles[tab] || tab;
+  const sticky = $('#app-sticky');
+  if (sticky) sticky.classList.toggle('hidden', tab === 'home');
   const map = {
     home: renderHome, dinner: renderDinner, lunch: renderLunch, meals: renderDinner, boat: renderBoat, schedule: renderSchedule,
     more: renderMore, users: renderUsers, kitchen: renderKitchen, reminders: renderReminders,
     suggestions: renderSuggestions, bookings: renderMyBookings, admin: renderAdmin, profile: renderMyProfile
   };
   (map[tab]||renderHome)();
+  if (tab !== 'home') renderNav('#bottom-nav');
 }
 function quickBtn(tab, icon, label, accent){
   accent = accent || 'from-teal-500/20 to-emerald-600/5';
@@ -1232,6 +1327,8 @@ function renderHome(){
   let tiles =
       quickBtn('boat','fa-ship','Book a Boat','from-sky-500/20 to-cyan-600/5')+
       quickBtn('bookings','fa-ticket','My Bookings','from-indigo-500/20 to-blue-600/5')+
+      '<button type="button" id="home-btn-leave" class="quick-tile ui-card glass rounded-xl p-3 text-left border border-slate-700/80 bg-gradient-to-br from-amber-500/20 to-orange-600/5">'+
+        '<i class="fa-solid fa-plane-departure text-teal-400 mb-1.5 text-base"></i><p class="text-xs font-medium text-slate-100">Request leave</p></button>'+
       quickBtn('schedule','fa-calendar-check','My Schedule','from-violet-500/20 to-purple-600/5');
   if (canKitchen()) tiles += quickBtn('kitchen','fa-fire-burner','Kitchen','from-red-500/20 to-orange-700/5');
   if (canFullAdmin() || canHod()) tiles += quickBtn('users','fa-users','Directory','from-teal-500/20 to-emerald-600/5');
@@ -1240,7 +1337,18 @@ function renderHome(){
   $('#main-content').innerHTML =
   '<div class="animate-fade-in space-y-4 max-w-lg mx-auto">'+
     '<div class="relative overflow-hidden rounded-2xl border border-teal-800/40 shadow-lg shadow-teal-950/40 home-accent">'+
-      '<div class="relative z-10 flex items-end gap-3 p-4 pt-16">'+
+      '<div class="relative z-10 flex items-center justify-between px-4 pt-3">'+
+        '<div class="flex items-center gap-2.5 min-w-0">'+
+          '<img src="assets/golden-logo.jpg" alt="" class="h-8 w-8 rounded-lg object-contain bg-white/90 p-0.5 opacity-95" aria-hidden="true"/>'+
+          '<div class="min-w-0">'+
+            '<p class="text-xs text-teal-300/95 font-medium drop-shadow">Paradise Cove</p>'+
+            '<h2 class="text-sm font-semibold truncate text-white drop-shadow">Home</h2>'+
+          '</div></div>'+
+        '<div class="flex items-center gap-2">'+
+          '<span class="text-[10px] text-sand-200/70 hidden sm:inline">'+formatFiji()+'</span>'+
+          '<button type="button" id="btn-logout-home" class="text-sand-100/80 hover:text-teal-300 text-sm px-2 py-1" title="Sign out">'+
+            '<i class="fa-solid fa-arrow-right-from-bracket"></i></button></div></div>'+
+      '<div class="relative z-10 flex items-end gap-3 p-4 pt-10">'+
         '<div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/95 shadow-md">'+
           ((u.photoUrl||localPhoto(u.email))?'<img src="'+esc(u.photoUrl||localPhoto(u.email))+'" alt="" class="h-full w-full object-cover"/>':'<img src="assets/golden-logo.jpg" alt="" class="h-11 w-11 object-contain p-0.5"/>')+
         '</div>'+
@@ -1248,34 +1356,42 @@ function renderHome(){
           '<h2 class="text-xl font-bold text-white drop-shadow">Bula, '+esc(u.firstName||'friend')+'!</h2>'+
           '<p class="truncate text-xs text-slate-200/90">'+esc(roleLabel(u.role))+' · '+esc(u.department||'—')+(u.village?' · '+esc(u.village):'')+(state.demo?' · demo':'')+'</p>'+
           '<p class="mt-1 flex items-center gap-1 text-[11px] text-teal-200/90"><i class="fa-regular fa-clock animate-pulse-soft"></i> '+formatFiji()+'</p>'+
-        '</div>'+
-      '</div>'+
-    '</div>'+
-    '<div class="ui-card glass rounded-xl p-3" id="home-reminders-card">'+
-      '<div class="flex items-center justify-between mb-1.5">'+
-        '<p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-bell text-teal-400 mr-1"></i>Reminders</p>'+
-        '<button onclick="navigate(\'reminders\')" class="text-[10px] text-teal-400">All</button></div>'+
-      '<div id="home-rem-box" class="min-h-[3.25rem] rounded-lg bg-slate-900/40 border border-slate-700/60 px-3 py-2">'+
-        '<p class="text-xs text-slate-500">Loading…</p></div></div>'+
-    '<div class="ui-card glass rounded-xl p-3" id="home-suggestions-card">'+
-      '<div class="flex items-center justify-between mb-1.5">'+
-        '<p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-lightbulb text-amber-300 mr-1"></i>Suggestions</p>'+
-        '<button onclick="navigate(\'suggestions\')" class="text-[10px] text-teal-400">Box</button></div>'+
-      '<div id="home-sug-list" class="space-y-2"><p class="text-xs text-slate-500">Loading…</p></div></div>'+
+        '</div></div></div>'+
+    '<nav class="primary-tab-nav glass-strong rounded-xl px-1 pt-0.5 pb-0.5 -mx-0 border border-slate-700/60">'+
+      '<div class="flex justify-around max-w-lg mx-auto" id="home-bottom-nav"></div></nav>'+
     '<div class="grid grid-cols-2 gap-3">'+
-      '<button onclick="navigate(\'dinner\')" class="ui-card glass rounded-xl p-3 text-left '+(di.open?'meal-open-glow border-teal-600/40':'')+'">'+
+      '<button type="button" onclick="navigate(\'dinner\')" class="meal-card-btn ui-card glass rounded-xl p-3 text-left '+(di.open?'meal-open-glow border-teal-600/40':'')+'">'+
         '<p class="text-[10px] uppercase tracking-wide text-slate-400">Dinner</p>'+
         '<p class="text-sm font-medium mt-1">'+(di.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
         '<p class="text-[10px] text-slate-500">Service '+di.serviceDate+'</p>'+
         '<p class="text-[10px] text-slate-500">'+di.cutoffLabel+'</p></button>'+
-      '<button onclick="navigate(\'lunch\')" class="ui-card glass rounded-xl p-3 text-left '+(li.open?'meal-open-glow border-teal-600/40':'')+'">'+
+      '<button type="button" onclick="navigate(\'lunch\')" class="meal-card-btn ui-card glass rounded-xl p-3 text-left '+(li.open?'meal-open-glow border-teal-600/40':'')+'">'+
         '<p class="text-[10px] uppercase tracking-wide text-slate-400">Lunch</p>'+
         '<p class="text-sm font-medium mt-1">'+(li.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
         '<p class="text-[10px] text-slate-500">Service '+li.serviceDate+'</p>'+
         '<p class="text-[10px] text-slate-500">'+li.cutoffLabel+'</p></button></div>'+
+    '<div class="ui-card glass rounded-xl p-3" id="home-reminders-card">'+
+      '<div class="flex items-center justify-between mb-1.5">'+
+        '<p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-bell text-teal-400 mr-1"></i>Reminders</p>'+
+        '<button type="button" onclick="navigate(\'reminders\')" class="text-[10px] text-teal-400">All</button></div>'+
+      '<div id="home-rem-box" class="min-h-[3.25rem]"></div></div>'+
+    '<div class="ui-card glass rounded-xl p-3" id="home-suggestions-card">'+
+      '<div class="flex items-center justify-between mb-1.5">'+
+        '<p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-lightbulb text-amber-300 mr-1"></i>Suggestions</p>'+
+        '<div class="flex items-center gap-2">'+
+          '<button type="button" id="home-share-idea" class="text-[10px] text-amber-300/90"><i class="fa-solid fa-plus mr-0.5"></i>Share idea</button>'+
+          '<button type="button" onclick="navigate(\'suggestions\')" class="text-[10px] text-teal-400">Box</button></div></div>'+
+      '<div id="home-sug-list" class="space-y-2"></div></div>'+
     '<div class="grid grid-cols-2 gap-2" id="home-quick-tiles">'+tiles+'</div>'+
     '<p class="text-[10px] text-center text-slate-500">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p>'+
     '<p class="text-[9px] text-center text-teal-700/70">Paradise Cove Resort · Yasawa Islands Fiji</p></div>';
+  renderNav('#home-bottom-nav');
+  const lo = $('#btn-logout-home');
+  if (lo) lo.onclick = doLogout;
+  const leaveBtn = $('#home-btn-leave');
+  if (leaveBtn) leaveBtn.onclick = () => openLeaveRequestModal();
+  const shareBtn = $('#home-share-idea');
+  if (shareBtn) shareBtn.onclick = () => openSuggestModal(() => loadHomeRemindersAndSuggestions());
   setTimeout(function(){
     $$('#home-quick-tiles .quick-tile').forEach(function(el,i){
       el.style.animation = 'fade-in 0.45s ease-out both';
@@ -1298,8 +1414,11 @@ function sortRemindersHome(list){
 async function loadHomeRemindersAndSuggestions(){
   const remBox = $('#home-rem-box'), sugList = $('#home-sug-list');
   if (!remBox || !sugList) return;
+  const stopRem = showLoadingTips(remBox);
+  const stopSug = showLoadingTips(sugList);
   try {
     const [rr, sr] = await Promise.all([api('getReminders'), api('getSuggestions')]);
+    stopRem(); stopSug();
     const reminders = sortRemindersHome((rr.data && rr.data.reminders) || []).filter(r => !(r.done===true||r.done==='TRUE'));
     let suggestions = ((sr.data && sr.data.suggestions) || []).slice();
     suggestions.sort(function(a,b){ return Number(b.likes!=null?b.likes:b.votes||0) - Number(a.likes!=null?a.likes:a.votes||0); });
@@ -1311,7 +1430,7 @@ async function loadHomeRemindersAndSuggestions(){
         const r = reminders[idx % reminders.length];
         const pri = reminderPriorityScore(r);
         remBox.innerHTML =
-          '<div class="fade-in">'+
+          '<div class="fade-in rounded-lg bg-slate-900/40 border border-slate-700/60 px-3 py-2">'+
           (pri?'<span class="ui-badge bg-rose-600/30 text-rose-200 mb-1">Important</span> ':'')+
           '<p class="text-sm font-medium text-slate-100">'+esc(r.title)+'</p>'+
           (r.body?'<p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">'+esc(r.body)+'</p>':'')+
@@ -1331,20 +1450,34 @@ async function loadHomeRemindersAndSuggestions(){
     } else {
       sugList.innerHTML = suggestions.slice(0,5).map(function(s){
         const likes = s.likes!=null ? s.likes : (s.votes||0);
-        return '<div class="rounded-lg bg-slate-900/35 border border-slate-700/50 px-2.5 py-2 flex justify-between gap-2">'+
+        const dislikes = s.dislikes!=null ? s.dislikes : 0;
+        return '<div class="rounded-lg bg-slate-900/35 border border-slate-700/50 px-2.5 py-2 flex justify-between gap-2 items-start">'+
           '<div class="min-w-0"><p class="text-xs font-medium text-slate-100 truncate">'+esc(s.title)+'</p>'+
           (s.body?'<p class="text-[10px] text-slate-500 line-clamp-1">'+esc(s.body)+'</p>':'')+'</div>'+
-          '<span class="text-[10px] text-teal-300 shrink-0"><i class="fa-solid fa-thumbs-up mr-0.5"></i>'+likes+'</span></div>';
+          '<div class="flex flex-col items-center gap-1 shrink-0">'+
+            '<button type="button" class="text-teal-400 home-vote-sug" data-id="'+s.id+'" data-vote="like" title="Like"><i class="fa-solid fa-thumbs-up"></i> <span class="text-[10px]">'+likes+'</span></button>'+
+            '<button type="button" class="text-rose-400 home-vote-sug" data-id="'+s.id+'" data-vote="dislike" title="Dislike"><i class="fa-solid fa-thumbs-down"></i> <span class="text-[10px]">'+dislikes+'</span></button>'+
+          '</div></div>';
       }).join('');
+      $$('.home-vote-sug').forEach(function(b){
+        b.onclick = async function(){
+          const res = await api('voteSuggestion',{ id:b.dataset.id, vote:b.dataset.vote });
+          if (!res.success) toast(res.error,'error');
+          else { toast(b.dataset.vote==='dislike'?'Disliked':'Liked','ok'); loadHomeRemindersAndSuggestions(); }
+        };
+      });
     }
   } catch(e){
+    stopRem(); stopSug();
     if (remBox) remBox.innerHTML = '<p class="text-xs text-slate-500">Unable to load reminders</p>';
     if (sugList) sugList.innerHTML = '<p class="text-xs text-slate-500">Unable to load suggestions</p>';
   }
 }
+
 async function renderDinner(){
   const di = dinnerCutoffInfo();
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="dinner-root"><p class="text-sm text-sand-200/50">Loading…</p></div>';
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="dinner-root"></div>';
+  const stopTips = showLoadingTips($('#dinner-root'));
   let myDinner=[], menuItems=[];
   try {
     const [d,m] = await Promise.all([
@@ -1354,6 +1487,7 @@ async function renderDinner(){
     myDinner = (d.data && d.data.orders) || [];
     menuItems = (m.data && m.data.items) || (d.data && d.data.menus) || [];
   } catch(e){}
+  stopTips();
   const wd = fijiWeekday(addFijiDays(getFijiNow(),1));
   let dinnerOpts = menuItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('');
   if (!dinnerOpts) dinnerOpts = '<option value="Standard">Standard</option><option value="Vegetarian">Vegetarian</option><option value="No meal">No meal</option>';
@@ -1387,12 +1521,14 @@ async function renderDinner(){
 
 async function renderLunch(){
   const li = lunchCutoffInfo();
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="lunch-root"><p class="text-sm text-sand-200/50">Loading…</p></div>';
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="lunch-root"></div>';
+  const stopTips = showLoadingTips($('#lunch-root'));
   let myLunch=[];
   try {
     const l = await api('getLunchOrders',{ userEmail: state.user.email, serviceDate: li.serviceDate });
     myLunch = (l.data && l.data.orders) || [];
   } catch(e){}
+  stopTips();
   const cur = myLunch[0];
   let formHtml = '';
   if (li.open) {
@@ -1430,9 +1566,11 @@ async function renderLunch(){
 }
 
 async function renderBoat(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="boat-root"><p class="text-sm text-sand-200/50">Loading runs…</p></div>';
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="boat-root"></div>';
+  const stopTips = showLoadingTips($('#boat-root'));
   try {
     const r = await api('getBoatRuns');
+    stopTips();
     const runs = (r.data && r.data.runs) || [];
     let html = '<div class="flex justify-between items-center"><h3 class="font-semibold text-sm">Upcoming boat runs</h3>'+
       (canBoatManager()?'<button id="btn-add-run" class="text-xs text-teal-400"><i class="fa-solid fa-plus mr-1"></i>Add run</button>':'')+'</div>';
@@ -1488,14 +1626,17 @@ async function renderBoat(){
       };
     };
   } catch(e) {
+    stopTips();
     $('#boat-root').innerHTML = '<div class="glass rounded-xl p-4 text-sm text-red-300">'+esc(e.message)+'</div>';
   }
 }
 
 async function renderMyBookings(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="mb-root">Loading…</div>';
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="mb-root"></div>';
+  const stopMb = showLoadingTips($('#mb-root'));
   try {
     const r = await api('myBoatBookings');
+    stopMb();
     const list = (r.data && r.data.bookings) || [];
     let html = '<h3 class="font-semibold text-sm mb-2">My boat bookings</h3>';
     if (!list.length) html += '<p class="text-sm text-sand-200/50">No bookings yet.</p>';
@@ -1510,14 +1651,16 @@ async function renderMyBookings(){
     $$('.cancel-bb').forEach(b => b.onclick = async () => {
       await api('cancelBoatBooking',{ id:b.dataset.id }); toast('Cancelled','ok'); renderMyBookings();
     });
-  } catch(e){ $('#mb-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
+  } catch(e){ stopMb(); $('#mb-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
 }
 
 async function renderSchedule(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="sch-root">Loading…</div>';
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="sch-root"></div>';
+  const stopTips = showLoadingTips($('#sch-root'));
   try {
     await refreshFeatureFlags();
     const r = await api('getMySchedule');
+    stopTips();
     const leave = (r.data && r.data.leave) || [];
     const live = r.data && r.data.liveRoster;
     let html = '<div class="glass rounded-2xl p-4"><h3 class="font-semibold text-sm mb-1"><i class="fa-solid fa-clipboard-list text-teal-400 mr-2"></i>My roster pattern</h3>'+
@@ -1562,7 +1705,7 @@ async function renderSchedule(){
     if (ba) ba.onclick = () => renderLeaveAdmin();
     const dr = $('#btn-dept-roster');
     if (dr) dr.onclick = () => renderDepartmentRoster();
-  } catch(e){ $('#sch-root').innerHTML = '<p class="text-red-300">'+esc(e.message)+'</p>'; }
+  } catch(e){ stopTips(); $('#sch-root').innerHTML = '<p class="text-red-300">'+esc(e.message)+'</p>'; }
 }
 
 async function renderDepartmentRoster(){
@@ -1656,8 +1799,10 @@ async function checkHealth(){
 }
 
 async function renderReminders(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="rem-root">Loading…</div>';
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="rem-root"></div>';
+  const stopTips = showLoadingTips($('#rem-root'));
   const r = await api('getReminders');
+  stopTips();
   let list = sortRemindersHome((r.data && r.data.reminders) || []).filter(x => !(x.done===true||x.done==='TRUE'));
   const adm = canAdmin();
   let html = '';
@@ -1703,9 +1848,11 @@ async function renderReminders(){
   });
 }
 async function renderSuggestions(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="sug-root">Loading…</div>';
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="sug-root"></div>';
+  const stopTips = showLoadingTips($('#sug-root'));
   const adm = canAdmin();
   const r = await api('getSuggestions', adm ? { adminView: true } : {});
+  stopTips();
   let list = ((r.data && r.data.suggestions) || []).slice();
   list.sort(function(a,b){ return Number(b.likes!=null?b.likes:b.votes||0) - Number(a.likes!=null?a.likes:a.votes||0); });
   let html = '<button id="btn-add-sug" class="btn-primary w-full rounded-xl py-2 text-sm text-white"><i class="fa-solid fa-plus mr-1"></i>New suggestion</button>';
@@ -1739,16 +1886,7 @@ async function renderSuggestions(){
     html += '</div></div>';
   });
   $('#sug-root').innerHTML = html;
-  $('#btn-add-sug').onclick = () => {
-    openModal('<h3 class="font-semibold mb-3">Suggestion</h3><p class="text-[10px] text-slate-400 mb-2">Anonymous to staff. Needs admin approval for the home feed.</p><input id="sg-title" class="w-full rounded-xl px-3 py-2 text-sm mb-2" placeholder="Title"/>'+
-      '<textarea id="sg-body" class="w-full rounded-xl px-3 py-2 text-sm mb-3" rows="3" placeholder="Your idea"></textarea>'+
-      '<button id="sg-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Submit</button>');
-    $('#sg-save').onclick = async () => {
-      const res = await api('addSuggestion',{ title:$('#sg-title').value, body:$('#sg-body').value });
-      if (!res.success) { toast(res.error||'Failed','error'); return; }
-      closeModal(); toast('Submitted for approval','ok'); renderSuggestions();
-    };
-  };
+  $('#btn-add-sug').onclick = () => openSuggestModal(() => renderSuggestions());
   $$('.vote-sug').forEach(b=>b.onclick=async()=>{
     const res = await api('voteSuggestion',{ id:b.dataset.id, vote:b.dataset.vote });
     if (!res.success) toast(res.error,'error'); else { toast(b.dataset.vote==='dislike'?'Disliked':'Liked','ok'); renderSuggestions(); }
@@ -1811,9 +1949,11 @@ async function renderMyProfile(){
 }
 
 async function renderKitchen(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root">Loading kitchen…</div>';
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root"></div>';
+  const stopKitTips = showLoadingTips($('#kit-root'));
   try {
     const [r, prepR] = await Promise.all([api('getKitchenDashboard'), api('getDinnerPrepList')]);
+    stopKitTips();
     const d = r.data;
     const prepData = (prepR && prepR.data) || {};
     const stats = d.stats || {};
@@ -1970,7 +2110,7 @@ async function renderKitchen(){
       downloadText('dinner-prep-'+lastPrep.serviceDate+'.html', buildPrepHtml(lastPrep));
       toast('Downloaded HTML','ok');
     };
-  } catch(e){ $('#kit-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
+  } catch(e){ stopKitTips(); $('#kit-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
 }
 
 /* ========== STAFF DIRECTORY (critical) ========== */
@@ -2334,9 +2474,10 @@ async function renderAdmin(){
 
 async function renderAdminFeaturesTab(){
   const root = $('#admin-body');
-  root.innerHTML = '<p class="text-sm text-slate-400">Loading features…</p>';
+  const stopTips = showLoadingTips(root);
   try {
     const r = await api('getAppSettings');
+    stopTips();
     const f = (r.data && r.data.features) || {};
     const live = !!f.feature_live_roster;
     const leave = !!f.feature_leave_escalation;
@@ -2356,15 +2497,17 @@ async function renderAdminFeaturesTab(){
     $('#tog-live').onclick = () => toggle('feature_live_roster', live);
     $('#tog-leave').onclick = () => toggle('feature_leave_escalation', leave);
   } catch(e){
+    stopTips();
     root.innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>';
   }
 }
 
 async function renderAdminKitchenTab(full){
   const root = $('#admin-body');
-  root.innerHTML = '<p class="text-sm text-slate-400">Loading kitchen…</p>';
+  const stopTips = showLoadingTips(root);
   try {
     const [dash, menusR] = await Promise.all([api('getKitchenDashboard'), api('getDinnerMenus',{ includeInactive:true })]);
+    stopTips();
     const d = dash.data || {};
     const stats = d.stats || {};
     const byWeekday = (menusR.data && menusR.data.byWeekday) || {};
@@ -2448,6 +2591,7 @@ async function renderAdminKitchenTab(full){
       // allow upgrade prompt when trying to hint
     }
   } catch(e) {
+    stopTips();
     root.innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>';
   }
 }
@@ -2526,11 +2670,7 @@ $('#btn-resend-code').onclick = async () => {
   const vr = await api('requestVerification',{ email: pendingVerifyEmail });
   if (vr.data && vr.data.code) toast('Code: '+vr.data.code,'info'); else toast('Code sent','ok');
 };
-$('#btn-logout').onclick = () => {
-  state.user = null; state.adminUnlock = null; localStorage.removeItem(SESSION_KEY);
-  $('#view-main').classList.add('hidden');
-  $('#view-login').classList.remove('hidden');
-};
+$('#btn-logout').onclick = doLogout;
 
 
 function showLoginError(msg, kind){
