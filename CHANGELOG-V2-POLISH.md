@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.7.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.7.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -161,3 +161,9 @@ Version **2.7.0**. Revert any item later by asking for its ID (e.g. “revert C7
 |----|--------|
 | C55 | **Uploaded weekly/monthly rosters** on My Schedule (works even when `feature_live_roster` is OFF). HOD / assistant_hod / admin / super_admin upload Excel/CSV (SheetJS in-browser) or PDF/image (pdf.js text try; otherwise reference note — no OpenAI/OCR). Client sends parsed shift rows via `uploadRosterParsed` (chunked GET-safe JSON). Fuzzy name match to Users (first last / last first / email local-part; prefer same department). Sheets: `Roster Uploads`, `Roster Shifts`, `Notifications`. Re-upload replaces shifts for period+(department OR matched users); diffs notify affected staff in-app (`Roster updated`). `getMySchedule` returns `weeklyShifts` / `monthlyShifts` + unread notices. CSV template: `name,department,date,start,end,dayOff`. **Limits:** Excel/CSV best; wide grids best-effort; PDF/image limited (no cloud AI OCR); large files must be parsed client-side (no base64 via GET). `APP_VERSION` → **2.7.0**; SW cache `pcr-staff-v2.7.0`. SCRIPT_URL unchanged. |
 
+
+## Faster tab transitions (2.7.1)
+
+| ID | Change |
+|----|--------|
+| C56 | Drop Paradise Cove loading-tip slideshow on tab load. showLoadingTips only shows plain Loading if request takes over 120ms. Fade-in 0.5s to 0.14s; shorter home tile stagger. APP_VERSION 2.7.1; SW pcr-staff-v2.7.1. |

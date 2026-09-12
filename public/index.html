@@ -145,14 +145,14 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 2px rgba(13,148,136,0.25);
 }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-@keyframes fade-in { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:translateY(0);} }
+@keyframes fade-in { from { opacity:0; transform:translateY(3px);} to { opacity:1; transform:translateY(0);} }
 @keyframes float { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-4px);} }
 @keyframes pulse-soft { 0%,100%{opacity:1;} 50%{opacity:0.72;} }
 @keyframes glow-pulse {
   0%,100%{ box-shadow: 0 0 0 0 rgba(13,148,136,0.35); }
   50%{ box-shadow: 0 0 16px 2px rgba(13,148,136,0.25); }
 }
-.animate-fade-in, .fade-in { animation: fade-in .5s ease-out both; }
+.animate-fade-in, .fade-in { animation: fade-in .14s ease-out both; }
 .animate-float { animation: float 3.5s ease-in-out infinite; }
 .animate-pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
 .meal-open-glow { animation: glow-pulse 2.4s ease-in-out infinite; }
@@ -202,7 +202,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.7.1';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -1523,24 +1523,14 @@ function startLoginHeroRotation(){
   state._loginHeroTimer = setInterval(function(){ i++; apply(); }, 7000);
 }
 function showLoadingTips(container){
-  if (typeof container === 'string') container = $(container);
+  if (typeof container === "string") container = $(container);
   if (!container) return function(){};
-  let i = Math.floor(Math.random() * RESORT_TIPS.length);
-  const paint = function(){
-    if (!container.isConnected) return;
-    const t = RESORT_TIPS[i % RESORT_TIPS.length];
-    container.innerHTML =
-      '<div class="loading-tips-panel fade-in animate-pulse-soft">'+
-        '<img src="'+t.img+'" alt="" onerror="this.src=\'assets/golden-logo.jpg\'"/>'+
-        '<div class="min-w-0">'+
-          '<p class="text-[10px] uppercase tracking-wide text-teal-400/90 font-medium mb-0.5"><i class="fa-solid fa-umbrella-beach mr-1"></i>Paradise Cove tip</p>'+
-          '<p class="text-xs text-slate-200 leading-snug">'+esc(t.tip)+'</p>'+
-          '<p class="text-[9px] text-slate-500 mt-1">Loading…</p>'+
-        '</div></div>';
-  };
-  paint();
-  const timer = setInterval(function(){ i++; paint(); }, 2800);
-  return function(){ clearInterval(timer); };
+  let cancelled = false;
+  const timer = setTimeout(function(){
+    if (cancelled || !container.isConnected) return;
+    container.innerHTML = "<p class=\"text-[11px] text-slate-500 py-2\">Loading…</p>";
+  }, 120);
+  return function(){ cancelled = true; clearTimeout(timer); };
 }
 function doLogout(){
   state.user = null; state.adminUnlock = null; localStorage.removeItem(SESSION_KEY);
@@ -1674,8 +1664,8 @@ function renderHome(){
   if (shareBtn) shareBtn.onclick = () => openSuggestModal(() => loadHomeRemindersAndSuggestions());
   setTimeout(function(){
     $$('#home-quick-tiles .quick-tile').forEach(function(el,i){
-      el.style.animation = 'fade-in 0.45s ease-out both';
-      el.style.animationDelay = (i*0.05)+'s';
+      el.style.animation = 'fade-in 0.14s ease-out both';
+      el.style.animationDelay = (i*0.015)+'s';
     });
   }, 0);
   loadHomeRemindersAndSuggestions();
