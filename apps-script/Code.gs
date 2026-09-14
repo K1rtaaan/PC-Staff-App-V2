@@ -322,10 +322,16 @@ function getSS() {
 function ensureSheet(ss, name, headers) {
   var sh = ss.getSheetByName(name);
   if (!sh) {
-    sh = ss.insertSheet(name);
-    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sh.setFrozenRows(1);
-  } else if (sh.getLastRow() === 0) {
+    try {
+      sh = ss.insertSheet(name);
+    } catch (e) {
+      // Concurrent init or soft-created tab — re-fetch
+      sh = ss.getSheetByName(name);
+      if (!sh) throw e;
+    }
+  }
+  if (!sh) throw new Error('Could not open sheet: ' + name);
+  if (sh.getLastRow() === 0) {
     sh.getRange(1, 1, 1, headers.length).setValues([headers]);
     sh.setFrozenRows(1);
   } else {
