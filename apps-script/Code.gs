@@ -15,12 +15,12 @@
  *   Dinner: closes 20:00 Fiji TODAY for TOMORROW's service.
  *     e.g. Fri 19:59 Fiji → can still book Sat dinner
  *          Fri 20:00 Fiji → dinner booking closed for Sat
- *   Lunch / Duty Meal: closes 10:00 Fiji SAME day.
- *     e.g. Sat 09:59 → can book Sat lunch; Sat 10:00 → closed
+ *   Breakfast + Lunch: closes 13:00 Fiji TODAY for TOMORROW's service (headcount only).
+ *     e.g. Sat 12:59 → can count in for Sun breakfast/lunch; Sat 13:00 → closed
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.7.1';
+var APP_VERSION = '2.7.2';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -141,6 +141,9 @@ function routeAction(action, p) {
     case 'placeDinnerOrder': return placeDinnerOrder(p);
     case 'getLunchOrders': return getLunchOrders(p);
     case 'placeLunchOrder': return placeLunchOrder(p);
+    case 'getBreakfastOrders': return getBreakfastOrders(p);
+    case 'placeBreakfastOrder': return placeBreakfastOrder(p);
+    case 'cancelMealOrder': return cancelMealOrder(p);
     case 'getKitchenDashboard': return getKitchenDashboard(p);
     case 'markOrderStatus': return markOrderStatus(p);
     case 'getDinnerMenus': return getDinnerMenus(p);
@@ -256,18 +259,36 @@ function dinnerCutoffInfo(now) {
 }
 
 /**
- * Lunch / Duty Meal: same-day service, cutoff 10:00 Fiji.
+ * Breakfast: tomorrow's service, cutoff 13:00 Fiji today. Headcount only.
+ */
+function breakfastCutoffInfo(now) {
+  now = now || getFijiNow();
+  var hour = now.getUTCHours();
+  var open = hour < 13;
+  var serviceDate = fijiDateString(addFijiDays(now, 1));
+  return {
+    open: open,
+    serviceDate: serviceDate,
+    cutoffHour: 13,
+    cutoffLabel: '1:00 PM Fiji (today for tomorrow)',
+    fijiNow: formatFiji(now),
+    meal: 'breakfast'
+  };
+}
+
+/**
+ * Lunch: tomorrow's service, cutoff 13:00 Fiji today. Headcount only.
  */
 function lunchCutoffInfo(now) {
   now = now || getFijiNow();
   var hour = now.getUTCHours();
-  var open = hour < 10;
-  var serviceDate = fijiDateString(now);
+  var open = hour < 13;
+  var serviceDate = fijiDateString(addFijiDays(now, 1));
   return {
     open: open,
     serviceDate: serviceDate,
-    cutoffHour: 10,
-    cutoffLabel: '10:00 AM Fiji (same day)',
+    cutoffHour: 13,
+    cutoffLabel: '1:00 PM Fiji (today for tomorrow)',
     fijiNow: formatFiji(now),
     meal: 'lunch'
   };
@@ -279,6 +300,7 @@ function getCutoffInfo(p) {
     success: true,
     data: {
       fijiNow: formatFiji(now),
+      breakfast: breakfastCutoffInfo(now),
       dinner: dinnerCutoffInfo(now),
       lunch: lunchCutoffInfo(now)
     }
@@ -342,6 +364,10 @@ function initializeSheets() {
     'status', 'late', 'createdAt'
   ]);
   ensureSheet(ss, 'Lunch Orders', [
+    'id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes',
+    'status', 'late', 'createdAt'
+  ]);
+  ensureSheet(ss, 'Breakfast Orders', [
     'id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes',
     'status', 'late', 'createdAt'
   ]);
@@ -1977,17 +2003,9 @@ function placeDinnerOrder(p) {
 
 function placeLunchOrder(p) {
   var info = lunchCutoffInfo();
-  var late = !info.open;
-  // Staff cannot late-order lunch. allowLate is admin-only (passcode 2025/2026).
-  if (late) {
-    if (!p.allowLate) {
-      return { success: false, error: 'Lunch ordering closed at 10am Fiji for today\'s service (' + info.serviceDate + ')', cutoff: info };
-    }
-    try {
-      requirePasscode(p, 'admin');
-    } catch (e) {
-      return { success: false, error: 'Lunch ordering closed at 10am Fiji. Late lunch is not available to staff.', cutoff: info };
-    }
+  // Staff cannot late-order lunch. No late path for staff.
+  if (!info.open) {
+    return { success: false, error: 'Lunch ordering closed at 1pm Fiji for tomorrow\'s service (' + info.serviceDate + ')', cutoff: info };
   }
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
@@ -1999,12 +2017,12 @@ function placeLunchOrder(p) {
   });
   if (existing.length) {
     updateRowById('Lunch Orders', existing[0].id, {
-      mealChoice: p.mealChoice || existing[0].mealChoice,
+      mealChoice: 'Lunch',
       notes: p.notes || '',
-      late: late,
+      late: false,
       status: 'ordered'
     });
-    return { success: true, data: { order: findOrder('Lunch Orders', existing[0].id), late: late, cutoff: info } };
+    return { success: true, data: { order: findOrder('Lunch Orders', existing[0].id), late: false, cutoff: info } };
   }
   var row = {
     id: uid('lun'),
@@ -2012,14 +2030,82 @@ function placeLunchOrder(p) {
     userEmail: email,
     userName: ((u.firstName || '') + ' ' + (u.lastName || '')).trim(),
     department: u.department || '',
-    mealChoice: p.mealChoice || 'Duty Meal',
+    mealChoice: 'Lunch',
     notes: p.notes || '',
     status: 'ordered',
-    late: late,
+    late: false,
     createdAt: nowIso()
   };
   appendRow('Lunch Orders', row, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
-  return { success: true, data: { order: row, late: late, cutoff: info } };
+  return { success: true, data: { order: row, late: false, cutoff: info } };
+}
+
+function placeBreakfastOrder(p) {
+  var info = breakfastCutoffInfo();
+  if (!info.open) {
+    return { success: false, error: 'Breakfast ordering closed at 1pm Fiji for tomorrow\'s service (' + info.serviceDate + ')', cutoff: info };
+  }
+  var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
+  var u = findUserByEmail(email);
+  if (!u) return { success: false, error: 'User required' };
+  var serviceDate = p.serviceDate || info.serviceDate;
+
+  var existing = sheetToObjects('Breakfast Orders').filter(function (o) {
+    return String(o.userEmail).toLowerCase() === email && String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled';
+  });
+  if (existing.length) {
+    updateRowById('Breakfast Orders', existing[0].id, {
+      mealChoice: 'Breakfast',
+      notes: p.notes || '',
+      late: false,
+      status: 'ordered'
+    });
+    return { success: true, data: { order: findOrder('Breakfast Orders', existing[0].id), late: false, cutoff: info } };
+  }
+  var row = {
+    id: uid('brk'),
+    serviceDate: serviceDate,
+    userEmail: email,
+    userName: ((u.firstName || '') + ' ' + (u.lastName || '')).trim(),
+    department: u.department || '',
+    mealChoice: 'Breakfast',
+    notes: p.notes || '',
+    status: 'ordered',
+    late: false,
+    createdAt: nowIso()
+  };
+  appendRow('Breakfast Orders', row, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
+  return { success: true, data: { order: row, late: false, cutoff: info } };
+}
+
+function getBreakfastOrders(p) {
+  var orders = sheetToObjects('Breakfast Orders');
+  if (p.serviceDate) orders = orders.filter(function (o) { return String(o.serviceDate).indexOf(String(p.serviceDate)) === 0; });
+  if (p.userEmail) orders = orders.filter(function (o) { return String(o.userEmail).toLowerCase() === String(p.userEmail).toLowerCase(); });
+  return { success: true, data: { orders: orders, cutoff: breakfastCutoffInfo() } };
+}
+
+function cancelMealOrder(p) {
+  var meal = String(p.meal || '').toLowerCase();
+  if (meal !== 'breakfast' && meal !== 'lunch') {
+    return { success: false, error: 'meal must be breakfast or lunch' };
+  }
+  var sheet = meal === 'breakfast' ? 'Breakfast Orders' : 'Lunch Orders';
+  var info = meal === 'breakfast' ? breakfastCutoffInfo() : lunchCutoffInfo();
+  if (!info.open) {
+    return { success: false, error: 'Cannot cancel after 1pm Fiji cutoff for tomorrow\'s ' + meal, cutoff: info };
+  }
+  var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
+  if (!email) return { success: false, error: 'User required' };
+  var serviceDate = p.serviceDate || info.serviceDate;
+  var existing = sheetToObjects(sheet).filter(function (o) {
+    return String(o.userEmail).toLowerCase() === email && String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled';
+  });
+  if (!existing.length) {
+    return { success: false, error: 'No active ' + meal + ' order to cancel', cutoff: info };
+  }
+  var o = updateRowById(sheet, existing[0].id, { status: 'cancelled' });
+  return { success: !!o, data: { order: o, cutoff: info } };
 }
 
 function findOrder(sheet, id) {
@@ -2052,9 +2138,15 @@ function getLunchOrders(p) {
   return { success: true, data: { orders: orders, cutoff: lunchCutoffInfo() } };
 }
 
-function last7DinnerStats(serviceDate) {
-  var all = sheetToObjects('Dinner Orders').filter(function (o) {
+function last7MealStats(serviceDate) {
+  var dinners = sheetToObjects('Dinner Orders').filter(function (o) {
     return o.status !== 'cancelled' && o.status !== 'rejected';
+  });
+  var lunches = sheetToObjects('Lunch Orders').filter(function (o) {
+    return o.status !== 'cancelled';
+  });
+  var breakfasts = sheetToObjects('Breakfast Orders').filter(function (o) {
+    return o.status !== 'cancelled';
   });
   var parts = String(serviceDate).split('-');
   var end = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
@@ -2062,8 +2154,10 @@ function last7DinnerStats(serviceDate) {
   for (var i = 6; i >= 0; i--) {
     var d = new Date(end.getTime() - i * 86400000);
     var ds = d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
-    var n = all.filter(function (o) { return String(o.serviceDate).indexOf(ds) === 0; }).length;
-    days.push({ date: ds, total: n });
+    var b = breakfasts.filter(function (o) { return String(o.serviceDate).indexOf(ds) === 0; }).length;
+    var l = lunches.filter(function (o) { return String(o.serviceDate).indexOf(ds) === 0; }).length;
+    var din = dinners.filter(function (o) { return String(o.serviceDate).indexOf(ds) === 0; }).length;
+    days.push({ date: ds, breakfast: b, lunch: l, dinner: din, total: din });
   }
   return days;
 }
@@ -2073,13 +2167,18 @@ function getKitchenDashboard(p) {
   var wf = processDinnerWorkflow(p);
   var dinnerInfo = dinnerCutoffInfo();
   var lunchInfo = lunchCutoffInfo();
+  var breakfastInfo = breakfastCutoffInfo();
   var dinnerDate = p.dinnerDate || dinnerInfo.serviceDate;
   var lunchDate = p.lunchDate || lunchInfo.serviceDate;
+  var breakfastDate = p.breakfastDate || breakfastInfo.serviceDate;
   var dinners = sheetToObjects('Dinner Orders').filter(function (o) {
     return String(o.serviceDate).indexOf(dinnerDate) === 0 && o.status !== 'cancelled' && o.status !== 'rejected';
   });
   var lunches = sheetToObjects('Lunch Orders').filter(function (o) {
     return String(o.serviceDate).indexOf(lunchDate) === 0 && o.status !== 'cancelled';
+  });
+  var breakfasts = sheetToObjects('Breakfast Orders').filter(function (o) {
+    return String(o.serviceDate).indexOf(breakfastDate) === 0 && o.status !== 'cancelled';
   });
   var lateDinner = dinners.filter(function (o) { return truthy(o.late); });
   var lateLunch = lunches.filter(function (o) { return truthy(o.late); });
@@ -2102,8 +2201,15 @@ function getKitchenDashboard(p) {
   return {
     success: true,
     data: {
+      breakfastDate: breakfastDate,
       dinnerDate: dinnerDate,
       lunchDate: lunchDate,
+      breakfast: {
+        total: breakfasts.length,
+        orders: breakfasts,
+        cutoff: breakfastInfo,
+        serviceDate: breakfastDate
+      },
       dinner: {
         orders: dinners,
         late: lateDinner,
@@ -2114,14 +2220,21 @@ function getKitchenDashboard(p) {
         lateCount: lateDinner.length,
         total: dinners.length
       },
-      lunch: { orders: lunches, late: lateLunch, tally: tally(lunches), cutoff: lunchInfo, total: lunches.length },
+      lunch: {
+        total: lunches.length,
+        orders: lunches,
+        late: lateLunch,
+        tally: tally(lunches),
+        cutoff: lunchInfo,
+        serviceDate: lunchDate
+      },
       stats: {
         tomorrowTotal: dinners.length,
         perItem: tally(dinners),
         lateCount: lateDinner.length,
         approved: approved.length,
         pending: pending.length,
-        last7Days: last7DinnerStats(dinnerDate)
+        last7Days: last7MealStats(dinnerDate)
       },
       menus: (menus.data && menus.data.items) || [],
       workflow: wf.data,
@@ -2131,7 +2244,10 @@ function getKitchenDashboard(p) {
 }
 
 function markOrderStatus(p) {
-  var sheet = p.meal === 'lunch' ? 'Lunch Orders' : 'Dinner Orders';
+  var meal = String(p.meal || '').toLowerCase();
+  var sheet = 'Dinner Orders';
+  if (meal === 'lunch') sheet = 'Lunch Orders';
+  else if (meal === 'breakfast') sheet = 'Breakfast Orders';
   var o = updateRowById(sheet, p.id, { status: p.status || 'prepared' });
   return { success: !!o, data: { order: o } };
 }

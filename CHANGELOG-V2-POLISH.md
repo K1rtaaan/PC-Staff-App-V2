@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.7.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.7.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -167,3 +167,10 @@ Version **2.7.1**. Revert any item later by asking for its ID (e.g. “revert C7
 | ID | Change |
 |----|--------|
 | C56 | Drop Paradise Cove loading-tip slideshow on tab load. showLoadingTips only shows plain Loading if request takes over 120ms. Fade-in 0.5s to 0.14s; shorter home tile stagger. APP_VERSION 2.7.1; SW pcr-staff-v2.7.1. |
+
+## Breakfast + Lunch headcount (2.7.2)
+
+| ID | Change |
+|----|--------|
+| C57 | **Breakfast + Lunch** order for **tomorrow**, close **1:00pm Fiji today** (stock/prep). No menu — one meal / headcount only; staff tap Count me in (or cancel). Dinner unchanged (8pm / tomorrow / menus / late path). Home: 3 status cards Breakfast\|Lunch\|Dinner. Nav: **Home \| Meals \| Boat \| More** with Breakfast/Lunch/Dinner pills in Meals hub. Kitchen: big **Total** for breakfast & lunch; dinner keeps item breakdown **and** total; weekly stats last 7 service days as `{ date, breakfast, lunch, dinner }`. Backend: `breakfastCutoffInfo` + lunch same (open hour<13, serviceDate tomorrow); sheet `Breakfast Orders`; `placeBreakfastOrder` / `getBreakfastOrders` / `cancelMealOrder`; `getKitchenDashboard` breakfast pack; lunch default `Lunch`, error text 1pm/tomorrow. Demo API mirrored. `APP_VERSION` → **2.7.2**; SW `pcr-staff-v2.7.2`. SCRIPT_URL unchanged. |
+

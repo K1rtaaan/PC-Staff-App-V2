@@ -2,7 +2,7 @@
 
 Mobile-first staff portal for meals, boats, roster/leave, kitchen, suggestions, and staff directory.
 
-**Version:** 2.1.0  
+**Version:** 2.7.2  
 **Primary stack:** single-file HTML (`public/`) + Google Apps Script (`apps-script/`) + Google Sheet  
 **Demo mode:** works with empty `API_URL` or `?demo=1` (no backend required)
 
@@ -13,20 +13,21 @@ All business cutoffs and service dates use **Fiji wall clock as UTC+12** via `ge
 | Meal | Cutoff (Fiji) | Service date |
 |------|---------------|--------------|
 | Dinner | **8:00 PM today** | **Tomorrow** |
-| Lunch / Duty Meal | **10:00 AM** | **Same day** |
+| Breakfast | **1:00 PM today** | **Tomorrow** (headcount only) |
+| Lunch | **1:00 PM today** | **Tomorrow** (headcount only) |
 
 ### Cutoff examples
 
 Assume Fiji = UTC+12 (offset applied in code):
 
-| Fiji wall clock | Dinner | Lunch |
-|-----------------|--------|-------|
+| Fiji wall clock | Dinner | Breakfast / Lunch |
+|-----------------|--------|-------------------|
 | Fri 19:59 | Open for **Sat** dinner | — |
 | Fri 20:00 | Closed for Sat dinner | — |
-| Sat 09:59 | — | Open for **Sat** lunch |
-| Sat 10:00 | — | Closed for Sat lunch |
+| Sat 12:59 | — | Open for **Sun** breakfast/lunch |
+| Sat 13:00 | — | Closed for Sun breakfast/lunch |
 
-Helpers: `dinnerCutoffInfo()` / `lunchCutoffInfo()` in `public/index.html` and `apps-script/Code.gs`.
+Helpers: `dinnerCutoffInfo()` / `breakfastCutoffInfo()` / `lunchCutoffInfo()` in `public/index.html` and `apps-script/Code.gs`.
 
 ## Quick start (demo, no Apps Script)
 
