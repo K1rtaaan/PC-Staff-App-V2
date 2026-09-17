@@ -203,7 +203,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.8.1';
+const APP_VERSION = '2.8.2';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -484,6 +484,40 @@ function seedDemoSamples(db){
   if (!db.rosterUploads) db.rosterUploads = [];
   if (!db.rosterShifts) db.rosterShifts = [];
   if (!db.notifications) db.notifications = [];
+  // C68: seed realistic meal rows for chef sheet demos (once)
+  if (!db._seededChefSheets) {
+    const sd = dinnerCutoffInfo().serviceDate;
+    const t0 = formatFiji(addFijiDays(getFijiNow(), -0.02));
+    if (!(db.breakfastOrders||[]).some(o=>o.serviceDate===sd)) {
+      db.breakfastOrders = (db.breakfastOrders||[]).concat([
+        { id:uid('brk'), serviceDate:sd, userEmail:'ana.tui@paradisecoveresortfiji.com', userName:'Ana Tui', department:'Housekeeping', mealChoice:'Breakfast', notes:'', status:'ordered', late:false, createdAt:sd+' 07:12' },
+        { id:uid('brk'), serviceDate:sd, userEmail:'staff2@pcr.com', userName:'Jone Ratu', department:'F&B', mealChoice:'Breakfast', notes:'', status:'ordered', late:false, createdAt:sd+' 08:05' },
+        { id:uid('brk'), serviceDate:sd, userEmail:'staff3@pcr.com', userName:'Mere Waqa', department:'Spa', mealChoice:'Breakfast', notes:'', status:'ordered', late:false, createdAt:sd+' 09:40' },
+        { id:uid('brk'), serviceDate:sd, userEmail:'staff4@pcr.com', userName:'Samuela Koro', department:'Grounds', mealChoice:'Breakfast', notes:'late', status:'late_pending', late:true, createdAt:sd+' 14:22' }
+      ]);
+    }
+    if (!(db.lunchOrders||[]).some(o=>o.serviceDate===sd)) {
+      db.lunchOrders = (db.lunchOrders||[]).concat([
+        { id:uid('lun'), serviceDate:sd, userEmail:'ana.tui@paradisecoveresortfiji.com', userName:'Ana Tui', department:'Housekeeping', mealChoice:'Lunch', notes:'', status:'ordered', late:false, createdAt:sd+' 07:30' },
+        { id:uid('lun'), serviceDate:sd, userEmail:'staff2@pcr.com', userName:'Jone Ratu', department:'F&B', mealChoice:'Lunch', notes:'', status:'ordered', late:false, createdAt:sd+' 08:15' },
+        { id:uid('lun'), serviceDate:sd, userEmail:'staff5@pcr.com', userName:'Laisa Bale', department:'Kids Club', mealChoice:'Lunch', notes:'', status:'ordered', late:false, createdAt:sd+' 10:02' },
+        { id:uid('lun'), serviceDate:sd, userEmail:'staff6@pcr.com', userName:'Tomasi Vuki', department:'Boatman', mealChoice:'Lunch', notes:'', status:'ordered', late:false, createdAt:sd+' 11:18' }
+      ]);
+    }
+    if (!(db.dinnerOrders||[]).some(o=>o.serviceDate===sd)) {
+      const wd = fijiWeekday(addFijiDays(getFijiNow(),1));
+      const items = (DEFAULT_DINNER_MENUS[wd]||DEFAULT_DINNER_MENUS[1]||['Chicken Pizza','Beef Curry / Rice / Chutney']).slice(0,3);
+      db.dinnerOrders = (db.dinnerOrders||[]).concat([
+        { id:uid('din'), serviceDate:sd, userEmail:'ana.tui@paradisecoveresortfiji.com', userName:'Ana Tui', department:'Housekeeping', mealChoice:items[0], notes:'', status:'approved', late:false, createdAt:sd+' 12:01' },
+        { id:uid('din'), serviceDate:sd, userEmail:'staff2@pcr.com', userName:'Jone Ratu', department:'F&B', mealChoice:items[0], notes:'', status:'approved', late:false, createdAt:sd+' 12:40' },
+        { id:uid('din'), serviceDate:sd, userEmail:'staff3@pcr.com', userName:'Mere Waqa', department:'Spa', mealChoice:items[1]||items[0], notes:'', status:'approved', late:false, createdAt:sd+' 15:10' },
+        { id:uid('din'), serviceDate:sd, userEmail:'staff5@pcr.com', userName:'Laisa Bale', department:'Kids Club', mealChoice:items[1]||items[0], notes:'', status:'late_approved', late:true, createdAt:sd+' 20:15' },
+        { id:uid('din'), serviceDate:sd, userEmail:'staff6@pcr.com', userName:'Tomasi Vuki', department:'Boatman', mealChoice:items[2]||items[0], notes:'', status:'approved', late:false, createdAt:sd+' 16:45' },
+        { id:uid('din'), serviceDate:sd, userEmail:'staff7@pcr.com', userName:'Epi Nacewa', department:'Porters', mealChoice:items[2]||items[0], notes:'running late', status:'late_pending', late:true, createdAt:sd+' 20:40' }
+      ]);
+    }
+    db._seededChefSheets = true;
+  }
   // Seed a few roster shifts for Ana (demo staff) if empty
   if (!db.rosterShifts.length) {
     const today = getFijiNow();
@@ -1745,11 +1779,16 @@ function showLoadingTips(container){
   if (typeof container === "string") container = $(container);
   if (!container) return function(){};
   let cancelled = false;
-  const timer = setTimeout(function(){
+  const msgs = ['Loading…','Still loading…','Almost there — slow network or API…'];
+  let step = 0;
+  function paint(){
     if (cancelled || !container.isConnected) return;
-    container.innerHTML = "<p class=\"text-[11px] text-slate-500 py-2\">Loading…</p>";
-  }, 120);
-  return function(){ cancelled = true; clearTimeout(timer); };
+    container.innerHTML = '<p class="text-[11px] text-slate-500 py-2"><i class="fa-solid fa-spinner fa-spin mr-1"></i>'+msgs[Math.min(step, msgs.length-1)]+'</p>';
+  }
+  const t0 = setTimeout(function(){ paint(); }, 120);
+  const t1 = setTimeout(function(){ step = 1; paint(); }, 2500);
+  const t2 = setTimeout(function(){ step = 2; paint(); }, 6000);
+  return function(){ cancelled = true; clearTimeout(t0); clearTimeout(t1); clearTimeout(t2); };
 }
 function doLogout(){
   state.user = null; state.adminUnlock = null; localStorage.removeItem(SESSION_KEY);
@@ -2140,7 +2179,7 @@ async function renderBreakfast(){
     if (bi.open) {
       formHtml =
         '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
-        '<button id="btn-breakfast" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white">'+(counted?'Update / already counted':'Count me in')+'</button>'+
+        '<button id="btn-breakfast" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">'+(counted?'Update / already counted':'Count me in')+'</button>'+
         (cur && !declined?'<button id="btn-breakfast-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
     } else if (bi.lateOpen) {
       if (waitingLate) {
@@ -2155,13 +2194,13 @@ async function renderBreakfast(){
         formHtml =
           '<div class="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3">'+
           '<p class="text-sm text-rose-300">order declined please see hod or chef</p></div>'+
-          '<button id="btn-breakfast-late" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white mt-2">Request late breakfast again</button>';
+          '<button id="btn-breakfast-late" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white mt-2 min-h-[48px]">Request late breakfast again</button>';
       } else {
         formHtml =
           '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">'+
           '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-clock mr-1"></i>Normal breakfast closed (1pm)</p>'+
           '<p class="text-[10px] text-amber-200/80">Late requests open until 6:00 PM Fiji — needs chef approval.</p>'+
-          '<button id="btn-breakfast-late" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white">Request late breakfast</button></div>';
+          '<button id="btn-breakfast-late" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">Request late breakfast</button></div>';
       }
     } else {
       formHtml =
@@ -2226,7 +2265,7 @@ async function renderLunch(){
     if (li.open) {
       formHtml =
         '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
-        '<button id="btn-lunch" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white">'+(cur?'Update / already counted':'Count me in')+'</button>'+
+        '<button id="btn-lunch" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">'+(cur?'Update / already counted':'Count me in')+'</button>'+
         (cur?'<button id="btn-lunch-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
     } else {
       formHtml =
@@ -3219,7 +3258,36 @@ async function renderKitchen(){
           return;
         }
         cacheSet('kitchenDashboard', next);
+        const prevFp = state._kitFp;
         state._kitFp = fpStr;
+        // Soft-poll: if only totals/late counts changed, update numbers in place
+        try {
+          const dash = next.dash || {};
+          const softOk = prevFp && state.tab === 'kitchen' && !state._kitRendering && $('#kit-root');
+          if (softOk) {
+            const map = {
+              breakfast: dash.breakfast && dash.breakfast.total,
+              lunch: dash.lunch && dash.lunch.total,
+              dinner: dash.dinner && dash.dinner.total
+            };
+            let updated = false;
+            Object.keys(map).forEach(function(k){
+              const el = document.querySelector('[data-kit-total="'+k+'"]');
+              if (el && map[k] != null && String(el.textContent) !== String(map[k])) {
+                el.textContent = String(map[k]);
+                updated = true;
+              }
+            });
+            // If structure likely changed (orders list), full refresh; else stop at totals
+            const prev = JSON.parse(prevFp);
+            const cur = JSON.parse(fpStr);
+            const structureSame = prev && cur && prev.d && cur.d &&
+              prev.d.dp === cur.d.dp && prev.d.dl === cur.d.dl &&
+              JSON.stringify(prev.d.s) === JSON.stringify(cur.d.s) &&
+              prev.p && cur.p && prev.p.t === cur.p.t;
+            if (updated && structureSame) return;
+          }
+        } catch (_){}
         if (state.tab === 'kitchen' && !state._kitRendering) {
           state._kitBgRefresh = true;
           renderKitchen();
@@ -3256,43 +3324,53 @@ async function renderKitchen(){
       const total = pack.total!=null ? pack.total : (pack.orders||[]).filter(o=>o.status!=='late_pending'&&o.status!=='rejected'&&o.status!=='cancelled').length;
       const open = pack.cutoff && pack.cutoff.open;
       const lateOpen = pack.cutoff && pack.cutoff.lateOpen;
-      let h = '<div class="glass rounded-2xl p-4"><div class="flex justify-between items-center mb-2"><h3 class="font-semibold text-sm">'+title+'</h3>'+
-        '<div class="flex gap-2"><button class="text-xs text-teal-400 print-check" data-meal="'+meal+'">Print / sheet</button>'+
-        (meal==='breakfast'||meal==='lunch'?'<button class="text-xs text-teal-300 dl-sheet" data-meal="'+meal+'">Download</button>':'')+'</div></div>'+
+      let h = '<div class="glass rounded-2xl p-4" data-kit-meal="'+meal+'"><div class="flex flex-wrap justify-between items-center gap-2 mb-2"><h3 class="font-semibold text-sm">'+title+'</h3>'+
+        '<div class="flex flex-wrap gap-2">'+
+        '<button type="button" class="text-xs px-2 py-1.5 rounded-lg border border-teal-500/40 text-teal-300 kit-pdf-view" data-meal="'+meal+'">View PDF</button>'+
+        '<button type="button" class="text-xs px-2 py-1.5 rounded-lg bg-teal-600/30 text-teal-200 font-medium kit-pdf-dl" data-meal="'+meal+'">Download PDF</button>'+
+        '<button type="button" class="text-xs px-2 py-1.5 rounded-lg text-slate-400 print-check" data-meal="'+meal+'">Print</button>'+
+        '<button type="button" class="text-xs px-2 py-1.5 rounded-lg text-slate-500 dl-sheet" data-meal="'+meal+'">CSV</button></div></div>'+
         '<p class="text-[10px] text-sand-200/50 mb-2">Service '+esc(date)+' · Fiji '+esc(d.fijiNow)+'</p>'+
         '<div class="rounded-xl border border-teal-600/40 bg-teal-600/10 p-4 mb-3 text-center">'+
         '<p class="text-[10px] uppercase tracking-wide text-slate-400">Total counted</p>'+
-        '<p class="text-3xl font-semibold text-teal-300">'+total+'</p>'+
+        '<p class="text-3xl font-semibold text-teal-300" data-kit-total="'+meal+'">'+total+'</p>'+
         '<p class="text-[10px] text-slate-400 mt-1">'+(open?'Open until 1pm Fiji':(lateOpen?'Late until 6pm Fiji':'Closed'))+' · headcount only</p></div>';
       const latePend = (pack.latePending || (pack.orders||[]).filter(o=>o.status==='late_pending') || []);
-      if (meal==='breakfast' && latePend.length) {
-        h += '<div class="mb-3 p-2 rounded-lg bg-orange-500/10 border border-orange-500/30">'+
-          '<div class="flex justify-between items-center mb-1"><p class="text-xs text-orange-300 font-medium"><i class="fa-solid fa-clock mr-1"></i>Late breakfast ('+latePend.length+')</p>'+
-          '<button id="btn-bf-approve-all" class="text-[10px] text-teal-300 font-medium">Approve all</button></div>';
-        latePend.forEach(o => {
-          h += '<div class="flex justify-between items-center gap-2 py-0.5"><p class="text-[10px] text-sand-200/70">'+esc(o.userName)+' · '+esc(o.department)+' '+statusBadge(o.status)+'</p>'+
-            '<span class="flex gap-2"><button class="text-[10px] text-teal-400 late-bf-approve" data-id="'+o.id+'">Approve</button>'+
-            '<button class="text-[10px] text-rose-300 late-bf-reject" data-id="'+o.id+'">Reject</button></span></div>';
-        });
-        h += '</div>';
+      if (meal==='breakfast') {
+        if (latePend.length) {
+          h += '<div class="mb-3 p-2 rounded-lg bg-orange-500/10 border border-orange-500/30">'+
+            '<div class="flex justify-between items-center mb-1 gap-2"><p class="text-xs text-orange-300 font-medium"><i class="fa-solid fa-clock mr-1"></i>Late breakfast ('+latePend.length+')</p>'+
+            '<button id="btn-bf-approve-all" class="text-xs px-3 py-2 min-h-[40px] rounded-lg bg-teal-600/25 text-teal-200 font-semibold">Approve all</button></div>';
+          latePend.forEach(o => {
+            h += '<div class="flex justify-between items-center gap-2 py-0.5"><p class="text-[10px] text-sand-200/70">'+esc(o.userName)+' · '+esc(o.department)+' '+statusBadge(o.status)+'</p>'+
+              '<span class="flex gap-2"><button class="text-[10px] text-teal-400 late-bf-approve px-2 py-1" data-id="'+o.id+'">Approve</button>'+
+              '<button class="text-[10px] text-rose-300 late-bf-reject px-2 py-1" data-id="'+o.id+'">Reject</button></span></div>';
+          });
+          h += '</div>';
+        } else {
+          h += '<p class="text-[10px] text-slate-500 mb-2">No late requests</p>';
+        }
       }
       h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Time</th><th>Status</th><th></th></tr></thead><tbody>';
       (pack.orders||[]).forEach(o => {
         h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(o.userName)+'</td><td>'+esc(o.department)+'</td><td class="text-[10px] text-slate-400">'+esc(String(o.createdAt||'').slice(0,16))+'</td><td>'+statusBadge(o.status)+'</td>'+
           '<td><button class="text-teal-400 mark-ord" data-id="'+o.id+'" data-meal="'+meal+'">'+(o.status==='prepared'||o.status==='served'?'✓':'Mark')+'</button></td></tr>';
       });
-      if (!(pack.orders||[]).length) h += '<tr><td colspan="5" class="py-2 text-slate-500">No headcount yet</td></tr>';
+      if (!(pack.orders||[]).length) h += '<tr><td colspan="5" class="py-3 text-slate-500 text-center">0 counted — no headcount yet</td></tr>';
       h += '</tbody></table></div></div>';
       return h;
     }
     function block(title, meal, pack, date) {
       pack = pack || {};
-      let h = '<div class="glass rounded-2xl p-4"><div class="flex justify-between items-center mb-2"><h3 class="font-semibold text-sm">'+title+'</h3>'+
-        '<button class="text-xs text-teal-400 print-check" data-meal="'+meal+'">Print checklist</button></div>'+
+      let h = '<div class="glass rounded-2xl p-4" data-kit-meal="'+meal+'"><div class="flex flex-wrap justify-between items-center gap-2 mb-2"><h3 class="font-semibold text-sm">'+title+'</h3>'+
+        '<div class="flex flex-wrap gap-2">'+
+        (meal==='dinner'?'<button type="button" class="text-xs px-2 py-1.5 rounded-lg border border-teal-500/40 text-teal-300 kit-pdf-view" data-meal="dinner">View PDF</button>'+
+        '<button type="button" class="text-xs px-2 py-1.5 rounded-lg bg-teal-600/30 text-teal-200 font-medium kit-pdf-dl" data-meal="dinner">Download PDF</button>':'')+
+        '<button type="button" class="text-xs px-2 py-1.5 rounded-lg text-slate-400 print-check" data-meal="'+meal+'">Print checklist</button></div></div>'+
         '<p class="text-[10px] text-sand-200/50 mb-2">Service '+esc(date)+' · Fiji '+esc(d.fijiNow)+'</p><div class="flex flex-wrap gap-2 mb-3">';
       const tally = pack.tally || {};
       const keys = Object.keys(tally);
-      if (!keys.length) h += '<span class="text-xs text-sand-200/40">No orders</span>';
+      if (!keys.length) h += '<span class="text-xs text-sand-200/40">0 counted — no orders</span>';
       keys.forEach(k => { h += '<span class="badge bg-teal-600/30 text-teal-200">'+esc(k)+': '+tally[k]+'</span>'; });
       h += '</div>';
       if (meal==='dinner') {
@@ -3307,11 +3385,13 @@ async function renderKitchen(){
         late.forEach(o => {
           h += '<div class="flex justify-between items-center gap-2 py-0.5"><p class="text-[10px] text-sand-200/70">'+esc(o.userName)+' — '+esc(o.mealChoice)+' '+statusBadge(o.status)+'</p>';
           if (canKitchen() && o.status==='late_pending') {
-            h += '<button class="text-[10px] text-teal-400 late-approve" data-id="'+o.id+'">Approve</button>';
+            h += '<button class="text-xs px-2 py-1.5 text-teal-400 late-approve" data-id="'+o.id+'">Approve</button>';
           }
           h += '</div>';
         });
         h += '</div>';
+      } else if (meal==='dinner') {
+        h += '<p class="text-[10px] text-slate-500 mb-2">No late requests</p>';
       }
       h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Meal</th><th>Status</th><th></th></tr></thead><tbody>';
       (pack.orders||[]).forEach(o => {
@@ -3323,7 +3403,7 @@ async function renderKitchen(){
         const dinnerTotal = pack.total!=null ? pack.total : (pack.orders||[]).length;
         h += '<div class="mt-3 rounded-xl border border-teal-600/40 bg-teal-600/10 p-3 text-center">'+
           '<p class="text-[10px] uppercase tracking-wide text-slate-400">Dinner total</p>'+
-          '<p class="text-2xl font-semibold text-teal-300">'+dinnerTotal+'</p></div>';
+          '<p class="text-2xl font-semibold text-teal-300" data-kit-total="dinner">'+dinnerTotal+'</p></div>';
       }
       h += '</div>';
       return h;
@@ -3380,27 +3460,72 @@ async function renderKitchen(){
       const res = await api('approveAllLateBreakfast',{});
       if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['kitchenDashboard']); toast('Approved '+(res.data&&res.data.approved||0),'ok'); renderKitchen(); }
     };
+    async function fetchChefSheetData(meal){
+      if (meal === 'breakfast' || meal === 'lunch') {
+        const rr = await api(meal==='breakfast'?'getBreakfastOrderSheet':'getLunchOrderSheet',{});
+        if (!rr || !rr.success) throw new Error((rr && rr.error) || 'Order sheet failed');
+        return rr.data || {};
+      }
+      // dinner checklist from prep list (+ late from dashboard pack)
+      const pl = await api('getDinnerPrepList');
+      if (!pl || !pl.success) throw new Error((pl && pl.error) || 'Dinner prep failed');
+      const data = pl.data || {};
+      data.late = (dinnerPack && dinnerPack.late) || [];
+      data.orders = (dinnerPack && dinnerPack.orders) || [];
+      data.total = dinnerPack && dinnerPack.total;
+      return data;
+    }
+    function chefSheetHtmlFor(meal, data){
+      if (meal === 'breakfast') return buildHeadcountOrderSheetHtml('Breakfast', data);
+      if (meal === 'lunch') return buildHeadcountOrderSheetHtml('Lunch', data);
+      return buildDinnerOrderSheetHtml(data);
+    }
+    function chefSheetFilename(meal, data){
+      const sd = (data && data.serviceDate) || 'list';
+      if (meal === 'breakfast') return 'breakfast-order-'+sd+'.pdf';
+      if (meal === 'lunch') return 'lunch-order-'+sd+'.pdf';
+      return 'dinner-order-'+sd+'.pdf';
+    }
+    async function runChefPdf(meal, mode){
+      try {
+        toast('Building PDF…');
+        const data = await fetchChefSheetData(meal);
+        const html = chefSheetHtmlFor(meal, data);
+        const fn = chefSheetFilename(meal, data);
+        if (mode === 'view') await viewChefPdf(html, fn);
+        else await downloadChefPdf(html, fn);
+      } catch (e) {
+        console.error('[PCR] chef PDF', meal, e);
+        toast((e && e.message) || 'PDF failed','error');
+      }
+    }
+    $$('.kit-pdf-view').forEach(b => b.onclick = () => runChefPdf(b.dataset.meal, 'view'));
+    $$('.kit-pdf-dl').forEach(b => b.onclick = () => runChefPdf(b.dataset.meal, 'download'));
     $$('.dl-sheet').forEach(b=>b.onclick=async()=>{
       const meal = b.dataset.meal;
-      const rr = await api(meal==='breakfast'?'getBreakfastOrderSheet':'getLunchOrderSheet',{});
-      if (!rr.success) { toast(rr.error,'error'); return; }
-      const data = rr.data || {};
-      const rows = (data.orders||[]).map(o=>[o.userName,o.department,o.timeOrdered,o.status].map(csvEscape).join(',')).join('\n');
-      downloadText('pcr-'+meal+'-'+ (data.serviceDate||'') +'.csv', 'name,department,timeOrdered,status\n'+rows);
-      toast('Downloaded','ok');
+      try {
+        const data = await fetchChefSheetData(meal);
+        const rows = (data.orders||[]).map(o=>[o.userName,o.department,o.timeOrdered||o.createdAt,o.status].map(csvEscape).join(',')).join('\n');
+        downloadText('pcr-'+meal+'-'+ (data.serviceDate||'') +'.csv', 'name,department,timeOrdered,status\n'+rows);
+        toast('CSV downloaded','ok');
+      } catch (e) { toast((e && e.message) || 'CSV failed','error'); }
     });
-    $$('.print-check').forEach(b=>b.onclick=()=>{
+    $$('.print-check').forEach(b=>b.onclick=async()=>{
       const meal = b.dataset.meal;
-      const pack = meal==='dinner'?dinnerPack:(meal==='breakfast'?breakfastPack:lunchPack) || {};
-      const date = meal==='dinner'?d.dinnerDate:(meal==='breakfast'?d.breakfastDate:d.lunchDate);
-      const pa = $('#print-area');
-      if (!pa) { toast('Print area missing','error'); return; }
-      pa.classList.remove('hidden');
-      let items = '';
-      (pack.orders||[]).forEach(o => { items += '<li>☐ '+esc(o.userName)+' ('+esc(o.department)+') — '+(esc(o.mealChoice)||meal)+(o.late?' [LATE]':'')+' '+esc(o.status)+'</li>'; });
-      pa.innerHTML = '<h1>PCR Kitchen Checklist — '+esc(meal)+' '+esc(date)+'</h1><p>Total: '+(pack.total!=null?pack.total:(pack.orders||[]).length)+'</p><p>Printed '+formatFiji()+'</p><ul>'+items+'</ul>';
-      window.print();
-      pa.classList.add('hidden');
+      try {
+        const data = await fetchChefSheetData(meal);
+        const html = chefSheetHtmlFor(meal, data);
+        const w = window.open('', '_blank');
+        if (w) { w.document.write('<!doctype html><html><head><title>'+esc(meal)+' order list</title></head><body>'+html+'</body></html>'); w.document.close(); w.focus(); setTimeout(()=>w.print(), 350); }
+        else {
+          const pa = $('#print-area');
+          if (!pa) { toast('Print area missing','error'); return; }
+          pa.classList.remove('hidden');
+          pa.innerHTML = html;
+          window.print();
+          pa.classList.add('hidden');
+        }
+      } catch (e) { toast((e && e.message) || 'Print failed','error'); }
     });
     async function loadPrep(force){
       const pr = force ? await api('processDinnerWorkflow') : null;
@@ -3423,7 +3548,7 @@ async function renderKitchen(){
         ).join('');
         return '<h3 style="margin-top:18px">'+esc(k)+' ('+(byItem[k]||[]).length+')</h3><table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="4"><thead><tr><th>Served</th><th>Staff name</th><th>Food</th><th>Time ordered</th><th>Comments</th><th>Approved/Denied</th></tr></thead><tbody>'+rows+'</tbody></table>';
       }).join('');
-      const logo = new URL('assets/golden-logo.jpg', location.href).href;
+      const logo = goldenLogoAbsUrl();
       return '<div style="font-family:system-ui,sans-serif;color:#111;background:#fff;max-width:800px;margin:0 auto;padding:16px">'+
         '<div style="text-align:center"><img src="'+logo+'" alt="PCR" style="height:72px;object-fit:contain"/><h1 style="margin:8px 0 4px;font-size:20px">Dinner Prep List — '+esc(data.serviceDate)+' FJT</h1>'+
         (data.autoGeneratedAt830?'<p style="color:#0d9488;font-size:12px">Auto-generated at 8:30pm</p>':'')+
@@ -3634,6 +3759,192 @@ function downloadBlob(name, blob){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href), 60000);
 }
+/* ========== Chef printable sheets (C68) ========== */
+const PCR_GOLDEN_LOGO_ABS = 'https://k1rtaaan.github.io/PC-Staff-App-V2/assets/golden-logo.jpg';
+function goldenLogoAbsUrl(){
+  try {
+    if (typeof location !== 'undefined' && location.href && !/^blob:/.test(location.href) && location.protocol !== 'about:') {
+      return new URL('assets/golden-logo.jpg', location.href).href;
+    }
+  } catch (_){}
+  return PCR_GOLDEN_LOGO_ABS;
+}
+function sheetTimeSort(a, b){
+  const ta = String((a && (a.timeOrdered || a.createdAt || a.orderedAt)) || '');
+  const tb = String((b && (b.timeOrdered || b.createdAt || b.orderedAt)) || '');
+  return ta < tb ? -1 : ta > tb ? 1 : 0;
+}
+function isCountedMealStatus(st){
+  st = String(st || '');
+  return st && st !== 'cancelled' && st !== 'rejected' && st !== 'declined' && st !== 'late_pending';
+}
+function isLateWaitingStatus(st){
+  st = String(st || '');
+  return st === 'late_pending' || (st === 'late' && st !== 'late_approved');
+}
+function chefSheetShell(title, serviceDate, totalLabel, totalValue, bodyHtml){
+  const logo = goldenLogoAbsUrl();
+  const printed = formatFiji();
+  return '<div class="chef-sheet" style="font-family:system-ui,-apple-system,sans-serif;color:#111;background:#fff;max-width:800px;margin:0 auto;padding:18px 20px">'+
+    '<div style="text-align:center;border-bottom:2px solid #0d9488;padding-bottom:10px;margin-bottom:14px">'+
+    '<img src="'+logo+'" alt="Paradise Cove Resort" style="height:70px;object-fit:contain;display:block;margin:0 auto 6px"/>'+
+    '<h1 style="margin:4px 0 2px;font-size:20px;letter-spacing:0.02em">'+esc(title)+'</h1>'+
+    '<p style="margin:2px 0;font-size:13px"><strong>Service date:</strong> '+esc(serviceDate)+' (Fiji)</p>'+
+    '<p style="margin:2px 0;font-size:12px;color:#444"><strong>Printed:</strong> '+esc(printed)+'</p>'+
+    '<p style="margin:8px 0 0;font-size:15px">'+esc(totalLabel)+': <strong style="font-size:18px">'+esc(String(totalValue))+'</strong></p>'+
+    '</div>'+bodyHtml+
+    '<div style="margin-top:28px;padding-top:14px;border-top:1px solid #ccc;font-size:13px;line-height:1.8">'+
+    '<div><strong>Chef in charge name:</strong> ________________________________</div>'+
+    '<div style="margin-top:10px"><strong>Signature:</strong> ________________________________ &nbsp;&nbsp; <strong>Date:</strong> ______________</div>'+
+    '</div></div>';
+}
+function buildHeadcountOrderSheetHtml(mealLabel, data){
+  data = data || {};
+  const orders = (data.orders || []).slice();
+  const main = orders.filter(o => isCountedMealStatus(o.status)).sort(sheetTimeSort);
+  const waiting = orders.filter(o => String(o.status)==='late_pending' || (o.late && String(o.status)==='late_pending')).sort(sheetTimeSort);
+  // also catch late_pending explicitly
+  const waitExtra = orders.filter(o => String(o.status)==='late_pending');
+  const waitMap = {};
+  waiting.concat(waitExtra).forEach(o => { waitMap[o.userName+'|'+(o.timeOrdered||o.createdAt||'')] = o; });
+  const waitList = Object.keys(waitMap).map(k => waitMap[k]).sort(sheetTimeSort);
+  const total = data.totalCounted != null ? data.totalCounted : main.length;
+  let rows = main.map(o =>
+    '<tr><td style="width:56px;text-align:center">☐</td><td>'+esc(o.userName||'')+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(String(o.timeOrdered||o.createdAt||''))+'</td></tr>'
+  ).join('');
+  if (!main.length) rows = '<tr><td colspan="4" style="padding:10px;color:#666">No counted orders yet (0 counted)</td></tr>';
+  let body = '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
+    '<thead><tr style="background:#f0fdfa"><th style="width:56px">Served</th><th>Name</th><th>Department</th><th>Time ordered</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  if (waitList.length) {
+    body += '<h2 style="margin:22px 0 8px;font-size:14px;color:#c2410c">Waiting list (late)</h2>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
+      '<thead><tr style="background:#fff7ed"><th style="width:56px">Served</th><th>Name</th><th>Department</th><th>Time ordered</th></tr></thead><tbody>'+
+      waitList.map(o =>
+        '<tr><td style="text-align:center">☐</td><td>'+esc(o.userName||'')+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(String(o.timeOrdered||o.createdAt||''))+' <em style="color:#c2410c">(late pending)</em></td></tr>'
+      ).join('')+'</tbody></table>';
+  } else if (String(mealLabel).toLowerCase().indexOf('breakfast')>=0) {
+    body += '<p style="margin-top:16px;font-size:11px;color:#666">No late requests</p>';
+  }
+  return chefSheetShell(mealLabel+' Order List', data.serviceDate||'', 'Total counted', total, body);
+}
+function buildDinnerOrderSheetHtml(data){
+  data = data || {};
+  const prep = data.prep || {};
+  const byItem = prep.byItem || {};
+  const ordersFlat = [];
+  Object.keys(byItem).forEach(k => (byItem[k]||[]).forEach(o => ordersFlat.push(Object.assign({mealChoice:k}, o))));
+  // Prefer prep byItem; fall back to dashboard-style orders
+  let itemKeys = Object.keys(byItem).sort();
+  if (!itemKeys.length && (data.orders||[]).length) {
+    const grouped = {};
+    (data.orders||[]).forEach(o => {
+      const k = o.mealChoice || o.foodSelection || 'Standard';
+      (grouped[k]=grouped[k]||[]).push(o);
+    });
+    itemKeys = Object.keys(grouped).sort();
+    itemKeys.forEach(k => { byItem[k] = grouped[k]; });
+  }
+  const mainKeys = itemKeys.filter(k => true);
+  let mainTotal = 0;
+  let sections = '';
+  const lateWait = [];
+  mainKeys.forEach(k => {
+    const all = (byItem[k]||[]).slice();
+    const main = all.filter(o => {
+      const st = String(o.status||'');
+      if (st==='late_pending') { lateWait.push(Object.assign({mealChoice:k}, o)); return false; }
+      if (st==='cancelled' || st==='rejected' || st==='declined') return false;
+      return true;
+    }).sort(sheetTimeSort);
+    mainTotal += main.length;
+    let rows = main.map(o => {
+      const lateNote = (o.late || String(o.status||'').indexOf('late')===0) ? ' <em style="color:#c2410c">(late)</em>' : '';
+      const stNote = (String(o.status)==='late_approved') ? ' <em style="color:#0d9488">(late approved)</em>' : lateNote;
+      return '<tr><td style="width:40px;text-align:center">☐</td><td>'+esc(o.userName||'')+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(String(o.timeOrdered||o.orderedAt||o.createdAt||''))+stNote+'</td></tr>';
+    }).join('');
+    if (!main.length) rows = '<tr><td colspan="4" style="color:#666;padding:8px">No orders for this item</td></tr>';
+    sections += '<h2 style="margin:18px 0 6px;font-size:14px;color:#0f766e">'+esc(k)+'</h2>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
+      '<thead><tr style="background:#f0fdfa"><th style="width:40px"></th><th>Name</th><th>Department</th><th>Time ordered</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+      '<p style="margin:4px 0 0;font-size:12px"><strong>Total '+esc(k)+':</strong> '+main.length+'</p>';
+  });
+  if (!mainKeys.length) {
+    sections = '<p style="color:#666">No dinner orders yet (0 counted)</p>';
+  }
+  // Also collect late from data.late / prep pending
+  (data.late || prep.late || []).forEach(o => {
+    if (String(o.status)==='late_pending' || !o.status) lateWait.push(o);
+  });
+  const seen = {};
+  const lateList = lateWait.filter(o => {
+    const key = (o.id||'')+'|'+(o.userName||'')+'|'+(o.timeOrdered||o.orderedAt||o.createdAt||'');
+    if (seen[key]) return false; seen[key]=1; return String(o.status||'late_pending')==='late_pending' || o.late;
+  }).filter(o => String(o.status||'late_pending')==='late_pending').sort(sheetTimeSort);
+  const subtotal = prep.totalOrders != null ? prep.totalOrders : (data.total != null ? data.total : mainTotal);
+  let body = sections +
+    '<div style="margin-top:20px;padding:12px;background:#f0fdfa;border:1px solid #99f6e4;text-align:center">'+
+    '<p style="margin:0;font-size:14px"><strong>Subtotal: total dinner orders for that day</strong></p>'+
+    '<p style="margin:6px 0 0;font-size:22px;font-weight:700;color:#0f766e">'+esc(String(subtotal))+'</p></div>';
+  if (lateList.length) {
+    body += '<h2 style="margin:22px 0 8px;font-size:14px;color:#c2410c">Waiting list for late orders</h2>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
+      '<thead><tr style="background:#fff7ed"><th style="width:40px"></th><th>Name</th><th>Department</th><th>Item</th><th>Time ordered</th></tr></thead><tbody>'+
+      lateList.map(o =>
+        '<tr><td style="text-align:center">☐</td><td>'+esc(o.userName||'')+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(o.mealChoice||o.foodSelection||'')+'</td><td>'+esc(String(o.timeOrdered||o.orderedAt||o.createdAt||''))+' <em>(late pending)</em></td></tr>'
+      ).join('')+'</tbody></table>';
+  } else {
+    body += '<p style="margin-top:16px;font-size:11px;color:#666">No late requests</p>';
+  }
+  return chefSheetShell('Dinner Order List', data.serviceDate||'', 'Dinner day subtotal', subtotal, body);
+}
+async function generateHtmlPdfBlob(html, filename){
+  await ensureHtml2Pdf();
+  const wrap = document.createElement('div');
+  wrap.setAttribute('aria-hidden','true');
+  wrap.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;color:#111;z-index:-1;pointer-events:none;';
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap);
+  try {
+    const el = wrap.firstElementChild || wrap;
+    const opt = {
+      margin: [10, 10, 10, 10],
+      filename: filename || 'pcr-sheet.pdf',
+      image: { type: 'jpeg', quality: 0.92 },
+      html2canvas: { scale: 2, useCORS: true, allowTaint: true, backgroundColor: '#ffffff', logging: false },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'] }
+    };
+    return await html2pdf().set(opt).from(el).outputPdf('blob');
+  } finally {
+    if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+  }
+}
+async function downloadChefPdf(html, filename){
+  toast('Building PDF…');
+  try {
+    const blob = await generateHtmlPdfBlob(html, filename);
+    downloadBlob(filename, blob);
+    toast('Downloaded PDF','ok');
+  } catch (e) {
+    console.error('[PCR] PDF download failed', e);
+    toast((e && e.message) || 'PDF download failed','error');
+  }
+}
+async function viewChefPdf(html, filename){
+  toast('Building PDF…');
+  try {
+    const blob = await generateHtmlPdfBlob(html, filename || 'sheet.pdf');
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, '_blank');
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 120000);
+    if (!w) toast('Allow popups to view the full PDF','error');
+    else toast('PDF opened','ok');
+  } catch (e) {
+    console.error('[PCR] PDF view failed', e);
+    toast((e && e.message) || 'PDF view failed','error');
+  }
+}
+
 let _html2pdfReady = null;
 function ensureHtml2Pdf(){
   if (typeof html2pdf === 'function') return Promise.resolve();
@@ -4295,7 +4606,30 @@ function showBackendBanner(msg){
   el.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> ' + msg;
   el.classList.remove('hidden');
 }
+function installClientErrorLogging(){
+  if (window.__pcrErrLog) return;
+  window.__pcrErrLog = true;
+  window.addEventListener('error', function(ev){
+    try {
+      console.error('[PCR] unexpected error', ev && ev.message, ev && ev.error);
+      if (typeof toast === 'function' && ev && ev.message && !/ResizeObserver|Script error/i.test(ev.message)) {
+        toast('Something went wrong — check console','error');
+      }
+    } catch(_){}
+  });
+  window.addEventListener('unhandledrejection', function(ev){
+    try {
+      const reason = ev && ev.reason;
+      console.error('[PCR] unhandled rejection', reason);
+      const msg = (reason && (reason.message || String(reason))) || 'Unexpected error';
+      if (typeof toast === 'function' && !/Failed to fetch|NetworkError|AbortError/i.test(msg)) {
+        toast('Request error — check console','error');
+      }
+    } catch(_){}
+  });
+}
 function boot(){
+  installClientErrorLogging();
   $('#ui-version').textContent = APP_VERSION;
   state.demo = isDemoMode();
   if (state.demo) {

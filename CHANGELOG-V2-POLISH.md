@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.8.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.8.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -199,6 +199,13 @@ Version **2.8.1**. Revert any item later by asking for its ID (e.g. “revert C7
 | ID | Change |
 |----|--------|
 | C67 | **Dinner menu = tomorrow only**: `getDinnerMenus` defaults `includePreviousDay` to **false**; staff dinner picker lists tomorrow’s service weekday items only (no previous-day optgroups/copy). Admin menu CRUD still uses `includeInactive:true` for all weekdays. **Kitchen Admin crash fix**: guard missing `r`/`r.data` with error card; default `dinner`/`lunch`/`breakfast`/`stats` to `{}`; fingerprint + render lock stop bg-refresh spam; ensure `#kit-root` before `innerHTML`; try/catch surfaces `e.message`; print/dl guards if pack undefined. Late dinner approve: **no `askPasscode`** — role-gated `approveLateDinnerOrder` (chef/admin/super via requesterEmail, like breakfast late). Superadmin home stats / Admin kitchen tab hardened on API fail. **`feature_my_schedule`** App Setting (default **OFF**): Settings/Features toggle; when OFF hide My Schedule from home/More/nav paths; `getMySchedule` / roster upload / listRosterUploads return featureOff; leave request modal stays. Live flag seeded/set **false** so testing focuses on meals + boat. `APP_VERSION` → **2.8.1**; SW `pcr-staff-v2.8.1`. SCRIPT_URL unchanged. |
+
+## Chef printable sheets + polish (2.8.2)
+
+| ID | Change |
+|----|--------|
+| C68 | **Chef printable PDFs**: Breakfast / Lunch / Dinner order sheets with Paradise Cove golden logo (absolute URL), title, Fiji service date + printed time, totals, Chef in charge name + signature. B/L cross-off columns (Served / Name / Dept / Time ordered) sorted by time ascending; late breakfast in Waiting list (late). Dinner grouped by menu item with per-item totals, day subtotal, and late waiting list. Kitchen Admin **View PDF** / **Download PDF** for B, L, Dinner (+ Print/CSV). Reuses html2pdf helpers. Sample PNGs: `/workspace/sample-*-sheet.png`. Polish: meals/boat smoke-ready demo seed; kitchen empty states (“0 counted”, “no late requests”); soft-poll kitchen totals; “Still loading…” messaging; larger Count me in / Approve all taps; client error → console + toast; meal/kitchen paths stay role-gated (no passcode prompts). Keep dinner tomorrow-only, `feature_my_schedule` OFF, SCRIPT_URL unchanged. `APP_VERSION` → **2.8.2**; SW `pcr-staff-v2.8.2`. |
+
 
 
 
