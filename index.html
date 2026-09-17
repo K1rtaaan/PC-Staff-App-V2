@@ -203,7 +203,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.8.0';
+const APP_VERSION = '2.8.1';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -402,7 +402,7 @@ let state = {
   user: null, tab: 'home', mealPill: 'breakfast', demo: false, backendVersion: null,
   usersCache: [], usersError: null, usersLoading: false,
   adminUnlock: null, // 'admin' | 'super' after passcode
-  featureFlags: { feature_live_roster:false, feature_leave_escalation:false },
+  featureFlags: { feature_live_roster:false, feature_leave_escalation:false, feature_my_schedule:false },
   superadminPinUnlocked: false
 };
 
@@ -582,7 +582,7 @@ function defaultDemoDb() {
     ],
     suggestions: [{ id:'sug1', userEmail:'ana.tui@paradisecoveresortfiji.com', userName:'Ana Tui', title:'More shade at jetty', body:'Umbrellas for afternoon boats', votes:3, likes:3, dislikes:0, voters:'a:like,b:like,c:like', createdAt:formatFiji(), status:'approved' }],
     leaveRequests: [],
-    appSettings: { feature_live_roster:'false', feature_leave_escalation:'false', superadmin_pin:'' },
+    appSettings: { feature_live_roster:'false', feature_leave_escalation:'false', feature_my_schedule:'false', superadmin_pin:'' },
     alertEmails: [
       'leanne@paradisecoveresortfiji.com','agm@paradisecoveresortfiji.com','cesare@paradisecoveresortfiji.com',
       'wood.nicolas@gmail.com','pranav619kumar@gmail.com'
@@ -1128,6 +1128,8 @@ function demoApi(action, p) {
     case 'getDinnerMenus': {
       ensureDemoMenus(db);
       const all = (db.dinnerMenus||[]).filter(m => p.includeInactive ? true : m.active!==false);
+      // C67: default includePreviousDay false — tomorrow/service weekday only
+      const includePrev = p.includePreviousDay === true || p.includePreviousDay === 'true';
       let serviceWd = null, prevWd = null;
       let serviceItems = [], previousItems = [];
       if (p.serviceDate) {
@@ -1139,10 +1141,12 @@ function demoApi(action, p) {
           const k=String(it.itemName||'').toLowerCase(); if (seen[k]) return; seen[k]=true;
           serviceItems.push(Object.assign({}, it, { menuGroup:'service' }));
         });
-        all.filter(m=>Number(m.weekday)===prevWd).sort((a,b)=>Number(a.sortOrder)-Number(b.sortOrder)).forEach(it=>{
-          const k=String(it.itemName||'').toLowerCase(); if (seen[k]) return; seen[k]=true;
-          previousItems.push(Object.assign({}, it, { menuGroup:'previous' }));
-        });
+        if (includePrev) {
+          all.filter(m=>Number(m.weekday)===prevWd).sort((a,b)=>Number(a.sortOrder)-Number(b.sortOrder)).forEach(it=>{
+            const k=String(it.itemName||'').toLowerCase(); if (seen[k]) return; seen[k]=true;
+            previousItems.push(Object.assign({}, it, { menuGroup:'previous' }));
+          });
+        }
       } else if (p.weekday!==undefined && p.weekday!=='') {
         serviceWd = Number(p.weekday);
         serviceItems = all.filter(m=>Number(m.weekday)===serviceWd).map(it=>Object.assign({},it,{menuGroup:'service'}));
@@ -1175,7 +1179,8 @@ function demoApi(action, p) {
       db.dinnerMenus = (db.dinnerMenus||[]).filter(x=>x.id!==p.id); saveDemo(db); return Promise.resolve(ok({}));
     }
     case 'approveLateDinnerOrder': {
-      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      // C67: role-gated (chef/admin/super) — no passcode unlock
+      if (!(canAdmin() || canKitchen() || hasPerm('super_admin'))) return Promise.resolve(fail('Chef / admin / superadmin required'));
       const o = db.dinnerOrders.find(x=>x.id===p.id);
       if (!o) return Promise.resolve(fail('Order not found'));
       o.status = p.status==='rejected' ? 'rejected' : 'late_approved';
@@ -1349,6 +1354,7 @@ function demoApi(action, p) {
       saveDemo(db); return Promise.resolve(ok({ request:r, escalation:escOn }));
     }
     case 'uploadRosterParsed': {
+      if (String((db.appSettings||{}).feature_my_schedule)!=='true') return Promise.resolve(fail('Feature disabled. Ask a superadmin to enable feature_my_schedule in Admin → Settings / Features.'));
       if (!db.rosterUploads) db.rosterUploads = [];
       if (!db.rosterShifts) db.rosterShifts = [];
       if (!db.notifications) db.notifications = [];
@@ -1481,6 +1487,7 @@ function demoApi(action, p) {
       found.read=true; saveDemo(db); return Promise.resolve(ok({ notification:found }));
     }
     case 'listRosterUploads': {
+      if (String((db.appSettings||{}).feature_my_schedule)!=='true') return Promise.resolve({ success:false, error:'Feature disabled. Ask a superadmin to enable feature_my_schedule in Admin → Settings / Features.', featureOff:true });
       if (!canHod()) return Promise.resolve(fail('HOD/admin required'));
       if (!db.rosterUploads) db.rosterUploads=[];
       const normDept = s => String(s||'').toLowerCase().trim();
@@ -1489,8 +1496,9 @@ function demoApi(action, p) {
       return Promise.resolve(ok({ uploads:rows.slice(0,40), fijiNow:formatFiji() }));
     }
     case 'getMySchedule': {
-      const u = db.users.find(x=>x.email===state.user.email);
       const flags = db.appSettings || {};
+      if (String(flags.feature_my_schedule)!=='true') return Promise.resolve({ success:false, error:'Feature disabled. Ask a superadmin to enable feature_my_schedule in Admin → Settings / Features.', featureOff:true });
+      const u = db.users.find(x=>x.email===state.user.email);
       if (!db.rosterShifts) db.rosterShifts=[];
       if (!db.notifications) db.notifications=[];
       const mine = db.rosterShifts.filter(s=>String(s.userEmail).toLowerCase()===state.user.email);
@@ -1502,18 +1510,20 @@ function demoApi(action, p) {
         leave: db.leaveRequests.filter(r=>r.userEmail===state.user.email),
         featureLiveRoster: String(flags.feature_live_roster)==='true',
         featureLeaveEscalation: String(flags.feature_leave_escalation)==='true',
+        featureMySchedule: String(flags.feature_my_schedule)==='true',
         liveRoster: null,
         weeklyShifts, monthlyShifts, unreadNotifications,
         fijiNow:formatFiji()
       }));
     }
     case 'getAppSettings': {
-      const s = db.appSettings || { feature_live_roster:'false', feature_leave_escalation:'false' };
+      const s = db.appSettings || { feature_live_roster:'false', feature_leave_escalation:'false', feature_my_schedule:'false' };
       return Promise.resolve(ok({
         settings: Object.assign({}, s, { superadmin_pin_set: !!(s.superadmin_pin) }),
         features: {
           feature_live_roster: String(s.feature_live_roster)==='true',
-          feature_leave_escalation: String(s.feature_leave_escalation)==='true'
+          feature_leave_escalation: String(s.feature_leave_escalation)==='true',
+          feature_my_schedule: String(s.feature_my_schedule)==='true'
         }
       }));
     }
@@ -1526,7 +1536,8 @@ function demoApi(action, p) {
       db.appSettings[key] = String(val);
       state.featureFlags = {
         feature_live_roster: String(db.appSettings.feature_live_roster)==='true',
-        feature_leave_escalation: String(db.appSettings.feature_leave_escalation)==='true'
+        feature_leave_escalation: String(db.appSettings.feature_leave_escalation)==='true',
+        feature_my_schedule: String(db.appSettings.feature_my_schedule)==='true'
       };
       saveDemo(db);
       return demoApi('getAppSettings', p);
@@ -1658,7 +1669,8 @@ async function refreshFeatureFlags(){
       const f = r.data.features || {};
       state.featureFlags = {
         feature_live_roster: !!f.feature_live_roster,
-        feature_leave_escalation: !!f.feature_leave_escalation
+        feature_leave_escalation: !!f.feature_leave_escalation,
+        feature_my_schedule: !!f.feature_my_schedule
       };
       state.appSettings = r.data.settings || {};
     }
@@ -1758,19 +1770,23 @@ function openSuggestModal(onDone){
   };
 }
 function openLeaveRequestModal(){
+  const schLink = featureOn('feature_my_schedule')
+    ? '<button type="button" id="lv-modal-sch" class="w-full text-xs text-teal-400 py-1">Open My Schedule →</button>'
+    : '';
   openModal('<h3 class="font-semibold mb-3"><i class="fa-solid fa-plane-departure text-teal-400 mr-2"></i>Request leave</h3>'+
     '<div class="space-y-2">'+
     '<input id="lv-start" type="date" class="w-full rounded-xl px-3 py-2 text-sm"/>'+
     '<input id="lv-end" type="date" class="w-full rounded-xl px-3 py-2 text-sm"/>'+
     '<input id="lv-reason" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Reason"/>'+
     '<button id="lv-modal-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Submit request</button>'+
-    '<button type="button" id="lv-modal-sch" class="w-full text-xs text-teal-400 py-1">Open My Schedule →</button></div>');
+    schLink+'</div>');
   $('#lv-modal-save').onclick = async () => {
     const res = await api('requestLeave',{ startDate:$('#lv-start').value, endDate:$('#lv-end').value, reason:$('#lv-reason').value });
     if (!res.success) toast(res.error,'error');
     else { closeModal(); toast('Leave submitted','ok'); }
   };
-  $('#lv-modal-sch').onclick = () => { closeModal(); navigate('schedule'); };
+  const schBtn = $('#lv-modal-sch');
+  if (schBtn) schBtn.onclick = () => { closeModal(); navigate('schedule'); };
 }
 
 function navItems(){
@@ -1797,6 +1813,10 @@ function navigate(tab){
   if (!canPrivilegedTab(tab)) {
     toast('Basic staff access only — that area is restricted','error');
     tab = 'home';
+  }
+  if (tab === 'schedule' && !featureOn('feature_my_schedule')) {
+    toast('My Schedule is off — focus is meals & boat for now. Superadmin can enable it in Settings / Features.','error');
+    tab = 'more';
   }
   if (tab === 'breakfast' || tab === 'lunch' || tab === 'dinner') {
     state.mealPill = tab;
@@ -1832,7 +1852,7 @@ function renderHome(){
       quickBtn('bookings','fa-ticket','My Bookings','from-indigo-500/20 to-blue-600/5')+
       '<button type="button" id="home-btn-leave" class="quick-tile ui-card glass rounded-xl p-3 text-left border border-slate-700/80 bg-gradient-to-br from-amber-500/20 to-orange-600/5">'+
         '<i class="fa-solid fa-plane-departure text-teal-400 mb-1.5 text-base"></i><p class="text-xs font-medium text-slate-100">Request leave</p></button>'+
-      quickBtn('schedule','fa-calendar-check','My Schedule','from-violet-500/20 to-purple-600/5');
+      (featureOn('feature_my_schedule') ? quickBtn('schedule','fa-calendar-check','My Schedule','from-violet-500/20 to-purple-600/5') : '');
   if (canKitchen()) tiles += quickBtn('kitchen','fa-fire-burner','Kitchen','from-red-500/20 to-orange-700/5');
   if (canFullAdmin() || canHod()) tiles += quickBtn('users','fa-users','Directory','from-teal-500/20 to-emerald-600/5');
   if (canAdmin()) tiles += quickBtn('admin','fa-gear','Admin','from-slate-500/20 to-slate-700/5');
@@ -1898,7 +1918,7 @@ async function loadSuperadminHomeStats(){
   host.innerHTML = '<div class="col-span-3 glass rounded-xl p-3 text-xs text-slate-400">Loading weekly / monthly meal stats…</div>';
   try {
     const r = await api('getMealStatistics');
-    if (!r.success) { host.innerHTML = '<div class="col-span-3 text-xs text-rose-300">Stats unavailable</div>'; return; }
+    if (!r || !r.success || !r.data) { host.innerHTML = '<div class="col-span-3 text-xs text-rose-300">Stats unavailable'+(r&&r.error?': '+esc(r.error):'')+'</div>'; return; }
     const w = (r.data.weekly && r.data.weekly.totals) || {};
     const m = (r.data.monthly && r.data.monthly.totals) || {};
     host.innerHTML =
@@ -2018,21 +2038,14 @@ async function renderDinner(){
   function paintDinner(myDinner, menuPack){
     myDinner = myDinner || [];
     menuPack = menuPack || {};
-    const menuItems = Array.isArray(menuPack) ? menuPack : (menuPack.items || []);
-    const serviceItems = (!Array.isArray(menuPack) && menuPack.serviceItems) ? menuPack.serviceItems : menuItems.filter(it => (it.menuGroup||'service')==='service');
-    const previousItems = (!Array.isArray(menuPack) && menuPack.previousItems) ? menuPack.previousItems : menuItems.filter(it => it.menuGroup==='previous');
+    // C67: tomorrow / service weekday only — no previous-day optgroups
+    const menuItems = Array.isArray(menuPack)
+      ? menuPack
+      : (menuPack.serviceItems || menuPack.items || []);
     const wd = (menuPack.serviceWeekday != null) ? Number(menuPack.serviceWeekday) : fijiWeekday(addFijiDays(getFijiNow(),1));
-    const prevWd = (menuPack.previousWeekday != null) ? Number(menuPack.previousWeekday) : ((wd + 6) % 7);
     let dinnerOpts = '';
-    if (serviceItems.length) {
-      dinnerOpts += '<optgroup label="Tomorrow\'s menu ('+WEEKDAY_NAMES[wd]+')">'+
-        serviceItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('')+
-        '</optgroup>';
-    }
-    if (previousItems.length) {
-      dinnerOpts += '<optgroup label="Previous day menu ('+WEEKDAY_NAMES[prevWd]+')">'+
-        previousItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('')+
-        '</optgroup>';
+    if (menuItems.length) {
+      dinnerOpts = menuItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('');
     }
     if (!dinnerOpts) dinnerOpts = '<option value="Standard">Standard</option><option value="Vegetarian">Vegetarian</option><option value="No meal">No meal</option>';
     const cur = myDinner[0];
@@ -2043,7 +2056,7 @@ async function renderDinner(){
       '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+di.serviceDate+'</strong> · '+WEEKDAY_NAMES[wd]+'</p>'+
       '<p class="text-[10px] '+(di.open?'text-teal-400':'text-amber-400')+'">'+(di.open?'Ordering open':'Closed — late dinner requests only')+' — '+di.cutoffLabel+'</p></div>'+
       statusHtml+
-      '<label class="text-[10px] text-slate-400">Meal choice (tomorrow + previous day menus)</label>'+
+      '<label class="text-[10px] text-slate-400">Meal choice (tomorrow\'s menu)</label>'+
       '<select id="dinner-choice" class="w-full rounded-xl px-3 py-2 text-sm">'+dinnerOpts+'</select>'+
       '<input id="dinner-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes / allergies"/>'+
       '<button id="btn-dinner" class="btn-primary w-full rounded-xl py-2 text-sm text-white">'+(di.open?'Place dinner order':'Submit late dinner request')+'</button>'+
@@ -2062,7 +2075,7 @@ async function renderDinner(){
       const r = await api('placeDinnerOrder',{ mealChoice:$('#dinner-choice').value, notes:$('#dinner-notes').value, allowLate: !di.open });
       if (!r.success) { toast(r.error,'error'); return; }
       cacheInvalidate([orderKey, 'kitchenDashboard']);
-      toast(r.data.late?'Late dinner request submitted (pending admin)':'Dinner ordered (pending auto-approve)','ok'); renderDinner();
+      toast((r.data&&r.data.late)?'Late dinner request submitted (pending admin)':'Dinner ordered (pending auto-approve)','ok'); renderDinner();
     };
   }
 
@@ -2071,7 +2084,7 @@ async function renderDinner(){
   try {
     const [d,m] = await Promise.all([
       api('getDinnerOrders',{ userEmail: state.user.email, serviceDate: di.serviceDate }),
-      api('getDinnerMenus',{ serviceDate: di.serviceDate })
+      api('getDinnerMenus',{ serviceDate: di.serviceDate, includePreviousDay:false })
     ]);
     const myDinner = (d.data && d.data.orders) || [];
     const menuPack = (m && m.data) ? m.data : { items: (d.data && d.data.menus) || [] };
@@ -2373,6 +2386,11 @@ async function renderSchedule(){
   state._schBgRefresh = false;
   try {
     await refreshFeatureFlags();
+    if (!featureOn('feature_my_schedule')) {
+      $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto"><div class="glass rounded-2xl p-4 border border-amber-500/30"><p class="text-sm text-amber-200 font-medium"><i class="fa-solid fa-calendar-xmark mr-2"></i>My Schedule is off</p><p class="text-xs text-slate-400 mt-2">Focus is meal ordering and boat booking for now. A superadmin can enable <strong>feature_my_schedule</strong> in Admin → Settings / Features when ready.</p><button type="button" id="sch-off-back" class="text-xs text-teal-400 mt-3">Back to More</button></div></div>';
+      const back = $('#sch-off-back'); if (back) back.onclick = function(){ navigate('more'); };
+      return;
+    }
     let r = cachedSch ? { success:true, data: cachedSch } : null;
     if (!r) {
       r = await api('getMySchedule');
@@ -2882,7 +2900,7 @@ function renderMore(){
   const isChef = hasAnyPerm(['chef','kitchen'], state.user);
   const isHodOnly = canHod() && !isAdm;
   let html = '<div class="fade-in max-w-lg mx-auto space-y-2">'+
-    moreRow('schedule','fa-calendar','My schedule / leave')+
+    (featureOn('feature_my_schedule') ? moreRow('schedule','fa-calendar','My schedule / leave') : '')+
     moreRow('profile','fa-user','My profile / photo')+
     moreRow('reminders','fa-bell','Reminders (staff-wide)')+moreRow('suggestions','fa-lightbulb','Suggestion box')+
     moreRow('bookings','fa-ticket','My boat bookings');
@@ -2914,7 +2932,7 @@ function renderMore(){
     html += '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-3">HOD</p>';
     html += '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-inbox text-teal-400 w-5"></i><span class="flex-1">Department leave requests</span></button>';
     html += '<button onclick="openMealOnBehalfModal()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-utensils text-teal-400 w-5"></i><span class="flex-1">Meal on behalf</span></button>';
-    html += moreRow('schedule','fa-file-arrow-up','Roster upload / My Schedule');
+    if (featureOn('feature_my_schedule')) html += moreRow('schedule','fa-file-arrow-up','Roster upload / My Schedule');
     if (canHod()) html += moreRow('users','fa-users','Staff directory');
   }
 
@@ -3149,38 +3167,92 @@ async function renderMyProfile(){
 }
 
 async function renderKitchen(){
-  const cachedKit = cacheGet('kitchenDashboard');
   const fromBg = !!state._kitBgRefresh;
   state._kitBgRefresh = false;
-  if (!cachedKit || fromBg) {
-    if (!$('#kit-root')) $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root"></div>';
+  if (fromBg && state._kitRendering) return;
+
+  function ensureKitRoot(){
+    let root = $('#kit-root');
+    if (!root) {
+      const mc = $('#main-content');
+      if (!mc) return null;
+      mc.innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root"></div>';
+      root = $('#kit-root');
+    }
+    return root;
   }
+  function showKitError(msg){
+    const root = ensureKitRoot();
+    if (!root) return;
+    root.innerHTML = '<div class="glass rounded-2xl p-4 border border-rose-500/40"><p class="text-sm text-rose-300 font-medium"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Kitchen Admin error</p><p class="text-xs text-slate-400 mt-1">'+esc(msg||'Unknown error')+'</p><button type="button" id="kit-retry" class="mt-3 text-xs text-teal-400">Retry</button></div>';
+    const btn = $('#kit-retry');
+    if (btn) btn.onclick = function(){ cacheInvalidate(['kitchenDashboard']); state._kitFp = ''; renderKitchen(); };
+  }
+  function kitFingerprint(dash, prep){
+    try {
+      return JSON.stringify({
+        d: dash && { dinnerDate: dash.dinnerDate, lunchDate: dash.lunchDate, breakfastDate: dash.breakfastDate,
+          dt: dash.dinner && dash.dinner.total, bt: dash.breakfast && dash.breakfast.total, lt: dash.lunch && dash.lunch.total,
+          dp: dash.dinner && dash.dinner.pendingCount, dl: dash.dinner && dash.dinner.lateCount,
+          s: dash.stats && dash.stats.last7Days },
+        p: prep && { sd: prep.serviceDate, t: prep.prep && prep.prep.totalOrders, a: prep.autoGeneratedAt830 }
+      });
+    } catch (e) { return String(Date.now()); }
+  }
+
+  const cachedKit = cacheGet('kitchenDashboard');
+  ensureKitRoot();
   const stopKitTips = (cachedKit && !fromBg) ? function(){} : showLoadingTips($('#kit-root') || $('#main-content'));
+  state._kitRendering = true;
   try {
     let r, prepR;
     if (cachedKit && !fromBg) {
-      r = { success:true, data: cachedKit.dash };
-      prepR = { success:true, data: cachedKit.prep };
+      r = { success:true, data: cachedKit.dash || {} };
+      prepR = { success:true, data: cachedKit.prep || {} };
       Promise.all([api('getKitchenDashboard'), api('getDinnerPrepList')]).then(function(pair){
         const fr = pair[0], fp = pair[1];
-        if (fr && fr.success && fr.data) {
-          cacheSet('kitchenDashboard', { dash: fr.data, prep: (fp && fp.data) || {} });
-          if (state.tab === 'kitchen') {
-            state._kitBgRefresh = true;
-            renderKitchen();
-          }
+        if (!(fr && fr.success && fr.data)) return;
+        const next = { dash: fr.data, prep: (fp && fp.data) || {} };
+        const fpStr = kitFingerprint(next.dash, next.prep);
+        if (fpStr === state._kitFp) {
+          cacheSet('kitchenDashboard', next);
+          return;
+        }
+        cacheSet('kitchenDashboard', next);
+        state._kitFp = fpStr;
+        if (state.tab === 'kitchen' && !state._kitRendering) {
+          state._kitBgRefresh = true;
+          renderKitchen();
         }
       }).catch(function(){});
     } else {
       const pair = await Promise.all([api('getKitchenDashboard'), api('getDinnerPrepList')]);
       r = pair[0]; prepR = pair[1];
-      if (r && r.success && r.data) cacheSet('kitchenDashboard', { dash: r.data, prep: (prepR && prepR.data) || {} });
+      if (r && r.success && r.data) {
+        const pack = { dash: r.data, prep: (prepR && prepR.data) || {} };
+        cacheSet('kitchenDashboard', pack);
+        state._kitFp = kitFingerprint(pack.dash, pack.prep);
+      }
     }
     stopKitTips();
-    const d = r.data;
+
+    if (!r || !r.success || !r.data) {
+      showKitError((r && r.error) || 'Failed to load kitchen dashboard');
+      return;
+    }
+    if (prepR && prepR.success === false && !prepR.data) {
+      // prep optional — show warning but continue with empty prep
+    }
+
+    const d = r.data || {};
     const prepData = (prepR && prepR.data) || {};
     const stats = d.stats || {};
+    const dinnerPack = d.dinner || {};
+    const lunchPack = d.lunch || {};
+    const breakfastPack = d.breakfast || {};
+
     function headcountBlock(title, meal, pack, date) {
+      pack = pack || {};
       const total = pack.total!=null ? pack.total : (pack.orders||[]).filter(o=>o.status!=='late_pending'&&o.status!=='rejected'&&o.status!=='cancelled').length;
       const open = pack.cutoff && pack.cutoff.open;
       const lateOpen = pack.cutoff && pack.cutoff.lateOpen;
@@ -3214,6 +3286,7 @@ async function renderKitchen(){
       return h;
     }
     function block(title, meal, pack, date) {
+      pack = pack || {};
       let h = '<div class="glass rounded-2xl p-4"><div class="flex justify-between items-center mb-2"><h3 class="font-semibold text-sm">'+title+'</h3>'+
         '<button class="text-xs text-teal-400 print-check" data-meal="'+meal+'">Print checklist</button></div>'+
         '<p class="text-[10px] text-sand-200/50 mb-2">Service '+esc(date)+' · Fiji '+esc(d.fijiNow)+'</p><div class="flex flex-wrap gap-2 mb-3">';
@@ -3233,7 +3306,7 @@ async function renderKitchen(){
         h += '<div class="mb-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30"><p class="text-xs text-amber-300 font-medium"><i class="fa-solid fa-clock mr-1"></i>Late requests ('+late.length+')</p>';
         late.forEach(o => {
           h += '<div class="flex justify-between items-center gap-2 py-0.5"><p class="text-[10px] text-sand-200/70">'+esc(o.userName)+' — '+esc(o.mealChoice)+' '+statusBadge(o.status)+'</p>';
-          if (canAdmin() && o.status==='late_pending') {
+          if (canKitchen() && o.status==='late_pending') {
             h += '<button class="text-[10px] text-teal-400 late-approve" data-id="'+o.id+'">Approve</button>';
           }
           h += '</div>';
@@ -3277,20 +3350,21 @@ async function renderKitchen(){
       '<button id="btn-prep-dl" class="text-xs text-teal-300 font-medium">Download PDF</button>'+
       '<button id="btn-prep-view" class="text-xs text-teal-400">View PDF</button></div></div>'+
       autoNote+'</div>'+
-      block('Dinner','dinner',d.dinner,d.dinnerDate) +
+      block('Dinner','dinner',dinnerPack,d.dinnerDate) +
       '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-2">3 · Breakfast &amp; Lunch</p>'+
-      headcountBlock('Breakfast','breakfast',d.breakfast||{},d.breakfastDate||((d.breakfast&&d.breakfast.serviceDate)||'')) +
-      headcountBlock('Lunch','lunch',d.lunch||{},d.lunchDate);
-    if (!$('#kit-root')) $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root"></div>';
-    $('#kit-root').innerHTML = html;
+      headcountBlock('Breakfast','breakfast',breakfastPack,d.breakfastDate||(breakfastPack.serviceDate||'')) +
+      headcountBlock('Lunch','lunch',lunchPack,d.lunchDate||(lunchPack.serviceDate||''));
+    const kitRoot = ensureKitRoot();
+    if (!kitRoot) { toast('Kitchen UI missing','error'); return; }
+    kitRoot.innerHTML = html;
     $$('.mark-ord').forEach(b=>b.onclick=async()=>{
       cacheInvalidate(['kitchenDashboard']);
       await api('markOrderStatus',{ id:b.dataset.id, meal:b.dataset.meal, status:'prepared' });
       toast('Marked','ok'); renderKitchen();
     });
     $$('.late-approve').forEach(b=>b.onclick=async()=>{
-      const passcode = await askPasscode('admin'); if (!passcode) return;
-      const res = await api('approveLateDinnerOrder',{ id:b.dataset.id, passcode });
+      // C67: no askPasscode — role-gated API via requesterEmail
+      const res = await api('approveLateDinnerOrder',{ id:b.dataset.id });
       if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['kitchenDashboard']); toast('Late order approved','ok'); renderKitchen(); }
     });
     $$('.late-bf-approve').forEach(b=>b.onclick=async()=>{
@@ -3308,29 +3382,34 @@ async function renderKitchen(){
     };
     $$('.dl-sheet').forEach(b=>b.onclick=async()=>{
       const meal = b.dataset.meal;
-      const r = await api(meal==='breakfast'?'getBreakfastOrderSheet':'getLunchOrderSheet',{});
-      if (!r.success) { toast(r.error,'error'); return; }
-      const rows = (r.data.orders||[]).map(o=>[o.userName,o.department,o.timeOrdered,o.status].map(csvEscape).join(',')).join('\n');
-      downloadText('pcr-'+meal+'-'+ (r.data.serviceDate||'') +'.csv', 'name,department,timeOrdered,status\n'+rows);
+      const rr = await api(meal==='breakfast'?'getBreakfastOrderSheet':'getLunchOrderSheet',{});
+      if (!rr.success) { toast(rr.error,'error'); return; }
+      const data = rr.data || {};
+      const rows = (data.orders||[]).map(o=>[o.userName,o.department,o.timeOrdered,o.status].map(csvEscape).join(',')).join('\n');
+      downloadText('pcr-'+meal+'-'+ (data.serviceDate||'') +'.csv', 'name,department,timeOrdered,status\n'+rows);
       toast('Downloaded','ok');
     });
     $$('.print-check').forEach(b=>b.onclick=()=>{
       const meal = b.dataset.meal;
-      const pack = meal==='dinner'?d.dinner:(meal==='breakfast'?(d.breakfast||{}):d.lunch);
+      const pack = meal==='dinner'?dinnerPack:(meal==='breakfast'?breakfastPack:lunchPack) || {};
       const date = meal==='dinner'?d.dinnerDate:(meal==='breakfast'?d.breakfastDate:d.lunchDate);
-      $('#print-area').classList.remove('hidden');
+      const pa = $('#print-area');
+      if (!pa) { toast('Print area missing','error'); return; }
+      pa.classList.remove('hidden');
       let items = '';
-      (pack.orders||[]).forEach(o => { items += '<li>☐ '+o.userName+' ('+o.department+') — '+(o.mealChoice||meal)+(o.late?' [LATE]':'')+' '+o.status+'</li>'; });
-      $('#print-area').innerHTML = '<h1>PCR Kitchen Checklist — '+meal+' '+date+'</h1><p>Total: '+(pack.total!=null?pack.total:(pack.orders||[]).length)+'</p><p>Printed '+formatFiji()+'</p><ul>'+items+'</ul>';
+      (pack.orders||[]).forEach(o => { items += '<li>☐ '+esc(o.userName)+' ('+esc(o.department)+') — '+(esc(o.mealChoice)||meal)+(o.late?' [LATE]':'')+' '+esc(o.status)+'</li>'; });
+      pa.innerHTML = '<h1>PCR Kitchen Checklist — '+esc(meal)+' '+esc(date)+'</h1><p>Total: '+(pack.total!=null?pack.total:(pack.orders||[]).length)+'</p><p>Printed '+formatFiji()+'</p><ul>'+items+'</ul>';
       window.print();
-      $('#print-area').classList.add('hidden');
+      pa.classList.add('hidden');
     });
     async function loadPrep(force){
       const pr = force ? await api('processDinnerWorkflow') : null;
       const pl = await api('getDinnerPrepList');
-      return pl.data;
+      if (!pl || !pl.success) throw new Error((pl && pl.error) || 'Prep list failed');
+      return pl.data || {};
     }
     function buildPrepHtml(data){
+      data = data || {};
       const prep = data.prep || {};
       const tally = prep.tally || {};
       const byItem = prep.byItem || {};
@@ -3356,6 +3435,7 @@ async function renderKitchen(){
         '<div style="margin-top:32px;font-size:13px">Signature Chef in charge __________ &nbsp;&nbsp; HOD __________ &nbsp;&nbsp; Date ______</div></div>';
     }
     function buildPrepTxt(data){
+      data = data || {};
       const prep = data.prep || {};
       const tally = prep.tally || {};
       const byItem = prep.byItem || {};
@@ -3420,43 +3500,54 @@ async function renderKitchen(){
       }
     }
     let lastPrep = prepData;
-    $('#btn-prep-gen').onclick = async () => {
-      lastPrep = await loadPrep(true);
-      toast('Prep list ready','ok');
-      openModal('<h3 class="font-semibold mb-2">Prep list ready</h3><p class="text-xs text-slate-400 mb-2">Service '+esc(lastPrep.serviceDate)+' · '+(lastPrep.prep&&lastPrep.prep.totalOrders||0)+' orders</p>'+
-        '<button id="m-view-pdf" class="btn-primary w-full rounded-xl py-2 text-sm text-white mb-2">View all as PDF</button>'+
-        '<button id="m-dl-pdf" class="btn-primary w-full rounded-xl py-2 text-sm text-white mb-2" style="background:linear-gradient(135deg,#0d9488,#0f766e)">Download PDF</button>'+
-        '<button id="m-print" class="glass w-full rounded-xl py-2 text-sm mb-2">Print</button>'+
-        '<p class="text-[10px] text-slate-500 mb-1 mt-1">Other formats</p>'+
-        '<button id="m-dl-html" class="glass w-full rounded-xl py-2 text-sm mb-2">Download HTML</button>'+
-        '<button id="m-dl-txt" class="glass w-full rounded-xl py-2 text-sm">Download TXT</button>');
-      $('#m-view-pdf').onclick = () => { closeModal(); viewPrepPdf(lastPrep); };
-      $('#m-dl-pdf').onclick = () => { closeModal(); downloadPrepPdf(lastPrep); };
-      $('#m-print').onclick = () => { closeModal(); printPrep(lastPrep); };
-      $('#m-dl-html').onclick = () => { downloadText('dinner-prep-'+lastPrep.serviceDate+'.html', buildPrepHtml(lastPrep)); };
-      $('#m-dl-txt').onclick = () => { downloadText('dinner-prep-'+lastPrep.serviceDate+'.txt', buildPrepTxt(lastPrep)); };
+    const btnGen = $('#btn-prep-gen');
+    if (btnGen) btnGen.onclick = async () => {
+      try {
+        lastPrep = await loadPrep(true);
+        toast('Prep list ready','ok');
+        openModal('<h3 class="font-semibold mb-2">Prep list ready</h3><p class="text-xs text-slate-400 mb-2">Service '+esc(lastPrep.serviceDate)+' · '+(lastPrep.prep&&lastPrep.prep.totalOrders||0)+' orders</p>'+
+          '<button id="m-view-pdf" class="btn-primary w-full rounded-xl py-2 text-sm text-white mb-2">View all as PDF</button>'+
+          '<button id="m-dl-pdf" class="btn-primary w-full rounded-xl py-2 text-sm text-white mb-2" style="background:linear-gradient(135deg,#0d9488,#0f766e)">Download PDF</button>'+
+          '<button id="m-print" class="glass w-full rounded-xl py-2 text-sm mb-2">Print</button>'+
+          '<p class="text-[10px] text-slate-500 mb-1 mt-1">Other formats</p>'+
+          '<button id="m-dl-html" class="glass w-full rounded-xl py-2 text-sm mb-2">Download HTML</button>'+
+          '<button id="m-dl-txt" class="glass w-full rounded-xl py-2 text-sm">Download TXT</button>');
+        $('#m-view-pdf').onclick = () => { closeModal(); viewPrepPdf(lastPrep); };
+        $('#m-dl-pdf').onclick = () => { closeModal(); downloadPrepPdf(lastPrep); };
+        $('#m-print').onclick = () => { closeModal(); printPrep(lastPrep); };
+        $('#m-dl-html').onclick = () => { downloadText('dinner-prep-'+(lastPrep.serviceDate||'list')+'.html', buildPrepHtml(lastPrep)); };
+        $('#m-dl-txt').onclick = () => { downloadText('dinner-prep-'+(lastPrep.serviceDate||'list')+'.txt', buildPrepTxt(lastPrep)); };
+      } catch(e){ toast((e&&e.message)||'Prep failed','error'); }
     };
     function printPrep(data){
       const html = buildPrepHtml(data);
       const w = window.open('', '_blank');
       if (w) { w.document.write('<!doctype html><html><head><title>Dinner Prep List</title></head><body>'+html+'</body></html>'); w.document.close(); w.focus(); setTimeout(()=>w.print(), 300); }
       else {
-        $('#print-area').classList.remove('hidden');
-        $('#print-area').innerHTML = html;
+        const pa = $('#print-area');
+        if (!pa) return;
+        pa.classList.remove('hidden');
+        pa.innerHTML = html;
         window.print();
-        $('#print-area').classList.add('hidden');
+        pa.classList.add('hidden');
       }
     }
-    $('#btn-prep-print').onclick = async () => { lastPrep = await loadPrep(false); printPrep(lastPrep); };
-    $('#btn-prep-dl').onclick = async () => {
-      lastPrep = await loadPrep(false);
-      await downloadPrepPdf(lastPrep);
+    const btnPrint = $('#btn-prep-print');
+    if (btnPrint) btnPrint.onclick = async () => { try { lastPrep = await loadPrep(false); printPrep(lastPrep); } catch(e){ toast((e&&e.message)||'Prep failed','error'); } };
+    const btnDl = $('#btn-prep-dl');
+    if (btnDl) btnDl.onclick = async () => {
+      try { lastPrep = await loadPrep(false); await downloadPrepPdf(lastPrep); } catch(e){ toast((e&&e.message)||'Prep failed','error'); }
     };
-    $('#btn-prep-view').onclick = async () => {
-      lastPrep = await loadPrep(false);
-      await viewPrepPdf(lastPrep);
+    const btnView = $('#btn-prep-view');
+    if (btnView) btnView.onclick = async () => {
+      try { lastPrep = await loadPrep(false); await viewPrepPdf(lastPrep); } catch(e){ toast((e&&e.message)||'Prep failed','error'); }
     };
-  } catch(e){ stopKitTips(); $('#kit-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
+  } catch(e){
+    try { stopKitTips(); } catch(_){}
+    showKitError((e && e.message) || String(e));
+  } finally {
+    state._kitRendering = false;
+  }
 }
 
 /* ========== STAFF DIRECTORY (critical) ========== */
@@ -3826,19 +3917,23 @@ async function renderAdminFeaturesTab(){
     const f = (r.data && r.data.features) || {};
     const live = !!f.feature_live_roster;
     const leave = !!f.feature_leave_escalation;
+    const mySch = !!f.feature_my_schedule;
     root.innerHTML = '<div class="space-y-3">'+
-      '<p class="text-xs text-slate-400">Feature flags (App Settings). Defaults OFF. Only superadmin + passcode <strong>2026</strong> can toggle. Admin 2025 cannot.</p>'+
+      '<p class="text-xs text-slate-400">Feature flags (App Settings). Defaults OFF. Superadmin role can toggle.</p>'+
+      '<div class="glass rounded-xl p-3 flex items-center justify-between"><div><p class="text-sm font-medium">My Schedule</p><p class="text-[10px] text-slate-500">feature_my_schedule · roster / leave tab (off while focusing meals &amp; boat)</p></div>'+
+      '<button id="tog-mysch" class="ui-btn '+(mySch?'bg-teal-600':'bg-slate-700')+' text-xs px-3 py-1.5 rounded-lg">'+(mySch?'ON':'OFF')+'</button></div>'+
       '<div class="glass rounded-xl p-3 flex items-center justify-between"><div><p class="text-sm font-medium">Live roster</p><p class="text-[10px] text-slate-500">feature_live_roster · external sheet read-only</p></div>'+
       '<button id="tog-live" class="ui-btn '+(live?'bg-teal-600':'bg-slate-700')+' text-xs px-3 py-1.5 rounded-lg">'+(live?'ON':'OFF')+'</button></div>'+
       '<div class="glass rounded-xl p-3 flex items-center justify-between"><div><p class="text-sm font-medium">Leave escalation</p><p class="text-[10px] text-slate-500">feature_leave_escalation · HOD → managers</p></div>'+
       '<button id="tog-leave" class="ui-btn '+(leave?'bg-teal-600':'bg-slate-700')+' text-xs px-3 py-1.5 rounded-lg">'+(leave?'ON':'OFF')+'</button></div>'+
-      '<p class="text-[10px] text-slate-500">To enable: Settings / Features → toggle ON (superadmin role). To disable after roster parse errors, toggle OFF here.</p></div>';
+      '<p class="text-[10px] text-slate-500">My Schedule OFF hides the schedule tab and blocks roster upload APIs. Request leave modal stays available.</p></div>';
     async function toggle(key, cur){
       const passcode = await askPasscode('super'); if (!passcode) return;
       const res = await api('setAppSetting',{ key, value: !cur, passcode });
       if (!res.success) toast(res.error,'error');
       else { toast(key+' → '+(!cur?'ON':'OFF'),'ok'); state.featureFlags[key]=!cur; renderAdmin(); }
     }
+    $('#tog-mysch').onclick = () => toggle('feature_my_schedule', mySch);
     $('#tog-live').onclick = () => toggle('feature_live_roster', live);
     $('#tog-leave').onclick = () => toggle('feature_leave_escalation', leave);
   } catch(e){
@@ -3853,6 +3948,10 @@ async function renderAdminKitchenTab(full){
   try {
     const [dash, menusR] = await Promise.all([api('getKitchenDashboard'), api('getDinnerMenus',{ includeInactive:true })]);
     stopTips();
+    if (!dash || !dash.success) {
+      root.innerHTML = '<div class="glass rounded-xl p-4 border border-rose-500/40"><p class="text-sm text-rose-300">Kitchen admin failed</p><p class="text-xs text-slate-400 mt-1">'+esc((dash&&dash.error)||'No dashboard data')+'</p></div>';
+      return;
+    }
     const d = dash.data || {};
     const stats = d.stats || {};
     const byWeekday = (menusR.data && menusR.data.byWeekday) || {};
@@ -3878,7 +3977,7 @@ async function renderAdminKitchenTab(full){
     // late pending approvals
     const latePending = ((d.dinner && d.dinner.orders)||[]).filter(o=>o.status==='late_pending');
     if (latePending.length) {
-      html += '<div class="glass rounded-xl p-3"><p class="text-xs font-semibold text-amber-300 mb-2">Late pending ('+latePending.length+') — admin 2025/2026</p>';
+      html += '<div class="glass rounded-xl p-3"><p class="text-xs font-semibold text-amber-300 mb-2">Late pending ('+latePending.length+') — chef/admin approve</p>';
       latePending.forEach(o=>{
         html += '<div class="flex justify-between items-center text-xs py-1 border-t border-slate-700/50"><span>'+esc(o.userName)+' · '+esc(o.mealChoice)+'</span>'+
           '<button class="text-teal-400 adm-late-ok" data-id="'+o.id+'">Approve</button></div>';
@@ -3907,9 +4006,9 @@ async function renderAdminKitchenTab(full){
     root.innerHTML = html;
 
     $$('.adm-late-ok').forEach(b=>b.onclick=async()=>{
-      const passcode = await askPasscode('admin'); if (!passcode) return;
-      const res = await api('approveLateDinnerOrder',{ id:b.dataset.id, passcode });
-      if (!res.success) toast(res.error,'error'); else { toast('Approved','ok'); renderAdmin(); }
+      // C67: no askPasscode — role-gated API
+      const res = await api('approveLateDinnerOrder',{ id:b.dataset.id });
+      if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['kitchenDashboard']); toast('Approved','ok'); renderAdmin(); }
     });
     if (full) {
       $$('.menu-add').forEach(b=>b.onclick=async()=>{
