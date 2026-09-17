@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.7.3**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.8.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -180,4 +180,17 @@ Version **2.7.3**. Revert any item later by asking for its ID (e.g. “revert C7
 | ID | Change |
 |----|--------|
 | C58 | **Speed pack** (no forgot-password / register / kitchen redesign). (1) Single static login hero `assets/slideshow/beach-house.jpg` — removed login slideshow rotation / interval / multi-image list; header `.app-header-motif` solid/gradient only (no photo); keep golden logo; `showLoadingTips` stays plain text. (3) Skeleton shell (2–3 gray cards) on navigate for Home / Meals / Boat / Schedule. (4) In-memory + sessionStorage cache (~2.5 min TTL) for cutoffs, reminders, suggestions, boat runs, breakfast/lunch/dinner my-orders, kitchen dashboard, my schedule; instant paint then background refresh; invalidate on logout + mutations. (5) Fire-and-forget prefetch after login: getCutoffInfo, getBoatRuns, getReminders, getSuggestions, meal my-orders. (6) Compressed `golden-logo.jpg` (~512px) + login hero (~1200px, q~70–80); unused slideshow files may remain on disk unreferenced. `APP_VERSION` → **2.7.3**; SW `pcr-staff-v2.7.3`. SCRIPT_URL unchanged. |
+
+## Auth / profile / breakfast late / role menus (2.8.0)
+
+| ID | Change |
+|----|--------|
+| C59 | **Forgot password** on login: email → reset code (Verification Codes `purpose=reset`) → set new password. APIs `requestPasswordReset`, `resetPassword` (existing Users only). |
+| C60 | **Register**: roster-name note (no nicknames); department mandatory; add **Diveshop**, **Activities** (keep Maintenance); **Mainland or Village Staff** (store Mainland/Village); remove `@pcr.com` pending-approval gate — verify email then active staff. |
+| C61 | **Profile**: first/last/department read-only; contact, photo, mainland/village, password editable; **Deactivate account** (`deactivateAccount` → `active=false`). Staff Directory: superadmin **Delete user**. |
+| C62 | **Breakfast late path**: normal open until **1pm Fiji** (tomorrow headcount → `ordered`); **1–6pm** late → `late_pending` (“waiting approval from chef”); after **6pm** fully closed + auto-decline unapproved (`order declined please see hod or chef`). Approve: chef/admin/superadmin → `late_approved` counts in total; Kitchen late queue + **Approve all**. Lunch unchanged (no late). Dinner late unchanged. |
+| C63 | **Role dashboards / More**: Superadmin home shows weekly+monthly meal stats (not staff meal tiles). Admin More ordered: Statistics, boat bookings, Kitchen/Boat Admin, Staff Directory, Broadcast, Suggestions, Leave inbox, Alert Emails. HOD: dept leave + **Meal on behalf** (`placeMealOnBehalf`). Chef More → Kitchen Admin in 3 sections (Overview stats / Dinner prep+late / Breakfast&Lunch sheets). |
+| C64 | APIs: `getMealStatistics`, `getBreakfastOrderSheet`, `getLunchOrderSheet`, `approveLateBreakfastOrder`, `approveAllLateBreakfast`, `processBreakfastWorkflow`. `APP_VERSION` → **2.8.0**; SW `pcr-staff-v2.8.0`. SCRIPT_URL unchanged. |
+| C65 | **Dinner ordering picker**: for tomorrow’s service, meal choice includes **service weekday menu** + **previous Fiji weekday menu** (deduped by item name). UI optgroups “Tomorrow’s menu” / “Previous day menu”. Kitchen menu CRUD unchanged (`getDinnerMenus` merge when `serviceDate` set). |
+| C66 | **Remove Admin unlock passcodes (2025/2026) UI** and **superadmin first-access PIN** (`unlockSuperadminPin` no-op). Admin/Kitchen/More gated by **role permissions only**. Backend `requirePasscode` accepts requester role (legacy passcode still honored if sent). No Re-lock / Upgrade unlock UI. |
 

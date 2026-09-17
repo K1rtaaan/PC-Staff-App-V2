@@ -203,7 +203,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.7.3';
+const APP_VERSION = '2.8.0';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -241,7 +241,24 @@ const DEMO_KEY = 'pcr_v2_demo_db';
         <button type="submit" class="btn-primary ui-btn ui-btn-default ui-btn-lg w-full rounded-xl font-semibold text-white">
           <i class="fa-solid fa-right-to-bracket mr-2"></i>Sign in
         </button>
+        <button type="button" id="btn-forgot-pw" class="w-full text-xs text-teal-400 py-1">Forgot password?</button>
       </form>
+
+      <div id="forgot-panel" class="hidden space-y-3">
+        <p class="text-sm text-slate-300">Reset password — enter your registered email to receive a code.</p>
+        <div>
+          <label class="text-xs text-slate-400 mb-1 block">Email</label>
+          <input type="email" id="forgot-email" class="ui-input" placeholder="you@example.com"/>
+        </div>
+        <button type="button" id="btn-send-reset" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Send reset code</button>
+        <div id="forgot-code-step" class="hidden space-y-2 pt-2 border-t border-slate-700">
+          <input id="forgot-code" class="ui-input" placeholder="6-digit code"/>
+          <input type="password" id="forgot-new-pw" class="ui-input" placeholder="New password"/>
+          <input type="password" id="forgot-new-pw2" class="ui-input" placeholder="Confirm new password"/>
+          <button type="button" id="btn-do-reset" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Set new password</button>
+        </div>
+        <button type="button" id="btn-forgot-back" class="w-full text-xs text-slate-400 py-1">← Back to login</button>
+      </div>
 
       <div id="register-panel" class="hidden space-y-3">
         <form id="register-form" class="space-y-3">
@@ -255,6 +272,7 @@ const DEMO_KEY = 'pcr_v2_demo_db';
               <input type="text" id="reg-lastName" required class="ui-input" placeholder="Last" autocomplete="family-name"/>
             </div>
           </div>
+          <p class="text-[10px] text-amber-200/80 -mt-1">Names must match the department roster — no nicknames.</p>
           <div>
             <label class="text-xs text-slate-400 mb-1 block">Contact</label>
             <input type="text" id="reg-contact" class="ui-input" placeholder="Phone / WhatsApp"/>
@@ -275,6 +293,8 @@ const DEMO_KEY = 'pcr_v2_demo_db';
               <option value="Grounds">Grounds</option>
               <option value="Spa">Spa</option>
               <option value="Maintenance">Maintenance</option>
+              <option value="Diveshop">Diveshop</option>
+              <option value="Activities">Activities</option>
               <option value="Management">Management</option>
               <option value="IT/Office">IT/Office</option>
               <option value="Other">Other</option>
@@ -282,10 +302,11 @@ const DEMO_KEY = 'pcr_v2_demo_db';
           </div>
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="text-xs text-slate-400 mb-1 block">Village staff?</label>
-              <select id="reg-village" class="ui-input">
-                <option value="false">No (Resort)</option>
-                <option value="true">Yes (Village)</option>
+              <label class="text-xs text-slate-400 mb-1 block">Mainland or Village Staff <span class="text-red-400">*</span></label>
+              <select id="reg-village" required class="ui-input">
+                <option value="">Select…</option>
+                <option value="Mainland">Mainland</option>
+                <option value="Village">Village</option>
               </select>
             </div>
             <div>
@@ -304,7 +325,7 @@ const DEMO_KEY = 'pcr_v2_demo_db';
               Use default @pcr.com email (no personal email)
             </label>
             <div id="reg-default-email-hint" class="hidden text-[10px] text-amber-300 bg-amber-900/20 border border-amber-500/30 rounded-lg p-2 mb-2">
-              Format: <strong>firstname.l@pcr.com</strong> (first name + first letter of last name). Account waits for HOD/admin approval.
+              Format: <strong>firstname.l@pcr.com</strong> (first name + first letter of last name). You will verify by email code, then sign in as staff.
             </div>
             <label class="text-xs text-slate-400 mb-1 block">Email <span class="text-red-400">*</span></label>
             <input type="email" id="reg-email" required class="ui-input" placeholder="you@example.com" autocomplete="username"/>
@@ -524,10 +545,18 @@ function dinnerCutoffInfo(now=getFijiNow()) {
   return { open: now.getUTCHours() < 20, serviceDate: fijiDateString(addFijiDays(now,1)),
     cutoffLabel: '8:00 PM Fiji (today for tomorrow dinner)', meal:'dinner', fijiNow: formatFiji(now) };
 }
-/** Breakfast: closes 1pm Fiji today for tomorrow service (headcount) */
+/** Breakfast: open &lt;1pm; late 1–6pm; closed after 6pm Fiji (tomorrow service) */
 function breakfastCutoffInfo(now=getFijiNow()) {
-  return { open: now.getUTCHours() < 13, serviceDate: fijiDateString(addFijiDays(now,1)),
-    cutoffHour: 13, cutoffLabel: '1:00 PM Fiji (today for tomorrow)', meal:'breakfast', fijiNow: formatFiji(now) };
+  const h = now.getUTCHours();
+  return {
+    open: h < 13,
+    lateOpen: h >= 13 && h < 18,
+    fullyClosed: h >= 18,
+    serviceDate: fijiDateString(addFijiDays(now,1)),
+    cutoffHour: 13, lateCloseHour: 18,
+    cutoffLabel: '1:00 PM Fiji; late until 6:00 PM',
+    meal:'breakfast', fijiNow: formatFiji(now)
+  };
 }
 /** Lunch: closes 1pm Fiji today for tomorrow service (headcount) */
 function lunchCutoffInfo(now=getFijiNow()) {
@@ -729,10 +758,8 @@ function demoApi(action, p) {
       const email = String(p.email||'').toLowerCase().trim();
       const u = db.users.find(x => x.email === email);
       if (!u || u.password !== p.password) return Promise.resolve(fail('Invalid email or password'));
-      const isPcr = email.includes('@pcr.com');
       const isSuper = email === 'it@paradisecoveresortfiji.com';
-      if (!isSuper && isPcr && !u.active) return Promise.resolve(fail('Your account is pending approval. Contact your HOD or IT.'));
-      if (!isSuper && !isPcr && !u.verified) return Promise.resolve({ success:false, error:'Email not verified', needsVerification:true, email });
+      if (!isSuper && !u.verified && !u.active) return Promise.resolve({ success:false, error:'Email not verified', needsVerification:true, email });
       if (!isSuper && !u.active) return Promise.resolve(fail('Account inactive'));
       return Promise.resolve(ok({ user: publicUser(u), token:'demo' }));
     }
@@ -740,12 +767,13 @@ function demoApi(action, p) {
       const email = String(p.email||'').toLowerCase().trim();
       const password = String(p.password||'');
       if (!email || !password) return Promise.resolve(fail('Email and password required'));
+      if (!(p.firstName||'').trim() || !(p.lastName||'').trim()) return Promise.resolve(fail('First and last name required'));
+      if (!(p.department||'').trim()) return Promise.resolve(fail('Department is required'));
       if (db.users.find(x => x.email === email)) return Promise.resolve(fail('Account already exists — sign in instead'));
-      const isPcr = email.includes('@pcr.com');
-      const isSuper = email === 'it@paradisecoveresortfiji.com';
       let villageVal = '';
-      if (p.village === true || p.village === 'true') villageVal = 'Village';
-      else if (p.village === false || p.village === 'false') villageVal = 'Resort';
+      const vv = String(p.village||'').toLowerCase();
+      if (vv==='true'||vv==='yes'||vv==='village') villageVal = 'Village';
+      else if (vv==='false'||vv==='no'||vv==='mainland'||vv==='resort') villageVal = 'Mainland';
       else if (p.village) villageVal = String(p.village);
       const photoUrl = String(p.photoUrl||'');
       const row = {
@@ -758,11 +786,8 @@ function demoApi(action, p) {
       };
       db.users.push(row); saveDemo(db);
       if (photoUrl) saveLocalPhoto(email, photoUrl);
-      if (isPcr && !isSuper) {
-        return Promise.resolve(ok({ pendingApproval:true, message:'Account created. Pending admin approval.' }));
-      }
       const code = String(Math.floor(100000+Math.random()*900000));
-      db.verificationCodes.push({ email, code, expiresAt: Date.now()+1.8e6, used:false });
+      db.verificationCodes.push({ email, code, expiresAt: Date.now()+1.8e6, used:false, purpose:'verify' });
       saveDemo(db);
       return Promise.resolve(ok({
         needsVerification:true, email,
@@ -954,17 +979,113 @@ function demoApi(action, p) {
     }
     case 'placeBreakfastOrder': {
       const info = breakfastCutoffInfo();
-      if (!info.open) return Promise.resolve({ success:false, error:'Breakfast ordering closed at 1pm Fiji for tomorrow\'s service ('+info.serviceDate+')', cutoff:info });
+      let late = false;
+      if (info.open) late = false;
+      else if (info.lateOpen) {
+        late = true;
+        if (!p.allowLate) return Promise.resolve({ success:false, error:'Use late breakfast request', cutoff:info, needsLate:true });
+      } else {
+        return Promise.resolve({ success:false, error:'Breakfast fully closed after 6pm Fiji', cutoff:info });
+      }
       const email = (p.userEmail||state.user.email).toLowerCase();
       const u = db.users.find(x=>x.email===email);
       if (!db.breakfastOrders) db.breakfastOrders = [];
-      let o = db.breakfastOrders.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled');
-      if (o) { o.mealChoice='Breakfast'; o.notes=p.notes||''; o.late=false; o.status='ordered'; }
+      const status = late ? 'late_pending' : 'ordered';
+      let o = db.breakfastOrders.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled' && x.status!=='rejected');
+      if (o) { o.mealChoice='Breakfast'; o.notes=p.notes||''; o.late=late; o.status=status; }
       else {
-        o = { id:uid('brk'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:u.firstName+' '+u.lastName, department:u.department, mealChoice:'Breakfast', notes:p.notes||'', status:'ordered', late:false, createdAt:formatFiji() };
+        o = { id:uid('brk'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:u.firstName+' '+u.lastName, department:u.department, mealChoice:'Breakfast', notes:p.notes||'', status, late, createdAt:formatFiji() };
         db.breakfastOrders.push(o);
       }
-      saveDemo(db); return Promise.resolve(ok({ order:o, late:false, cutoff:info }));
+      saveDemo(db); return Promise.resolve(ok({ order:o, late, cutoff:info }));
+    }
+    case 'requestPasswordReset': {
+      const email = String(p.email||'').trim().toLowerCase();
+      const u = db.users.find(x=>x.email===email);
+      if (!u) return Promise.resolve(fail('No account found for that email'));
+      const code = String(Math.floor(100000+Math.random()*900000));
+      if (!db.verificationCodes) db.verificationCodes = [];
+      db.verificationCodes.push({ email, code, expiresAt: new Date(Date.now()+30*60*1000).toISOString(), used:false, purpose:'reset' });
+      saveDemo(db);
+      return Promise.resolve(ok({ emailed:false, code, message:'Demo reset code returned' }));
+    }
+    case 'resetPassword': {
+      const email = String(p.email||'').trim().toLowerCase();
+      const code = String(p.code||'').trim();
+      const newPassword = String(p.newPassword||p.password||'');
+      const u = db.users.find(x=>x.email===email);
+      if (!u) return Promise.resolve(fail('No account found'));
+      const match = (db.verificationCodes||[]).slice().reverse().find(c=>c.email===email && String(c.code)===code && !c.used && (c.purpose||'verify')==='reset');
+      if (!match) return Promise.resolve(fail('Invalid or expired code'));
+      match.used = true; u.password = newPassword; saveDemo(db);
+      return Promise.resolve(ok({ message:'Password updated', email }));
+    }
+    case 'deactivateAccount': {
+      const email = String(p.userEmail||p.email||'').toLowerCase();
+      const u = db.users.find(x=>x.email===email);
+      if (!u) return Promise.resolve(fail('User not found'));
+      u.active = false; saveDemo(db);
+      return Promise.resolve(ok({ deactivated:email, active:false }));
+    }
+    case 'approveLateBreakfastOrder': {
+      const o = (db.breakfastOrders||[]).find(x=>x.id===p.id);
+      if (!o) return Promise.resolve(fail('Order not found'));
+      o.status = p.status==='rejected' ? 'rejected' : 'late_approved'; o.late = true;
+      if (o.status==='rejected') o.notes = (o.notes?o.notes+' | ':'')+'order declined please see hod or chef';
+      saveDemo(db); return Promise.resolve(ok({ order:o }));
+    }
+    case 'approveAllLateBreakfast': {
+      const info = breakfastCutoffInfo();
+      const sd = p.serviceDate || info.serviceDate;
+      let n=0;
+      (db.breakfastOrders||[]).forEach(o=>{ if (o.serviceDate===sd && o.status==='late_pending'){ o.status='late_approved'; o.late=true; n++; }});
+      saveDemo(db); return Promise.resolve(ok({ approved:n, serviceDate:sd }));
+    }
+    case 'getMealStatistics': {
+      const countMeal = (list, days, pred) => {
+        const end = addFijiDays(getFijiNow(),1); let t={breakfast:0,lunch:0,dinner:0};
+        for (let i=days-1;i>=0;i--){
+          const ds = fijiDateString(addFijiDays(end,-i));
+          t.breakfast += (db.breakfastOrders||[]).filter(o=>o.serviceDate===ds && o.status!=='cancelled' && o.status!=='rejected' && o.status!=='late_pending').length;
+          t.lunch += (db.lunchOrders||[]).filter(o=>o.serviceDate===ds && o.status!=='cancelled').length;
+          t.dinner += (db.dinnerOrders||[]).filter(o=>o.serviceDate===ds && o.status!=='cancelled' && o.status!=='rejected').length;
+        }
+        return { totals:t, boatBookings:(db.boatBookings||[]).length };
+      };
+      return Promise.resolve(ok({ weekly: countMeal(null,7), monthly: countMeal(null,30), fijiNow: formatFiji() }));
+    }
+    case 'placeMealOnBehalf': {
+      const meal = String(p.meal||'').toLowerCase();
+      const name = String(p.staffName||'').trim();
+      const dept = String(p.department||state.user.department||'').trim();
+      if (!name) return Promise.resolve(fail('Staff name required'));
+      const notes = '[On behalf by '+state.user.firstName+'] '+(p.comment||'');
+      const email = 'behalf+'+name.toLowerCase().replace(/[^a-z0-9]+/g,'.')+'@pcr.local';
+      if (meal==='breakfast') {
+        const info = breakfastCutoffInfo();
+        const o = { id:uid('brk'), serviceDate:info.serviceDate, userEmail:email, userName:name, department:dept, mealChoice:'Breakfast', notes, status:'late_pending', late:true, createdAt:formatFiji() };
+        (db.breakfastOrders=db.breakfastOrders||[]).push(o); saveDemo(db);
+        return Promise.resolve(ok({ order:o, meal, message:'Sent to Kitchen for approval' }));
+      }
+      if (meal==='lunch') {
+        const info = lunchCutoffInfo();
+        const o = { id:uid('lun'), serviceDate:info.serviceDate, userEmail:email, userName:name, department:dept, mealChoice:'Lunch', notes, status:'ordered', late:false, createdAt:formatFiji() };
+        (db.lunchOrders=db.lunchOrders||[]).push(o); saveDemo(db);
+        return Promise.resolve(ok({ order:o, meal, message:'Lunch counted' }));
+      }
+      const info = dinnerCutoffInfo();
+      const o = { id:uid('din'), serviceDate:info.serviceDate, userEmail:email, userName:name, department:dept, mealChoice:p.mealChoice||'Standard', notes, status:info.open?'pending':'late_pending', late:!info.open, createdAt:formatFiji() };
+      db.dinnerOrders.push(o); saveDemo(db);
+      return Promise.resolve(ok({ order:o, meal, message:'Dinner sent to Kitchen' }));
+    }
+    case 'getBreakfastOrderSheet':
+    case 'getLunchOrderSheet': {
+      const isB = action==='getBreakfastOrderSheet';
+      const info = isB ? breakfastCutoffInfo() : lunchCutoffInfo();
+      const list = isB ? (db.breakfastOrders||[]) : (db.lunchOrders||[]);
+      const sd = p.serviceDate || info.serviceDate;
+      const orders = list.filter(o=>o.serviceDate===sd && o.status!=='cancelled');
+      return Promise.resolve(ok({ serviceDate:sd, totalCounted: orders.filter(o=>o.status!=='late_pending'&&o.status!=='rejected').length, orders: orders.map(o=>({ userName:o.userName, department:o.department, timeOrdered:o.createdAt, status:o.status, late:!!o.late, notes:o.notes||'' })), cutoff:info }));
     }
     case 'getBreakfastOrders': {
       if (!db.breakfastOrders) db.breakfastOrders = [];
@@ -977,7 +1098,9 @@ function demoApi(action, p) {
       const meal = String(p.meal||'').toLowerCase();
       if (meal!=='breakfast' && meal!=='lunch') return Promise.resolve(fail('meal must be breakfast or lunch'));
       const info = meal==='breakfast' ? breakfastCutoffInfo() : lunchCutoffInfo();
-      if (!info.open) return Promise.resolve({ success:false, error:'Cannot cancel after 1pm Fiji cutoff for tomorrow\'s '+meal, cutoff:info });
+      if (meal==='breakfast') {
+        if (!info.open && !info.lateOpen) return Promise.resolve({ success:false, error:'Cannot cancel — breakfast fully closed after 6pm Fiji', cutoff:info });
+      } else if (!info.open) return Promise.resolve({ success:false, error:'Cannot cancel after 1pm Fiji cutoff for tomorrow\'s '+meal, cutoff:info });
       const list = meal==='breakfast' ? (db.breakfastOrders||[]) : (db.lunchOrders||[]);
       const email = (p.userEmail||state.user.email).toLowerCase();
       const o = list.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled');
@@ -1004,18 +1127,35 @@ function demoApi(action, p) {
     }
     case 'getDinnerMenus': {
       ensureDemoMenus(db);
-      let items = (db.dinnerMenus||[]).filter(m => p.includeInactive ? true : m.active!==false);
-      if (p.weekday!==undefined && p.weekday!=='') items = items.filter(m=>Number(m.weekday)===Number(p.weekday));
+      const all = (db.dinnerMenus||[]).filter(m => p.includeInactive ? true : m.active!==false);
+      let serviceWd = null, prevWd = null;
+      let serviceItems = [], previousItems = [];
       if (p.serviceDate) {
         const parts = String(p.serviceDate).split('-');
-        const wd = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2])).getUTCDay();
-        items = items.filter(m=>Number(m.weekday)===wd);
+        serviceWd = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2])).getUTCDay();
+        prevWd = (serviceWd + 6) % 7;
+        const seen = {};
+        all.filter(m=>Number(m.weekday)===serviceWd).sort((a,b)=>Number(a.sortOrder)-Number(b.sortOrder)).forEach(it=>{
+          const k=String(it.itemName||'').toLowerCase(); if (seen[k]) return; seen[k]=true;
+          serviceItems.push(Object.assign({}, it, { menuGroup:'service' }));
+        });
+        all.filter(m=>Number(m.weekday)===prevWd).sort((a,b)=>Number(a.sortOrder)-Number(b.sortOrder)).forEach(it=>{
+          const k=String(it.itemName||'').toLowerCase(); if (seen[k]) return; seen[k]=true;
+          previousItems.push(Object.assign({}, it, { menuGroup:'previous' }));
+        });
+      } else if (p.weekday!==undefined && p.weekday!=='') {
+        serviceWd = Number(p.weekday);
+        serviceItems = all.filter(m=>Number(m.weekday)===serviceWd).map(it=>Object.assign({},it,{menuGroup:'service'}));
+      } else {
+        serviceItems = all.map(it=>Object.assign({},it,{menuGroup:'service'}));
       }
-      items.sort((a,b)=>Number(a.weekday)-Number(b.weekday)||Number(a.sortOrder)-Number(b.sortOrder));
+      const items = serviceItems.concat(previousItems);
       const byWeekday = {}; for (let i=0;i<7;i++) byWeekday[i]=[];
-      items.forEach(it => { byWeekday[Number(it.weekday)].push(it); });
+      all.forEach(it => { byWeekday[Number(it.weekday)].push(it); });
       const tomorrowWd = fijiWeekday(addFijiDays(getFijiNow(),1));
-      return Promise.resolve(ok({ items, byWeekday, tomorrowWeekday:tomorrowWd, tomorrowWeekdayName:WEEKDAY_NAMES[tomorrowWd], serviceDate:dinnerCutoffInfo().serviceDate, cutoff:dinnerCutoffInfo() }));
+      const sw = serviceWd!=null ? serviceWd : tomorrowWd;
+      const pw = prevWd!=null ? prevWd : ((sw+6)%7);
+      return Promise.resolve(ok({ items, serviceItems, previousItems, byWeekday, tomorrowWeekday:tomorrowWd, tomorrowWeekdayName:WEEKDAY_NAMES[tomorrowWd], serviceWeekday:sw, serviceWeekdayName:WEEKDAY_NAMES[sw], previousWeekday:pw, previousWeekdayName:WEEKDAY_NAMES[pw], serviceDate:p.serviceDate||dinnerCutoffInfo().serviceDate, cutoff:dinnerCutoffInfo() }));
     }
     case 'saveDinnerMenuItem': {
       if (!passOk(p.passcode,'super')) return Promise.resolve(fail('Superadmin passcode required (2026)'));
@@ -1082,7 +1222,7 @@ function demoApi(action, p) {
       }
       return Promise.resolve(ok({
         breakfastDate, dinnerDate, lunchDate,
-        breakfast:{ total:breakfasts.length, orders:breakfasts, cutoff:bi, serviceDate:breakfastDate },
+        breakfast:{ total:breakfasts.filter(o=>o.status!=='late_pending'&&o.status!=='rejected').length, orders:breakfasts, latePending:breakfasts.filter(o=>o.status==='late_pending'), late:breakfasts.filter(o=>o.late), cutoff:bi, serviceDate:breakfastDate },
         dinner:{ orders:dinners, late:dinners.filter(o=>o.late), tally:tally(dinners), cutoff:di, pendingCount:pending.length, approvedCount:approved.length, lateCount:dinners.filter(o=>o.late).length, total:dinners.length },
         lunch:{ total:lunches.length, orders:lunches, late:lunches.filter(o=>o.late), tally:tally(lunches), cutoff:li, serviceDate:lunchDate },
         stats:{ tomorrowTotal:dinners.length, perItem:tally(dinners), lateCount:dinners.filter(o=>o.late).length, approved:approved.length, pending:pending.length, last7Days:last7 },
@@ -1395,15 +1535,7 @@ function demoApi(action, p) {
     case 'getDepartmentRoster':
       return Promise.resolve(fail('Live roster unavailable in demo — enable against production sheet'));
     case 'unlockSuperadminPin': {
-      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('passcode'));
-      if (!db.appSettings) db.appSettings = {};
-      if (!db.appSettings.superadmin_pin) {
-        if (!p.pin || String(p.pin).length<4) return Promise.resolve(fail('Set PIN (min 4)'));
-        db.appSettings.superadmin_pin = String(p.pin); saveDemo(db);
-        return Promise.resolve(ok({ set:true }));
-      }
-      if (String(p.pin)!==db.appSettings.superadmin_pin) return Promise.resolve(fail('Invalid PIN'));
-      return Promise.resolve(ok({ unlocked:true }));
+      return Promise.resolve(ok({ unlocked:true, deprecated:true, message:'PIN flow removed' }));
     }
     case 'getCutoffInfo':
       return Promise.resolve(ok({ fijiNow:formatFiji(), breakfast:breakfastCutoffInfo(), dinner:dinnerCutoffInfo(), lunch:lunchCutoffInfo() }));
@@ -1444,26 +1576,32 @@ function passLevel(code){
   return null;
 }
 function passOk(code, level){
+  // C66: role gate — demo accepts role sentinel or legacy codes
+  if (code === 'role' || code === true) {
+    if (level === 'super') return hasPerm('super_admin');
+    return canAdmin() || canHod() || canKitchen();
+  }
   const lv = passLevel(code);
-  if (!lv) return false;
+  if (!lv) {
+    // no code: allow if current user has role (API calls omit passcode)
+    if (level === 'super') return hasPerm('super_admin');
+    return canAdmin() || canHod() || canKitchen();
+  }
   if (level === 'super') return lv === 'super';
   return true;
 }
+/** C66: no unlock modal — role permissions alone gate Admin. Returns truthy sentinel for legacy call sites. */
 function askPasscode(level){
   level = level || 'admin';
-  const hint = level === 'super'
-    ? 'Superadmin unlock required (2026)'
-    : 'Admin 2025 (limited) or Superadmin 2026 (full)';
-  return new Promise(resolve => {
-    openModal('<h3 class="font-semibold mb-2 text-slate-100"><i class="fa-solid fa-key text-teal-400 mr-2"></i>Admin unlock</h3><p class="text-xs text-slate-400 mb-3">'+hint+'</p><input id="pc-input" type="password" inputmode="numeric" class="ui-input mb-3" placeholder="Passcode"/><div class="flex gap-2"><button class="flex-1 ui-btn ui-btn-secondary rounded-xl py-2 text-sm" id="pc-cancel">Cancel</button><button class="flex-1 btn-primary rounded-xl py-2 text-sm text-white" id="pc-ok">Confirm</button></div>');
-    $('#pc-cancel').onclick = () => { closeModal(); resolve(null); };
-    $('#pc-ok').onclick = () => {
-      const v=$('#pc-input').value;
-      if (!passOk(v, level)) { toast(level==='super'?'Need 2026':'Invalid passcode','error'); return; }
-      closeModal(); resolve(v);
-    };
-    setTimeout(()=>{ const i=$('#pc-input'); if(i) i.focus(); }, 50);
-  });
+  if (level === 'super' && !hasPerm('super_admin')) {
+    toast('Superadmin permission required','error');
+    return Promise.resolve(null);
+  }
+  if (level !== 'super' && !canAdmin() && !canHod() && !canKitchen()) {
+    toast('Admin permission required','error');
+    return Promise.resolve(null);
+  }
+  return Promise.resolve('role');
 }
 function roleLabel(r){
   return ({ super_admin:'Super Admin', admin:'Admin', hod:'HOD', assistant_hod:'Assistant HOD', chef:'Chef', kitchen:'Kitchen', boat_manager:'Boat Manager', boat_captain:'Boat Captain', boat:'Boat', staff:'Staff' })[r]||r;
@@ -1710,11 +1848,11 @@ function renderHome(){
           '<p class="mt-0.5 text-[10px] text-teal-400/90"><i class="fa-regular fa-clock mr-1"></i>'+formatFiji()+'</p>'+
         '</div></div>'+
       '<div class="grid grid-cols-3 gap-2">'+
-        '<button type="button" onclick="navigate(\'breakfast\')" class="meal-card-btn ui-card glass rounded-xl p-2.5 text-left '+(bi.open?'meal-open-glow border-teal-600/40':'')+'">'+
+        '<button type="button" onclick="navigate(\'breakfast\')" class="meal-card-btn ui-card glass rounded-xl p-2.5 text-left '+(bi.open||bi.lateOpen?'meal-open-glow border-teal-600/40':'')+'">'+
           '<p class="text-[9px] uppercase tracking-wide text-slate-400">Breakfast</p>'+
-          '<p class="text-sm font-medium mt-1">'+(bi.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
+          '<p class="text-sm font-medium mt-1">'+(bi.open?'<span class="text-teal-400">Open</span>':(bi.lateOpen?'<span class="text-orange-300">Late</span>':'<span class="text-amber-400">Closed</span>'))+'</p>'+
           '<p class="text-[9px] text-slate-500">'+bi.serviceDate+'</p>'+
-          '<p class="text-[9px] text-slate-500">1pm Fiji</p></button>'+
+          '<p class="text-[9px] text-slate-500">'+(bi.lateOpen?'until 6pm':'1pm Fiji')+'</p></button>'+
         '<button type="button" onclick="navigate(\'lunch\')" class="meal-card-btn ui-card glass rounded-xl p-2.5 text-left '+(li.open?'meal-open-glow border-teal-600/40':'')+'">'+
           '<p class="text-[9px] uppercase tracking-wide text-slate-400">Lunch</p>'+
           '<p class="text-sm font-medium mt-1">'+(li.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
@@ -1751,6 +1889,29 @@ function renderHome(){
     });
   }, 0);
   loadHomeRemindersAndSuggestions();
+  if (hasPerm('super_admin')) loadSuperadminHomeStats();
+}
+
+async function loadSuperadminHomeStats(){
+  const host = document.querySelector('.grid.grid-cols-3.gap-2');
+  if (!host) return;
+  host.innerHTML = '<div class="col-span-3 glass rounded-xl p-3 text-xs text-slate-400">Loading weekly / monthly meal stats…</div>';
+  try {
+    const r = await api('getMealStatistics');
+    if (!r.success) { host.innerHTML = '<div class="col-span-3 text-xs text-rose-300">Stats unavailable</div>'; return; }
+    const w = (r.data.weekly && r.data.weekly.totals) || {};
+    const m = (r.data.monthly && r.data.monthly.totals) || {};
+    host.innerHTML =
+      '<div class="col-span-3 glass rounded-xl p-3 space-y-2 border border-teal-600/30">'+
+      '<p class="text-xs font-semibold text-teal-200"><i class="fa-solid fa-chart-column mr-1"></i>Superadmin — meal statistics</p>'+
+      '<div class="grid grid-cols-3 gap-2 text-center">'+
+      '<div><p class="text-[9px] text-slate-400">Week B/L/D</p><p class="text-sm text-teal-300">'+(w.breakfast||0)+'/'+(w.lunch||0)+'/'+(w.dinner||0)+'</p></div>'+
+      '<div><p class="text-[9px] text-slate-400">Month B/L/D</p><p class="text-sm text-teal-300">'+(m.breakfast||0)+'/'+(m.lunch||0)+'/'+(m.dinner||0)+'</p></div>'+
+      '<div><button type="button" onclick="navigate(\'more\')" class="text-[10px] text-teal-400">Admin tools →</button></div></div>'+
+      '<p class="text-[9px] text-slate-500">Staff meal tiles hidden on superadmin home — use More for full tools.</p></div>';
+  } catch(e){
+    host.innerHTML = '<div class="col-span-3 text-xs text-rose-300">'+esc(e.message)+'</div>';
+  }
 }
 function reminderPriorityScore(r){
   const high = r.important===true||r.important==='TRUE'||r.important===1||String(r.priority||'').toLowerCase()==='high';
@@ -1854,11 +2015,25 @@ async function renderDinner(){
   const cachedOrders = cacheGet(orderKey);
   const cachedMenus = cacheGet(menuKey);
 
-  function paintDinner(myDinner, menuItems){
+  function paintDinner(myDinner, menuPack){
     myDinner = myDinner || [];
-    menuItems = menuItems || [];
-    const wd = fijiWeekday(addFijiDays(getFijiNow(),1));
-    let dinnerOpts = menuItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('');
+    menuPack = menuPack || {};
+    const menuItems = Array.isArray(menuPack) ? menuPack : (menuPack.items || []);
+    const serviceItems = (!Array.isArray(menuPack) && menuPack.serviceItems) ? menuPack.serviceItems : menuItems.filter(it => (it.menuGroup||'service')==='service');
+    const previousItems = (!Array.isArray(menuPack) && menuPack.previousItems) ? menuPack.previousItems : menuItems.filter(it => it.menuGroup==='previous');
+    const wd = (menuPack.serviceWeekday != null) ? Number(menuPack.serviceWeekday) : fijiWeekday(addFijiDays(getFijiNow(),1));
+    const prevWd = (menuPack.previousWeekday != null) ? Number(menuPack.previousWeekday) : ((wd + 6) % 7);
+    let dinnerOpts = '';
+    if (serviceItems.length) {
+      dinnerOpts += '<optgroup label="Tomorrow\'s menu ('+WEEKDAY_NAMES[wd]+')">'+
+        serviceItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('')+
+        '</optgroup>';
+    }
+    if (previousItems.length) {
+      dinnerOpts += '<optgroup label="Previous day menu ('+WEEKDAY_NAMES[prevWd]+')">'+
+        previousItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('')+
+        '</optgroup>';
+    }
     if (!dinnerOpts) dinnerOpts = '<option value="Standard">Standard</option><option value="Vegetarian">Vegetarian</option><option value="No meal">No meal</option>';
     const cur = myDinner[0];
     const statusHtml = cur ? ('<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(cur.mealChoice)+'</strong> '+statusBadge(cur.status)+(cur.late?' <span class="text-amber-400">LATE</span>':'')+'</p>') : '';
@@ -1868,11 +2043,11 @@ async function renderDinner(){
       '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+di.serviceDate+'</strong> · '+WEEKDAY_NAMES[wd]+'</p>'+
       '<p class="text-[10px] '+(di.open?'text-teal-400':'text-amber-400')+'">'+(di.open?'Ordering open':'Closed — late dinner requests only')+' — '+di.cutoffLabel+'</p></div>'+
       statusHtml+
-      '<label class="text-[10px] text-slate-400">Tomorrow\'s menu</label>'+
+      '<label class="text-[10px] text-slate-400">Meal choice (tomorrow + previous day menus)</label>'+
       '<select id="dinner-choice" class="w-full rounded-xl px-3 py-2 text-sm">'+dinnerOpts+'</select>'+
       '<input id="dinner-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes / allergies"/>'+
       '<button id="btn-dinner" class="btn-primary w-full rounded-xl py-2 text-sm text-white">'+(di.open?'Place dinner order':'Submit late dinner request')+'</button>'+
-      (!di.open?'<p class="text-[10px] text-amber-300/80">For staff who missed the 8pm Fiji cutoff for tomorrow\'s dinner. Late requests need admin approval (2025/2026).</p>':'')+
+      (!di.open?'<p class="text-[10px] text-amber-300/80">For staff who missed the 8pm Fiji cutoff for tomorrow\'s dinner. Late requests need chef/admin approval.</p>':'')+
       '</div></div>';
     if (cur && cur.mealChoice) {
       const sel = $('#dinner-choice');
@@ -1899,10 +2074,11 @@ async function renderDinner(){
       api('getDinnerMenus',{ serviceDate: di.serviceDate })
     ]);
     const myDinner = (d.data && d.data.orders) || [];
-    const menuItems = (m.data && m.data.items) || (d.data && d.data.menus) || [];
+    const menuPack = (m && m.data) ? m.data : { items: (d.data && d.data.menus) || [] };
+    if (!menuPack.items && d.data && d.data.menus) menuPack.items = d.data.menus;
     cacheSet(orderKey, myDinner);
-    cacheSet(menuKey, menuItems);
-    paintDinner(myDinner, menuItems);
+    cacheSet(menuKey, menuPack);
+    paintDinner(myDinner, menuPack);
   } catch(e){
     if (!(cachedOrders || cachedMenus)) {
       $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto"><div class="glass rounded-xl p-4 text-sm text-red-300">Unable to load dinner</div></div>';
@@ -1944,40 +2120,72 @@ async function renderBreakfast(){
     myOrders = (myOrders || []).filter(o => o.status !== 'cancelled');
     const cur = myOrders[0];
     let formHtml = '';
+    const st = cur && cur.status;
+    const waitingLate = st === 'late_pending';
+    const declined = st === 'rejected' || st === 'declined';
+    const counted = cur && (st === 'ordered' || st === 'late_approved' || st === 'approved');
     if (bi.open) {
       formHtml =
         '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
-        '<button id="btn-breakfast" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white">'+(cur?'Update / already counted':'Count me in')+'</button>'+
-        (cur?'<button id="btn-breakfast-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
+        '<button id="btn-breakfast" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white">'+(counted?'Update / already counted':'Count me in')+'</button>'+
+        (cur && !declined?'<button id="btn-breakfast-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
+    } else if (bi.lateOpen) {
+      if (waitingLate) {
+        formHtml =
+          '<div class="rounded-xl border border-orange-500/35 bg-orange-500/10 p-3 space-y-1">'+
+          '<p class="text-sm font-medium text-orange-300"><i class="fa-solid fa-hourglass-half mr-1"></i>Waiting approval from chef</p>'+
+          '<p class="text-[10px] text-orange-200/80">Late breakfast request submitted. Chef/admin will approve before 6pm Fiji.</p></div>'+
+          '<button id="btn-breakfast-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel late request</button>';
+      } else if (counted) {
+        formHtml = '<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for breakfast'+(st==='late_approved'?' (late approved)':'')+'</p>';
+      } else if (declined) {
+        formHtml =
+          '<div class="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3">'+
+          '<p class="text-sm text-rose-300">order declined please see hod or chef</p></div>'+
+          '<button id="btn-breakfast-late" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white mt-2">Request late breakfast again</button>';
+      } else {
+        formHtml =
+          '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">'+
+          '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-clock mr-1"></i>Normal breakfast closed (1pm)</p>'+
+          '<p class="text-[10px] text-amber-200/80">Late requests open until 6:00 PM Fiji — needs chef approval.</p>'+
+          '<button id="btn-breakfast-late" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white">Request late breakfast</button></div>';
+      }
     } else {
       formHtml =
         '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1">'+
-        '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-lock mr-1"></i>Breakfast closed at 1pm Fiji</p>'+
-        '<p class="text-[10px] text-amber-200/80">Closed at 1:00 PM Fiji today for tomorrow\'s breakfast. No staff late path.</p>'+
-        '</div>';
+        '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-lock mr-1"></i>Breakfast fully closed after 6pm Fiji</p>'+
+        (declined?'<p class="text-xs text-rose-300 mt-1">order declined please see hod or chef</p>':'')+
+        '<p class="text-[10px] text-amber-200/80">No new late requests. See HOD or chef if needed.</p></div>';
     }
+    const statusLine = bi.open ? 'Open — count in before 1:00 PM Fiji'
+      : (bi.lateOpen ? 'Late window — until 6:00 PM Fiji' : 'Fully closed');
     $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="breakfast-root">'+
       mealPillsHtml('breakfast')+
       '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-mug-saucer text-teal-400 mr-2"></i>Breakfast</h3>'+
       '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+bi.serviceDate+'</strong> (tomorrow)</p>'+
-      '<p class="text-[10px] '+(bi.open?'text-teal-400':'text-amber-400')+'">'+(bi.open?'Open — count in before 1:00 PM Fiji':'Closed')+' — '+bi.cutoffLabel+'</p></div>'+
-      (cur?'<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for breakfast</p>':'')+
+      '<p class="text-[10px] '+(bi.open?'text-teal-400':(bi.lateOpen?'text-orange-300':'text-amber-400'))+'">'+statusLine+' — '+bi.cutoffLabel+'</p></div>'+
+      (counted?'<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for breakfast</p>':'')+
+      (waitingLate && bi.open?'':'')+
       formHtml+
       '</div></div>';
     bindMealPills('#breakfast-root');
-    const btn = $('#btn-breakfast');
-    if (btn) btn.onclick = async () => {
-      const r = await api('placeBreakfastOrder',{});
+    async function placeBf(allowLate){
+      const r = await api('placeBreakfastOrder', allowLate ? { allowLate:true } : {});
       if (!r.success) { toast(r.error,'error'); return; }
       cacheInvalidate([cacheKey, 'kitchenDashboard']);
-      toast(cur?'Breakfast updated':'Counted in for breakfast','ok'); renderBreakfast();
-    };
+      toast(allowLate?'Late breakfast submitted — waiting chef':'Counted in for breakfast','ok');
+      renderBreakfast();
+    }
+    const btn = $('#btn-breakfast');
+    if (btn) btn.onclick = () => placeBf(false);
+    const lateBtn = $('#btn-breakfast-late');
+    if (lateBtn) lateBtn.onclick = () => placeBf(true);
     const cancel = $('#btn-breakfast-cancel');
     if (cancel) cancel.onclick = async () => {
       const r = await api('cancelMealOrder',{ meal:'breakfast' });
       if (!r.success) { toast(r.error,'error'); return; }
       cacheInvalidate([cacheKey, 'kitchenDashboard']);
-      toast('Breakfast count cancelled','ok'); renderBreakfast();
+      toast('Breakfast cancelled','ok'); renderBreakfast();
     };
   }
 
@@ -2669,21 +2877,97 @@ function moreRow(tab, icon, label){
   return '<button onclick="navigate(\''+tab+'\')" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid '+icon+' text-teal-400 w-5"></i><span class="flex-1">'+label+'</span><i class="fa-solid fa-chevron-right text-sand-200/30 text-xs"></i></button>';
 }
 function renderMore(){
+  const isSuper = hasPerm('super_admin');
+  const isAdm = canFullAdmin();
+  const isChef = hasAnyPerm(['chef','kitchen'], state.user);
+  const isHodOnly = canHod() && !isAdm;
   let html = '<div class="fade-in max-w-lg mx-auto space-y-2">'+
     moreRow('schedule','fa-calendar','My schedule / leave')+
     moreRow('profile','fa-user','My profile / photo')+
     moreRow('reminders','fa-bell','Reminders (staff-wide)')+moreRow('suggestions','fa-lightbulb','Suggestion box')+
     moreRow('bookings','fa-ticket','My boat bookings');
-  if (canKitchen()) html += moreRow('kitchen','fa-fire-burner','Kitchen dashboard');
-  if (canFullAdmin() || canHod()) html += moreRow('users','fa-users','Staff directory');
-  if (canAdmin()) html += moreRow('admin','fa-gear','Admin tools');
-  if (canHod() && !canFullAdmin()) html += '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-inbox text-teal-400 w-5"></i><span class="flex-1">Leave inbox (HOD)</span></button>';
-  if (isStaffOnly()) html += '<p class="text-[10px] text-slate-500 px-1 pt-2">Staff access: meals, boats, suggestions, leave & profile. Admin/kitchen tools are hidden.</p>';
+
+  // Admin More (ordered) — only after role assigned
+  if (isAdm) {
+    html += '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-3">Admin</p>';
+    html += '<button onclick="renderMealStatsPage()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-chart-column text-teal-400 w-5"></i><span class="flex-1">Statistics (weekly meals + boats)</span></button>';
+    html += moreRow('bookings','fa-ship','My boat bookings');
+    if (canKitchen()) html += moreRow('kitchen','fa-fire-burner','Kitchen Admin');
+    html += moreRow('admin','fa-anchor','Boat Admin');
+    html += moreRow('users','fa-users','Staff Directory / Permissions');
+    html += moreRow('reminders','fa-bullhorn','Broadcast Reminders');
+    html += moreRow('suggestions','fa-lightbulb','Review Suggestions');
+    html += '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-inbox text-teal-400 w-5"></i><span class="flex-1">Requested Inbox (pending leave)</span></button>';
+    if (isSuper) html += moreRow('admin','fa-envelope','Manage Alert Emails');
+  }
+
+  // Chef → Kitchen Admin
+  if (isChef && !isAdm) {
+    html += '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-3">Kitchen</p>';
+    html += moreRow('kitchen','fa-fire-burner','Kitchen Admin');
+  } else if (canKitchen() && !isAdm && !isChef) {
+    html += moreRow('kitchen','fa-fire-burner','Kitchen dashboard');
+  }
+
+  // HOD section
+  if (isHodOnly || (canHod() && !isAdm)) {
+    html += '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-3">HOD</p>';
+    html += '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-inbox text-teal-400 w-5"></i><span class="flex-1">Department leave requests</span></button>';
+    html += '<button onclick="openMealOnBehalfModal()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-utensils text-teal-400 w-5"></i><span class="flex-1">Meal on behalf</span></button>';
+    html += moreRow('schedule','fa-file-arrow-up','Roster upload / My Schedule');
+    if (canHod()) html += moreRow('users','fa-users','Staff directory');
+  }
+
+  if (isStaffOnly()) html += '<p class="text-[10px] text-slate-500 px-1 pt-2">Staff access: meals, boats, suggestions, leave & profile. Extra tools appear after your role is assigned.</p>';
   html += '<div class="glass rounded-xl p-3 mt-4 text-[10px] text-sand-200/40 space-y-1">'+
     '<p>Backend: '+(state.demo?'Demo (localStorage)':esc((API_URL||'').slice(0,48)+'…'))+'</p>'+
     '<p>API version: '+esc(state.backendVersion||'—')+'</p><p>Fiji now: '+formatFiji()+'</p>'+
     '<button onclick="checkHealth()" class="text-teal-400 mt-1">Check API health</button></div></div>';
   $('#main-content').innerHTML = html;
+}
+
+async function renderMealStatsPage(){
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="stats-root"><p class="text-sm text-slate-400">Loading statistics…</p></div>';
+  try {
+    const r = await api('getMealStatistics');
+    if (!r.success) { toast(r.error||'Failed','error'); return; }
+    const w = r.data.weekly || {}, m = r.data.monthly || {};
+    const wt = w.totals || {}, mt = m.totals || {};
+    let html = '<div class="fade-in max-w-lg mx-auto space-y-3">'+
+      '<h3 class="font-semibold text-sm"><i class="fa-solid fa-chart-column text-teal-400 mr-2"></i>Meal statistics</h3>'+
+      '<div class="glass rounded-xl p-4 grid grid-cols-3 gap-2 text-center">'+
+      '<div><p class="text-[10px] text-slate-400">Week B</p><p class="text-xl text-teal-300">'+(wt.breakfast||0)+'</p></div>'+
+      '<div><p class="text-[10px] text-slate-400">Week L</p><p class="text-xl text-teal-300">'+(wt.lunch||0)+'</p></div>'+
+      '<div><p class="text-[10px] text-slate-400">Week D</p><p class="text-xl text-teal-300">'+(wt.dinner||0)+'</p></div></div>'+
+      '<div class="glass rounded-xl p-4 grid grid-cols-3 gap-2 text-center">'+
+      '<div><p class="text-[10px] text-slate-400">Month B</p><p class="text-xl text-teal-300">'+(mt.breakfast||0)+'</p></div>'+
+      '<div><p class="text-[10px] text-slate-400">Month L</p><p class="text-xl text-teal-300">'+(mt.lunch||0)+'</p></div>'+
+      '<div><p class="text-[10px] text-slate-400">Month D</p><p class="text-xl text-teal-300">'+(mt.dinner||0)+'</p></div></div>'+
+      '<p class="text-[10px] text-slate-500">Boat bookings (active sample window): '+(w.boatBookings!=null?w.boatBookings:'—')+'</p>'+
+      '<button onclick="navigate(\'more\')" class="text-xs text-teal-400">← Back</button></div>';
+    $('#main-content').innerHTML = html;
+  } catch(e){ $('#stats-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
+}
+
+function openMealOnBehalfModal(){
+  openModal('<h3 class="font-semibold mb-3">Meal on behalf</h3>'+
+    '<input id="mob-name" class="ui-input mb-2" placeholder="Staff name (roster)"/>'+
+    '<input id="mob-dept" class="ui-input mb-2" placeholder="Department" value="'+esc(state.user.department||'')+'"/>'+
+    '<textarea id="mob-comment" class="ui-input mb-2" rows="2" placeholder="Comment"></textarea>'+
+    '<select id="mob-meal" class="ui-input mb-2"><option value="breakfast">Breakfast (headcount)</option><option value="lunch">Lunch (headcount)</option><option value="dinner">Dinner (menu)</option></select>'+
+    '<input id="mob-choice" class="ui-input mb-2" placeholder="Dinner meal choice (if dinner)"/>'+
+    '<button id="mob-go" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Send to Kitchen</button>');
+  $('#mob-go').onclick = async () => {
+    const res = await api('placeMealOnBehalf',{
+      staffName: $('#mob-name').value.trim(),
+      department: $('#mob-dept').value.trim(),
+      comment: $('#mob-comment').value.trim(),
+      meal: $('#mob-meal').value,
+      mealChoice: $('#mob-choice').value.trim() || 'Standard'
+    });
+    if (!res.success) { toast(res.error||'Failed','error'); return; }
+    closeModal(); toast((res.data && res.data.message) || 'Submitted','ok');
+  };
 }
 async function checkHealth(){
   try {
@@ -2801,6 +3085,7 @@ async function renderSuggestions(){
 async function renderMyProfile(){
   const u = state.user;
   const photo = u.photoUrl || localPhoto(u.email) || '';
+  const loc = (u.village === 'Village' || String(u.village).toLowerCase()==='village') ? 'Village' : (u.village ? 'Mainland' : '');
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="prof-root">'+
     '<div class="glass rounded-2xl p-4 space-y-3">'+
     '<div class="flex items-center gap-3"><div class="h-16 w-16 rounded-xl overflow-hidden bg-slate-800 border border-slate-600 flex items-center justify-center">'+
@@ -2809,12 +3094,22 @@ async function renderMyProfile(){
     '<p class="text-[10px] text-slate-400">'+esc(u.email)+' · '+esc(roleLabel(u.role))+'</p></div></div>'+
     '<label class="text-xs text-slate-400">Profile photo</label>'+
     '<input type="file" id="pf2-photo" accept="image/*" class="block w-full text-xs text-slate-400"/>'+
-    '<input id="pf2-fn" class="ui-input" placeholder="First name" value="'+esc(u.firstName)+'"/>'+
-    '<input id="pf2-ln" class="ui-input" placeholder="Last name" value="'+esc(u.lastName)+'"/>'+
+    '<label class="text-xs text-slate-500">First name (locked)</label>'+
+    '<input id="pf2-fn" class="ui-input opacity-70" value="'+esc(u.firstName)+'" readonly disabled/>'+
+    '<label class="text-xs text-slate-500">Last name (locked)</label>'+
+    '<input id="pf2-ln" class="ui-input opacity-70" value="'+esc(u.lastName)+'" readonly disabled/>'+
+    '<label class="text-xs text-slate-500">Department (locked)</label>'+
+    '<input id="pf2-dept" class="ui-input opacity-70" value="'+esc(u.department||'')+'" readonly disabled/>'+
+    '<label class="text-xs text-slate-400">Contact</label>'+
     '<input id="pf2-contact" class="ui-input" placeholder="Contact" value="'+esc(u.contact||'')+'"/>'+
-    '<input id="pf2-dept" class="ui-input" placeholder="Department" value="'+esc(u.department||'')+'"/>'+
+    '<label class="text-xs text-slate-400">Mainland or Village Staff</label>'+
+    '<select id="pf2-village" class="ui-input"><option value="Mainland"'+(loc!=='Village'?' selected':'')+'>Mainland</option><option value="Village"'+(loc==='Village'?' selected':'')+'>Village</option></select>'+
+    '<label class="text-xs text-slate-400">New password <span class="text-slate-500">(optional)</span></label>'+
+    '<input id="pf2-pw" type="password" class="ui-input" placeholder="Leave blank to keep"/>'+
     '<button id="pf2-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Save profile</button>'+
-    '<p class="text-[10px] text-slate-500">Role is fixed at registration (staff). Ask an admin to change privileges.</p></div></div>';
+    '<p class="text-[10px] text-slate-500">Name and department match roster — ask admin/HOD to change. Role is assigned by admin.</p>'+
+    '<button id="pf2-delete" class="w-full rounded-xl py-2 text-sm text-rose-300 border border-rose-500/40 mt-2">Delete / deactivate account</button>'+
+    '</div></div>';
   let pendingPhoto = photo;
   $('#pf2-photo').onchange = function(){
     const file = this.files && this.files[0]; if (!file) return;
@@ -2830,10 +3125,12 @@ async function renderMyProfile(){
     saveLocalPhoto(u.email, pendingPhoto);
     const payload = {
       targetEmail: u.email, email: u.email,
-      firstName: $('#pf2-fn').value.trim(), lastName: $('#pf2-ln').value.trim(),
-      contact: $('#pf2-contact').value.trim(), department: $('#pf2-dept').value.trim(),
+      contact: $('#pf2-contact').value.trim(),
+      village: $('#pf2-village').value,
       photoUrl: (pendingPhoto && pendingPhoto.length < 45000) ? pendingPhoto : ''
     };
+    const pw = ($('#pf2-pw').value || '').trim();
+    if (pw) payload.password = pw;
     const res = await api('updateProfile', payload);
     if (!res.success) { toast(res.error,'error'); return; }
     state.user = res.data.user;
@@ -2841,6 +3138,13 @@ async function renderMyProfile(){
     saveSession();
     toast('Profile saved','ok');
     renderMyProfile();
+  };
+  $('#pf2-delete').onclick = async () => {
+    if (!confirm('Deactivate your account? You will be signed out. Contact admin to restore.')) return;
+    const res = await api('deactivateAccount',{ userEmail: u.email, requesterEmail: u.email, email: u.email });
+    if (!res.success) { toast(res.error||'Failed','error'); return; }
+    toast('Account deactivated','ok');
+    doLogout();
   };
 }
 
@@ -2877,21 +3181,35 @@ async function renderKitchen(){
     const prepData = (prepR && prepR.data) || {};
     const stats = d.stats || {};
     function headcountBlock(title, meal, pack, date) {
-      const total = pack.total!=null ? pack.total : (pack.orders||[]).length;
+      const total = pack.total!=null ? pack.total : (pack.orders||[]).filter(o=>o.status!=='late_pending'&&o.status!=='rejected'&&o.status!=='cancelled').length;
       const open = pack.cutoff && pack.cutoff.open;
+      const lateOpen = pack.cutoff && pack.cutoff.lateOpen;
       let h = '<div class="glass rounded-2xl p-4"><div class="flex justify-between items-center mb-2"><h3 class="font-semibold text-sm">'+title+'</h3>'+
-        '<button class="text-xs text-teal-400 print-check" data-meal="'+meal+'">Print</button></div>'+
+        '<div class="flex gap-2"><button class="text-xs text-teal-400 print-check" data-meal="'+meal+'">Print / sheet</button>'+
+        (meal==='breakfast'||meal==='lunch'?'<button class="text-xs text-teal-300 dl-sheet" data-meal="'+meal+'">Download</button>':'')+'</div></div>'+
         '<p class="text-[10px] text-sand-200/50 mb-2">Service '+esc(date)+' · Fiji '+esc(d.fijiNow)+'</p>'+
         '<div class="rounded-xl border border-teal-600/40 bg-teal-600/10 p-4 mb-3 text-center">'+
-        '<p class="text-[10px] uppercase tracking-wide text-slate-400">Total</p>'+
+        '<p class="text-[10px] uppercase tracking-wide text-slate-400">Total counted</p>'+
         '<p class="text-3xl font-semibold text-teal-300">'+total+'</p>'+
-        '<p class="text-[10px] text-slate-400 mt-1">'+(open?'Open until 1pm Fiji':'Closed 1pm Fiji')+' · headcount only</p></div>';
-      h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Status</th><th></th></tr></thead><tbody>';
+        '<p class="text-[10px] text-slate-400 mt-1">'+(open?'Open until 1pm Fiji':(lateOpen?'Late until 6pm Fiji':'Closed'))+' · headcount only</p></div>';
+      const latePend = (pack.latePending || (pack.orders||[]).filter(o=>o.status==='late_pending') || []);
+      if (meal==='breakfast' && latePend.length) {
+        h += '<div class="mb-3 p-2 rounded-lg bg-orange-500/10 border border-orange-500/30">'+
+          '<div class="flex justify-between items-center mb-1"><p class="text-xs text-orange-300 font-medium"><i class="fa-solid fa-clock mr-1"></i>Late breakfast ('+latePend.length+')</p>'+
+          '<button id="btn-bf-approve-all" class="text-[10px] text-teal-300 font-medium">Approve all</button></div>';
+        latePend.forEach(o => {
+          h += '<div class="flex justify-between items-center gap-2 py-0.5"><p class="text-[10px] text-sand-200/70">'+esc(o.userName)+' · '+esc(o.department)+' '+statusBadge(o.status)+'</p>'+
+            '<span class="flex gap-2"><button class="text-[10px] text-teal-400 late-bf-approve" data-id="'+o.id+'">Approve</button>'+
+            '<button class="text-[10px] text-rose-300 late-bf-reject" data-id="'+o.id+'">Reject</button></span></div>';
+        });
+        h += '</div>';
+      }
+      h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Time</th><th>Status</th><th></th></tr></thead><tbody>';
       (pack.orders||[]).forEach(o => {
-        h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(o.userName)+'</td><td>'+esc(o.department)+'</td><td>'+statusBadge(o.status)+'</td>'+
+        h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(o.userName)+'</td><td>'+esc(o.department)+'</td><td class="text-[10px] text-slate-400">'+esc(String(o.createdAt||'').slice(0,16))+'</td><td>'+statusBadge(o.status)+'</td>'+
           '<td><button class="text-teal-400 mark-ord" data-id="'+o.id+'" data-meal="'+meal+'">'+(o.status==='prepared'||o.status==='served'?'✓':'Mark')+'</button></td></tr>';
       });
-      if (!(pack.orders||[]).length) h += '<tr><td colspan="4" class="py-2 text-slate-500">No headcount yet</td></tr>';
+      if (!(pack.orders||[]).length) h += '<tr><td colspan="5" class="py-2 text-slate-500">No headcount yet</td></tr>';
       h += '</tbody></table></div></div>';
       return h;
     }
@@ -2950,16 +3268,19 @@ async function renderKitchen(){
     const autoNote = prepData.autoGeneratedAt830
       ? '<p class="text-[10px] text-teal-300 mb-2"><i class="fa-solid fa-magic mr-1"></i>Auto-generated at 8:30pm'+(prepData.snapshot&&prepData.snapshot.generatedAt?' · '+esc(prepData.snapshot.generatedAt):'')+'</p>'
       : '<p class="text-[10px] text-slate-500 mb-2">Prep list auto-locks after 8:30pm Fiji for tomorrow\'s service.</p>';
-    let html = '<div class="glass rounded-2xl p-4 space-y-2">'+
+    let html = '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1">1 · Overview</p>'+statsHtml+
+      '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-2">2 · Dinner</p>'+
+      '<div class="glass rounded-2xl p-4 space-y-2">'+
       '<div class="flex flex-wrap justify-between items-center gap-2"><h3 class="font-semibold text-sm"><i class="fa-solid fa-print text-teal-400 mr-2"></i>Dinner Prep List</h3>'+
       '<div class="flex flex-wrap gap-2"><button id="btn-prep-gen" class="text-xs text-teal-400">Generate</button>'+
       '<button id="btn-prep-print" class="text-xs text-teal-400">Print</button>'+
       '<button id="btn-prep-dl" class="text-xs text-teal-300 font-medium">Download PDF</button>'+
       '<button id="btn-prep-view" class="text-xs text-teal-400">View PDF</button></div></div>'+
       autoNote+'</div>'+
+      block('Dinner','dinner',d.dinner,d.dinnerDate) +
+      '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-2">3 · Breakfast &amp; Lunch</p>'+
       headcountBlock('Breakfast','breakfast',d.breakfast||{},d.breakfastDate||((d.breakfast&&d.breakfast.serviceDate)||'')) +
-      headcountBlock('Lunch','lunch',d.lunch||{},d.lunchDate) +
-      block('Dinner','dinner',d.dinner,d.dinnerDate) + statsHtml;
+      headcountBlock('Lunch','lunch',d.lunch||{},d.lunchDate);
     if (!$('#kit-root')) $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root"></div>';
     $('#kit-root').innerHTML = html;
     $$('.mark-ord').forEach(b=>b.onclick=async()=>{
@@ -2970,7 +3291,28 @@ async function renderKitchen(){
     $$('.late-approve').forEach(b=>b.onclick=async()=>{
       const passcode = await askPasscode('admin'); if (!passcode) return;
       const res = await api('approveLateDinnerOrder',{ id:b.dataset.id, passcode });
-      if (!res.success) toast(res.error,'error'); else { toast('Late order approved','ok'); renderKitchen(); }
+      if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['kitchenDashboard']); toast('Late order approved','ok'); renderKitchen(); }
+    });
+    $$('.late-bf-approve').forEach(b=>b.onclick=async()=>{
+      const res = await api('approveLateBreakfastOrder',{ id:b.dataset.id });
+      if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['kitchenDashboard']); toast('Late breakfast approved','ok'); renderKitchen(); }
+    });
+    $$('.late-bf-reject').forEach(b=>b.onclick=async()=>{
+      const res = await api('approveLateBreakfastOrder',{ id:b.dataset.id, status:'rejected' });
+      if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['kitchenDashboard']); toast('Late breakfast declined','ok'); renderKitchen(); }
+    });
+    const bfAll = $('#btn-bf-approve-all');
+    if (bfAll) bfAll.onclick = async () => {
+      const res = await api('approveAllLateBreakfast',{});
+      if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['kitchenDashboard']); toast('Approved '+(res.data&&res.data.approved||0),'ok'); renderKitchen(); }
+    };
+    $$('.dl-sheet').forEach(b=>b.onclick=async()=>{
+      const meal = b.dataset.meal;
+      const r = await api(meal==='breakfast'?'getBreakfastOrderSheet':'getLunchOrderSheet',{});
+      if (!r.success) { toast(r.error,'error'); return; }
+      const rows = (r.data.orders||[]).map(o=>[o.userName,o.department,o.timeOrdered,o.status].map(csvEscape).join(',')).join('\n');
+      downloadText('pcr-'+meal+'-'+ (r.data.serviceDate||'') +'.csv', 'name,department,timeOrdered,status\n'+rows);
+      toast('Downloaded','ok');
     });
     $$('.print-check').forEach(b=>b.onclick=()=>{
       const meal = b.dataset.meal;
@@ -3133,7 +3475,8 @@ function renderUsersTable(users){
       '<p class="text-[10px] text-sand-200/40">'+esc(u.email)+'</p></td><td class="px-2">'+esc(u.department||'—')+'</td>'+
       '<td class="px-2"><span class="badge bg-teal-600/20 text-teal-300">'+esc(roleLabel(u.role))+'</span></td>'+
       '<td class="px-2">'+esc(u.contact||'—')+'</td>'+
-      '<td class="px-2"><button class="text-teal-400 u-edit" data-email="'+esc(u.email)+'">Edit</button></td></tr>';
+      '<td class="px-2 whitespace-nowrap"><button class="text-teal-400 u-edit" data-email="'+esc(u.email)+'">Edit</button>'+
+      (hasPerm('super_admin')?' <button class="text-rose-300 u-del ml-1" data-email="'+esc(u.email)+'">Delete</button>':'')+'</td></tr>';
   });
   return '<div class="table-scroll"><table class="w-full text-xs"><thead class="bg-navy-900/80 text-sand-200/50 text-left"><tr><th class="px-3 py-2">Name</th><th class="px-2">Dept</th><th class="px-2">Role</th><th class="px-2">Contact</th><th class="px-2"></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
@@ -3177,6 +3520,12 @@ async function renderUsers(){
   if (state.usersCache.length) {
     $('#u-status').textContent = 'Showing cached ('+state.usersCache.length+') · refreshing…';
     $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
+    $$('.u-del').forEach(b => b.onclick = async () => {
+      if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
+      const passcode = await askPasscode('super'); if (!passcode) return;
+      const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
+      if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
+    });
   } else {
     $('#u-status').textContent = 'Loading staff…';
     $('#u-table').innerHTML = '<div class="p-6 text-center text-sm text-sand-200/50"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</div>';
@@ -3227,6 +3576,12 @@ async function refreshUsers(silent){
     $('#u-table').innerHTML = renderUsersTable(users);
     $('#u-status').textContent = users.length+' active staff · updated '+formatFiji()+(state.demo?' · demo':'');
     $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
+    $$('.u-del').forEach(b => b.onclick = async () => {
+      if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
+      const passcode = await askPasscode('super'); if (!passcode) return;
+      const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
+      if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
+    });
   } catch (e) {
     state.usersError = e.message || String(e);
     const err = $('#u-error');
@@ -3239,6 +3594,12 @@ async function refreshUsers(silent){
     else {
       $('#u-status').textContent = 'Cached data shown · refresh failed';
       $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
+    $$('.u-del').forEach(b => b.onclick = async () => {
+      if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
+      const passcode = await askPasscode('super'); if (!passcode) return;
+      const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
+      if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
+    });
     }
     if (!silent) toast('Staff refresh failed','error');
   } finally { state.usersLoading = false; }
@@ -3385,52 +3746,27 @@ async function openPending(){
 }
 
 async function openAlertEmails(){
-  if (state.adminUnlock !== 'super') {
-    const code = await askPasscode('super');
-    if (!code) return;
-    state.adminUnlock = 'super';
-  }
+  if (!hasPerm('super_admin')) { toast('Superadmin only','error'); return; }
   const r = await api('getAlertEmails');
   const emails = ((r.data && r.data.emails) || []).map(e=>e.email||e).join('\n');
-  openModal('<h3 class="font-semibold mb-2 text-slate-100">Alert Emails</h3><p class="text-[10px] text-slate-400 mb-2">Super unlock (2026) · one email per line</p>'+
+  openModal('<h3 class="font-semibold mb-2 text-slate-100">Alert Emails</h3><p class="text-[10px] text-slate-400 mb-2">Superadmin · one email per line</p>'+
     '<textarea id="al-text" class="ui-input h-40 text-xs">'+esc(emails)+'</textarea>'+
     '<button id="al-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white mt-3">Save</button>');
   $('#al-save').onclick = async () => {
     const list = $('#al-text').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
     closeModal();
-    const passcode = await askPasscode('super'); if (!passcode) return;
-    const res = await api('saveAlertEmails',{ emails:list, passcode });
+    const res = await api('saveAlertEmails',{ emails:list });
     if (!res.success) toast(res.error,'error'); else toast('Alert emails saved','ok');
   };
 }
 async function renderAdmin(){
   if (!canAdmin()) { navigate('more'); return; }
-  if (!state.adminUnlock) {
-    const code = await askPasscode('admin');
-    if (!code) { navigate('more'); return; }
-    state.adminUnlock = passLevel(code);
-    // C39: first super unlock may require setting superadmin PIN
-    if (state.adminUnlock === 'super' && hasPerm('super_admin')) {
-      try {
-        const st = await api('getAppSettings');
-        const set = st.data && st.data.settings && st.data.settings.superadmin_pin_set;
-        if (!set) {
-          const pin = prompt('Set superadmin PIN (min 4 chars) for future admin-tab unlocks:');
-          if (pin && pin.length >= 4) {
-            await api('unlockSuperadminPin', { passcode: code, pin });
-            toast('Superadmin PIN saved','ok');
-          }
-        } else if (!state.superadminPinUnlocked) {
-          const pin = prompt('Enter superadmin PIN:');
-          const ur = await api('unlockSuperadminPin', { passcode: code, pin });
-          if (!ur.success) { toast(ur.error||'PIN required','error'); state.adminUnlock=null; navigate('more'); return; }
-          state.superadminPinUnlocked = true;
-        }
-      } catch(e) {}
-    }
-  }
+  // C66: no passcode unlock / no superadmin PIN — role alone
+  state.adminUnlock = hasPerm('super_admin') ? 'super' : 'admin';
+  state.superadminPinUnlocked = true;
   await refreshFeatureFlags();
-  const full = state.adminUnlock === 'super';
+  const full = hasPerm('super_admin') || hasPerm('admin');
+  const isSuper = hasPerm('super_admin');
   const isChefOnly = hasPerm('chef') && !canFullAdmin();
   const isBoatOnly = hasPerm('boat_manager') && !canFullAdmin() && !hasPerm('chef');
   let sub = state.adminKitchenTab || (isChefOnly ? 'kitchen' : isBoatOnly ? 'boat' : 'overview');
@@ -3442,26 +3778,23 @@ async function renderAdmin(){
     tabs += '<button id="adm-tab-overview" class="auth-tab '+(sub==='overview'?'active':'')+'">Overview</button>';
     tabs += '<button id="adm-tab-kitchen" class="auth-tab '+(sub==='kitchen'?'active':'')+'">Kitchen</button>';
     tabs += '<button id="adm-tab-boat" class="auth-tab '+(sub==='boat'?'active':'')+'">Boat</button>';
-    if (full && hasPerm('super_admin')) tabs += '<button id="adm-tab-features" class="auth-tab '+(sub==='features'?'active':'')+'">Settings / Features</button>';
+    if (isSuper) tabs += '<button id="adm-tab-features" class="auth-tab '+(sub==='features'?'active':'')+'">Settings / Features</button>';
   } else if (isChefOnly) {
     tabs += '<button id="adm-tab-kitchen" class="auth-tab active">Kitchen</button>';
   } else {
     tabs += '<button id="adm-tab-boat" class="auth-tab active">Boat</button>';
   }
   let html = '<div class="animate-fade-in max-w-lg mx-auto space-y-3" id="admin-root">'+
-    '<div class="ui-card glass rounded-xl p-3 flex items-center justify-between">'+
-      '<div><p class="text-sm font-semibold text-slate-100">Admin tools</p>'+
-      '<p class="text-[10px] text-slate-400">Unlock: '+(full?'Superadmin 2026 (full)':'Admin 2025 (limited)')+'</p></div>'+
-      '<button id="btn-reunlock" class="text-xs text-teal-400">Re-lock</button></div>'+
+    '<div class="ui-card glass rounded-xl p-3">'+
+      '<p class="text-sm font-semibold text-slate-100">Admin tools</p>'+
+      '<p class="text-[10px] text-slate-400">Access by role · '+esc(roleLabel(state.user.role))+'</p></div>'+
     '<div class="flex flex-wrap gap-2 border-b border-slate-700 pb-2">'+tabs+'</div>'+
     '<div id="admin-body"></div></div>';
   $('#main-content').innerHTML = html;
-  const rel = $('#btn-reunlock');
-  if (rel) rel.onclick = () => { state.adminUnlock = null; state.adminKitchenTab=null; state.superadminPinUnlocked=false; renderAdmin(); };
   const to = (name) => { const el = $('#adm-tab-'+name); if (el) el.onclick = () => { state.adminKitchenTab=name; renderAdmin(); }; };
   to('overview'); to('kitchen'); to('boat'); to('features');
 
-  if (sub === 'kitchen') { await renderAdminKitchenTab(full); return; }
+  if (sub === 'kitchen') { await renderAdminKitchenTab(isSuper); return; }
   if (sub === 'boat') {
     $('#admin-body').innerHTML = '<p class="text-xs text-slate-400 mb-2">Boat manager tools</p><button onclick="navigate(\'boat\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-ship text-teal-400 mr-2"></i>Open boat runs / CRUD</button>';
     return;
@@ -3476,22 +3809,12 @@ async function renderAdmin(){
     '<button onclick="navigate(\'kitchen\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-fire-burner text-teal-400 mr-2"></i>Kitchen ops / prep list</button>'+
     '<button onclick="navigate(\'boat\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-ship text-teal-400 mr-2"></i>Boat ops</button>'+
     '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-inbox text-teal-400 mr-2"></i>Leave inbox</button>';
-  if (full) {
+  if (isSuper) {
     body += '<button onclick="openAlertEmails()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-envelope text-teal-400 mr-2"></i>Manage Alert Emails</button>'+
       '<p class="text-[10px] text-slate-500 px-1 mb-2">Super-only: alert emails, feature flags, super_admin grant, dinner menu CRUD</p>';
-  } else {
-    body += '<p class="text-[10px] text-amber-300/80 px-1 mb-2">Limited unlock — enter 2026 for alert emails, features & role promotion.</p>'+
-      '<button id="btn-upgrade-unlock" class="glass w-full rounded-xl px-4 py-3 text-left text-sm text-teal-300 mb-2"><i class="fa-solid fa-lock-open text-teal-400 mr-2"></i>Upgrade to super unlock (2026)</button>';
   }
   body += '<button onclick="checkHealth()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-heart-pulse text-teal-400 mr-2"></i>API health / version</button>';
   $('#admin-body').innerHTML = body;
-  const up = $('#btn-upgrade-unlock');
-  if (up) up.onclick = async () => {
-    const code = await askPasscode('super');
-    if (!code) return;
-    state.adminUnlock = 'super';
-    renderAdmin();
-  };
 }
 
 async function renderAdminFeaturesTab(){
@@ -3509,7 +3832,7 @@ async function renderAdminFeaturesTab(){
       '<button id="tog-live" class="ui-btn '+(live?'bg-teal-600':'bg-slate-700')+' text-xs px-3 py-1.5 rounded-lg">'+(live?'ON':'OFF')+'</button></div>'+
       '<div class="glass rounded-xl p-3 flex items-center justify-between"><div><p class="text-sm font-medium">Leave escalation</p><p class="text-[10px] text-slate-500">feature_leave_escalation · HOD → managers</p></div>'+
       '<button id="tog-leave" class="ui-btn '+(leave?'bg-teal-600':'bg-slate-700')+' text-xs px-3 py-1.5 rounded-lg">'+(leave?'ON':'OFF')+'</button></div>'+
-      '<p class="text-[10px] text-slate-500">To enable: unlock with 2026 → Settings / Features → toggle ON. To disable after roster parse errors, toggle OFF here.</p></div>';
+      '<p class="text-[10px] text-slate-500">To enable: Settings / Features → toggle ON (superadmin role). To disable after roster parse errors, toggle OFF here.</p></div>';
     async function toggle(key, cur){
       const passcode = await askPasscode('super'); if (!passcode) return;
       const res = await api('setAppSetting',{ key, value: !cur, passcode });
@@ -3564,7 +3887,7 @@ async function renderAdminKitchenTab(full){
     }
 
     html += '<div class="glass rounded-xl p-3 space-y-2"><div class="flex justify-between items-center"><p class="text-xs font-semibold text-slate-200">Dinner menus by weekday</p>'+
-      (full?'<span class="text-[10px] text-teal-400">Edit unlocked (2026)</span>':'<span class="text-[10px] text-amber-300">View only — need 2026 to edit</span>')+'</div>';
+      (full?'<span class="text-[10px] text-teal-400">Edit (superadmin)</span>':'<span class="text-[10px] text-amber-300">View only — superadmin to edit menus</span>')+'</div>';
     for (let wd=0; wd<=6; wd++) {
       const items = byWeekday[wd] || byWeekday[String(wd)] || [];
       html += '<div class="border border-slate-700/60 rounded-lg p-2"><p class="text-[11px] font-medium text-teal-300/90 mb-1">'+WEEKDAY_NAMES[wd]+' <span class="text-slate-500">('+wd+')</span></p>';
@@ -3704,6 +4027,37 @@ $('#login-form').onsubmit = async (e) => {
   e.preventDefault();
   await doLogin($('#login-email').value.trim(), $('#login-password').value);
 };
+const btnForgot = $('#btn-forgot-pw');
+if (btnForgot) btnForgot.onclick = () => showForgotPanel();
+const btnForgotBack = $('#btn-forgot-back');
+if (btnForgotBack) btnForgotBack.onclick = () => switchAuthTab('login');
+const btnSendReset = $('#btn-send-reset');
+if (btnSendReset) btnSendReset.onclick = async () => {
+  const email = ($('#forgot-email').value || '').trim();
+  if (!email) { showLoginError('Email required'); return; }
+  const r = await api('requestPasswordReset',{ email });
+  if (!r.success) { showLoginError(r.error||'Failed'); toast(r.error,'error'); return; }
+  pendingResetEmail = email;
+  $('#forgot-code-step').classList.remove('hidden');
+  showLoginError(r.data && r.data.message ? r.data.message : 'Check your email for a reset code', 'info');
+  if (r.data && r.data.code) toast('Demo code: '+r.data.code, 'info');
+  else toast('Reset code sent','ok');
+};
+const btnDoReset = $('#btn-do-reset');
+if (btnDoReset) btnDoReset.onclick = async () => {
+  const email = pendingResetEmail || ($('#forgot-email').value||'').trim();
+  const code = ($('#forgot-code').value||'').trim();
+  const pw = $('#forgot-new-pw').value || '';
+  const pw2 = $('#forgot-new-pw2').value || '';
+  if (!code || !pw) { showLoginError('Code and new password required'); return; }
+  if (pw !== pw2) { showLoginError('Passwords do not match'); return; }
+  const r = await api('resetPassword',{ email, code, newPassword: pw });
+  if (!r.success) { showLoginError(r.error||'Failed'); toast(r.error,'error'); return; }
+  toast('Password updated — sign in','ok');
+  switchAuthTab('login');
+  showLoginError('Password updated. Sign in with your new password.', 'ok');
+  if ($('#login-email')) $('#login-email').value = email;
+};
 $('#btn-verify').onclick = async () => {
   const r = await api('verifyEmail',{ email: pendingVerifyEmail, code: $('#verify-code').value.trim() });
   if (!r.success) { toast(r.error,'error'); return; }
@@ -3727,8 +4081,10 @@ function showLoginError(msg, kind){
 function switchAuthTab(tab){
   const loginTab = $('#tab-login'), regTab = $('#tab-register');
   const loginForm = $('#login-form'), regPanel = $('#register-panel');
+  const forgot = $('#forgot-panel');
   showLoginError('');
   $('#verify-panel').classList.add('hidden');
+  if (forgot) forgot.classList.add('hidden');
   if (tab === 'register') {
     loginForm.classList.add('hidden');
     regPanel.classList.remove('hidden');
@@ -3741,6 +4097,18 @@ function switchAuthTab(tab){
     loginTab.classList.add('active');
   }
 }
+function showForgotPanel(){
+  showLoginError('');
+  $('#login-form').classList.add('hidden');
+  $('#register-panel').classList.add('hidden');
+  $('#verify-panel').classList.add('hidden');
+  $('#forgot-panel').classList.remove('hidden');
+  $('#forgot-code-step').classList.add('hidden');
+  const le = $('#login-email');
+  if (le && le.value) $('#forgot-email').value = le.value;
+}
+let pendingResetEmail = '';
+
 function updateDefaultEmailUI(){
   const useDef = $('#reg-use-default-email') && $('#reg-use-default-email').checked;
   const hint = $('#reg-default-email-hint');
@@ -3781,8 +4149,13 @@ $('#register-form').onsubmit = async (e) => {
   const department = $('#reg-department').value.trim();
   const firstName = $('#reg-firstName').value.trim();
   const lastName = $('#reg-lastName').value.trim();
+  const villageLoc = ($('#reg-village') && $('#reg-village').value) || '';
   if (!firstName || !lastName || !department) {
     showLoginError('First name, last name and department are required');
+    return;
+  }
+  if (!villageLoc) {
+    showLoginError('Select Mainland or Village Staff');
     return;
   }
   if (password !== password2) { showLoginError('Passwords do not match'); toast('Passwords do not match','error'); return; }
@@ -3803,12 +4176,6 @@ $('#register-form').onsubmit = async (e) => {
     return;
   }
   const d = r.data || {};
-  if (d.pendingApproval) {
-    switchAuthTab('login');
-    showLoginError(d.message || 'Account created. Waiting for approval — check with your HOD or Front Office.', 'ok');
-    toast(d.message || 'Pending approval', 'ok');
-    return;
-  }
   if (d.needsVerification) {
     switchAuthTab('login');
     pendingVerifyEmail = d.email || email;

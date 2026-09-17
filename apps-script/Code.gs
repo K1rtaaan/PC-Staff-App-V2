@@ -15,12 +15,12 @@
  *   Dinner: closes 20:00 Fiji TODAY for TOMORROW's service.
  *     e.g. Fri 19:59 Fiji → can still book Sat dinner
  *          Fri 20:00 Fiji → dinner booking closed for Sat
- *   Breakfast + Lunch: closes 13:00 Fiji TODAY for TOMORROW's service (headcount only).
- *     e.g. Sat 12:59 → can count in for Sun breakfast/lunch; Sat 13:00 → closed
+ *   Breakfast: closes 13:00 Fiji TODAY for TOMORROW (headcount). Late window 13:00–18:00 → late_pending (chef approve). After 18:00 fully closed.
+ *   Lunch: closes 13:00 Fiji TODAY for TOMORROW's service (headcount only; no late path).
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.7.3';
+var APP_VERSION = '2.8.0';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -118,6 +118,9 @@ function routeAction(action, p) {
     case 'register': return register(p);
     case 'verifyEmail': return verifyEmail(p);
     case 'requestVerification': return requestVerification(p);
+    case 'requestPasswordReset': return requestPasswordReset(p);
+    case 'resetPassword': return resetPassword(p);
+    case 'deactivateAccount': return deactivateAccount(p);
     case 'updateProfile':
     case 'updateUser': return updateUser(p);
     case 'getUsers': return getUsers(p);
@@ -150,8 +153,15 @@ function routeAction(action, p) {
     case 'saveDinnerMenuItem': return saveDinnerMenuItem(p);
     case 'deleteDinnerMenuItem': return deleteDinnerMenuItem(p);
     case 'approveLateDinnerOrder': return approveLateDinnerOrder(p);
+    case 'approveLateBreakfastOrder': return approveLateBreakfastOrder(p);
+    case 'approveAllLateBreakfast': return approveAllLateBreakfast(p);
+    case 'processBreakfastWorkflow': return processBreakfastWorkflow(p);
     case 'processDinnerWorkflow': return processDinnerWorkflow(p);
     case 'getDinnerPrepList': return getDinnerPrepList(p);
+    case 'getMealStatistics': return getMealStatistics(p);
+    case 'placeMealOnBehalf': return placeMealOnBehalf(p);
+    case 'getBreakfastOrderSheet': return getBreakfastOrderSheet(p);
+    case 'getLunchOrderSheet': return getLunchOrderSheet(p);
 
     case 'getReminders': return getReminders(p);
     case 'addReminder': return addReminder(p);
@@ -259,18 +269,25 @@ function dinnerCutoffInfo(now) {
 }
 
 /**
- * Breakfast: tomorrow's service, cutoff 13:00 Fiji today. Headcount only.
+ * Breakfast: tomorrow's service.
+ *   open (normal): before 13:00 Fiji — headcount → ordered
+ *   lateOpen: 13:00–17:59 Fiji — late request → late_pending (chef/admin approve → late_approved)
+ *   after 18:00: fully closed; unapproved late_pending auto-declined
  */
 function breakfastCutoffInfo(now) {
   now = now || getFijiNow();
   var hour = now.getUTCHours();
   var open = hour < 13;
+  var lateOpen = hour >= 13 && hour < 18;
   var serviceDate = fijiDateString(addFijiDays(now, 1));
   return {
     open: open,
+    lateOpen: lateOpen,
+    fullyClosed: hour >= 18,
     serviceDate: serviceDate,
     cutoffHour: 13,
-    cutoffLabel: '1:00 PM Fiji (today for tomorrow)',
+    lateCloseHour: 18,
+    cutoffLabel: '1:00 PM Fiji (today for tomorrow); late until 6:00 PM',
     fijiNow: formatFiji(now),
     meal: 'breakfast'
   };
@@ -389,7 +406,7 @@ function initializeSheets() {
   ]);
   ensureSheet(ss, 'Alert Emails', ['email', 'label', 'active']);
   ensureSheet(ss, 'Verification Codes', [
-    'email', 'code', 'expiresAt', 'used'
+    'email', 'code', 'expiresAt', 'used', 'purpose'
   ]);
   ensureSheet(ss, 'Dinner Menus', [
     'id', 'weekday', 'weekdayName', 'itemName', 'sortOrder', 'active', 'updatedAt'
@@ -735,26 +752,20 @@ function setAppSetting(p) {
   return getAppSettings(p);
 }
 
+/** C66: Superadmin first-access PIN removed — always unlocked via role */
 function unlockSuperadminPin(p) {
-  requirePasscode(p, 'super');
-  var pin = String(p.pin || p.superadminPin || '').trim();
-  var existing = getSetting('superadmin_pin', '');
-  if (!existing) {
-    if (!pin || pin.length < 4) return { success: false, error: 'Set a PIN (min 4 chars) on first unlock' };
-    setSetting('superadmin_pin', pin, p.requesterEmail || '');
-    return { success: true, data: { set: true, message: 'Superadmin PIN stored' } };
+  var requester = getRequester(p);
+  if (!requester || !isSuperPerm(requester)) {
+    try { requirePasscode(p, 'super'); } catch (e) {
+      return { success: false, error: 'Superadmin permission required' };
+    }
   }
-  if (String(p.pin || p.superadminPin || '') !== existing) {
-    return { success: false, error: 'Invalid superadmin PIN' };
-  }
-  return { success: true, data: { unlocked: true } };
+  return { success: true, data: { unlocked: true, deprecated: true, message: 'PIN flow removed — role gates access' } };
 }
 
 function requireSuperadminPinIfSet(p) {
-  var existing = getSetting('superadmin_pin', '');
-  if (!existing) return; // bootstrap: not set yet
-  var pin = String(p.superadminPin || p.pin || '');
-  if (pin !== existing) throw new Error('Superadmin PIN required');
+  // C66: no-op — PIN gate removed
+  return;
 }
 
 /* ========== SUPERADMIN / ALERTS ========== */
@@ -996,25 +1007,15 @@ function login(p) {
   if (!u) return { success: false, error: 'Invalid email or password' };
   if (String(u.password) !== password) return { success: false, error: 'Invalid email or password' };
 
-  var isPcr = email.indexOf('@pcr.com') !== -1;
   var isSuper = email === SUPERADMIN_EMAIL;
 
-  if (!isSuper && isPcr && !truthy(u.active)) {
-    return { success: false, error: 'Your account is pending approval. Contact your HOD or IT.' };
-  }
-  if (!isSuper && !isPcr && !truthy(u.verified) && !truthy(u.active)) {
+  if (!isSuper && !truthy(u.verified) && !truthy(u.active)) {
     return {
       success: false,
       error: 'Email not verified',
       needsVerification: true,
       email: email
     };
-  }
-  if (!isSuper && !truthy(u.active) && !isPcr) {
-    // non-pcr verified but inactive
-    if (!truthy(u.verified)) {
-      return { success: false, error: 'Email not verified', needsVerification: true, email: email };
-    }
   }
   if (!isSuper && !truthy(u.active)) {
     return { success: false, error: 'Account inactive. Contact admin.' };
@@ -1033,31 +1034,29 @@ function login(p) {
 function register(p) {
   var email = String(p.email || '').trim().toLowerCase();
   var password = String(p.password || '');
+  var firstName = String(p.firstName || '').trim();
+  var lastName = String(p.lastName || '').trim();
+  var department = String(p.department || '').trim();
   if (!email || !password) return { success: false, error: 'Email and password required' };
+  if (!firstName || !lastName) return { success: false, error: 'First and last name required (must match department roster — no nicknames)' };
+  if (!department) return { success: false, error: 'Department is required' };
 
   if (findUserByEmail(email)) {
     return { success: false, error: 'Account already exists — sign in instead' };
   }
 
-  var isPcr = email.indexOf('@pcr.com') !== -1;
-  var isSuper = email === SUPERADMIN_EMAIL;
-
-  var villageVal = '';
-  if (p.village !== undefined && p.village !== null && p.village !== '') {
-    if (p.village === true || p.village === 'true' || String(p.village).toLowerCase() === 'yes') villageVal = 'Village';
-    else if (p.village === false || p.village === 'false' || String(p.village).toLowerCase() === 'no') villageVal = 'Resort';
-    else villageVal = String(p.village);
-  }
-  // C30: registration ALWAYS creates basic staff — ignore any client-supplied role
+  var villageVal = normalizeStaffLocation(p.village);
+  // C30/C59: registration ALWAYS creates basic staff — ignore any client-supplied role
+  // C59: no @pcr.com pending gate — verify email then active staff
   var photoUrl = String(p.photoUrl || '');
   if (photoUrl.length > 45000) photoUrl = ''; // Sheets cell limit safety; client keeps full in localStorage
   var row = {
     id: uid('usr'),
     email: email,
     password: password,
-    firstName: p.firstName || '',
-    lastName: p.lastName || '',
-    department: p.department || '',
+    firstName: firstName,
+    lastName: lastName,
+    department: department,
     contact: p.contact || '',
     role: 'staff',
     permissions: 'staff',
@@ -1070,18 +1069,6 @@ function register(p) {
   };
   appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified', 'photoUrl']);
 
-  // @pcr.com (not superadmin): pending admin approval — no email code
-  if (isPcr && !isSuper) {
-    return {
-      success: true,
-      data: {
-        pendingApproval: true,
-        message: 'Account created. Pending admin approval.'
-      }
-    };
-  }
-
-  // Other emails: send verification code
   var vr = requestVerification({ email: email });
   var emailed = vr && vr.data && vr.data.emailed;
   var out = {
@@ -1094,12 +1081,18 @@ function register(p) {
   return { success: true, data: out };
 }
 
+function normalizeStaffLocation(v) {
+  if (v === undefined || v === null || v === '') return '';
+  var s = String(v).trim().toLowerCase();
+  if (s === 'true' || s === 'yes' || s === 'village') return 'Village';
+  if (s === 'false' || s === 'no' || s === 'mainland' || s === 'resort') return 'Mainland';
+  if (String(v) === 'Village' || String(v) === 'Mainland') return String(v);
+  return String(v);
+}
+
 function requestVerification(p) {
   var email = String(p.email || '').trim().toLowerCase();
   if (!email) return { success: false, error: 'Email required' };
-  if (email.indexOf('@pcr.com') !== -1) {
-    return { success: false, error: '@pcr.com accounts use pending approval, not email codes.' };
-  }
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User not found' };
 
@@ -1109,8 +1102,9 @@ function requestVerification(p) {
     email: email,
     code: code,
     expiresAt: expires.toISOString(),
-    used: false
-  }, ['email', 'code', 'expiresAt', 'used']);
+    used: false,
+    purpose: 'verify'
+  }, ['email', 'code', 'expiresAt', 'used', 'purpose']);
 
   var mailed = false;
   var mailError = '';
@@ -1165,24 +1159,131 @@ function verifyEmail(p) {
   return { success: true, data: { verified: true, user: publicUser(findUserByEmail(email)) } };
 }
 
+function findUnusedCode(email, code, purpose) {
+  var rows = sheetToObjects('Verification Codes');
+  var match = null;
+  for (var i = rows.length - 1; i >= 0; i--) {
+    var row = rows[i];
+    if (String(row.email).toLowerCase() !== email) continue;
+    if (String(row.code) !== code) continue;
+    if (truthy(row.used)) continue;
+    var rowPurpose = String(row.purpose || 'verify').toLowerCase();
+    if (purpose && rowPurpose !== String(purpose).toLowerCase()) continue;
+    match = row;
+    break;
+  }
+  return match;
+}
+
+function markCodeUsed(match) {
+  var sh = getSS().getSheetByName('Verification Codes');
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  var usedCol = headers.indexOf('used');
+  if (usedCol >= 0) sh.getRange(match._row, usedCol + 1).setValue('TRUE');
+}
+
+/** C59: send reset code only to existing Users emails */
+function requestPasswordReset(p) {
+  var email = String(p.email || '').trim().toLowerCase();
+  if (!email) return { success: false, error: 'Email required' };
+  var u = findUserByEmail(email);
+  if (!u) return { success: false, error: 'No account found for that email' };
+  if (!truthy(u.active) && !truthy(u.verified)) {
+    return { success: false, error: 'Account not active. Verify email or contact admin.' };
+  }
+  var code = String(Math.floor(100000 + Math.random() * 900000));
+  var expires = new Date(Date.now() + 30 * 60 * 1000);
+  appendRow('Verification Codes', {
+    email: email,
+    code: code,
+    expiresAt: expires.toISOString(),
+    used: false,
+    purpose: 'reset'
+  }, ['email', 'code', 'expiresAt', 'used', 'purpose']);
+  var mailed = false;
+  var mailError = '';
+  try {
+    MailApp.sendEmail({
+      to: email,
+      subject: 'PCR Staff App — Password Reset Code',
+      body: 'Your Paradise Cove Resort password reset code is: ' + code + '\n\nValid for 30 minutes.\n\n— PCR Staff App'
+    });
+    mailed = true;
+  } catch (err) {
+    mailError = String(err.message || err);
+  }
+  return {
+    success: true,
+    data: {
+      emailed: mailed,
+      mailError: mailError || undefined,
+      code: mailed ? undefined : code,
+      message: mailed ? 'Reset code sent' : 'Mail failed; code returned for testing'
+    }
+  };
+}
+
+function resetPassword(p) {
+  var email = String(p.email || '').trim().toLowerCase();
+  var code = String(p.code || '').trim();
+  var newPassword = String(p.newPassword || p.password || '');
+  if (!email || !code || !newPassword) return { success: false, error: 'Email, code and new password required' };
+  if (newPassword.length < 4) return { success: false, error: 'Password too short' };
+  var u = findUserByEmail(email);
+  if (!u) return { success: false, error: 'No account found for that email' };
+  var match = findUnusedCode(email, code, 'reset');
+  if (!match) return { success: false, error: 'Invalid or expired code' };
+  if (match.expiresAt && new Date(match.expiresAt).getTime() < Date.now()) {
+    return { success: false, error: 'Code expired' };
+  }
+  markCodeUsed(match);
+  updateRowById('Users', u.id, { password: newPassword });
+  return { success: true, data: { message: 'Password updated — sign in with your new password', email: email } };
+}
+
+/** C59: soft-deactivate own account (active=false) for audit */
+function deactivateAccount(p) {
+  var email = String(p.userEmail || p.requesterEmail || p.email || '').trim().toLowerCase();
+  var u = findUserByEmail(email);
+  if (!u) return { success: false, error: 'User not found' };
+  var requester = getRequester(p);
+  var self = requester && String(requester.email).toLowerCase() === email;
+  if (!self && !(requester && isAdminPerm(requester))) {
+    return { success: false, error: 'Not authorized' };
+  }
+  if (email === SUPERADMIN_EMAIL) return { success: false, error: 'Cannot deactivate superadmin' };
+  updateRowById('Users', u.id, { active: false });
+  return { success: true, data: { deactivated: email, active: false } };
+}
+
 /**
- * Dual admin unlock:
- *   SUPER_PASS 2026 → full settings (alert emails, role promotion, delete users)
- *   ADMIN_PASS 2025 → limited (approve/import users, kitchen/boat ops, leave review)
+ * C66: Role permissions gate admin actions (no 2025/2026 unlock UI).
+ * Passcodes still accepted if sent (legacy), but not required when requester has role.
  * level: 'admin' (default) or 'super'
  * Returns 'super' | 'admin'
  */
 function requirePasscode(p, level) {
   level = level || 'admin';
+  var requester = getRequester(p);
+  if (requester) {
+    if (level === 'super') {
+      if (isSuperPerm(requester)) return 'super';
+    } else {
+      if (isAdminPerm(requester) || isChefPerm(requester) || isHodPerm(requester) || isSuperPerm(requester)) {
+        return isSuperPerm(requester) ? 'super' : 'admin';
+      }
+    }
+  }
+  // Legacy optional passcodes (not shown in UI)
   var code = String(p.passcode || '');
   var isSuper = code === SUPER_PASS;
   var isAdmin = code === ADMIN_PASS;
   if (level === 'super') {
-    if (!isSuper) throw new Error('Superadmin passcode required (2026)');
+    if (!isSuper) throw new Error('Superadmin permission required');
     return 'super';
   }
   if (!isSuper && !isAdmin) {
-    throw new Error('Admin passcode required (2025 or 2026)');
+    throw new Error('Admin / chef / HOD permission required');
   }
   return isSuper ? 'super' : 'admin';
 }
@@ -1345,9 +1446,19 @@ function updateUser(p) {
   }
 
   var patch = {};
-  ['firstName', 'lastName', 'contact', 'department', 'roster', 'village'].forEach(function (k) {
-    if (p[k] !== undefined) patch[k] = p[k];
-  });
+  // C59: staff cannot change firstName, lastName, department (read-only on profile)
+  if (selfUpdate && !adminUpdate) {
+    ['contact', 'roster', 'village'].forEach(function (k) {
+      if (p[k] !== undefined) patch[k] = k === 'village' ? normalizeStaffLocation(p[k]) : p[k];
+    });
+    if (p.firstName !== undefined || p.lastName !== undefined || p.department !== undefined) {
+      // silently ignore locked fields (UI should be read-only)
+    }
+  } else {
+    ['firstName', 'lastName', 'contact', 'department', 'roster', 'village'].forEach(function (k) {
+      if (p[k] !== undefined) patch[k] = k === 'village' ? normalizeStaffLocation(p[k]) : p[k];
+    });
+  }
   if (selfUpdate && p.photoUrl !== undefined) {
     var ph = String(p.photoUrl || '');
     if (ph.length > 45000) ph = '';
@@ -1707,43 +1818,98 @@ function seedDinnerMenus() {
 
 function getDinnerMenus(p) {
   seedDinnerMenus();
-  var items = sheetToObjects('Dinner Menus').filter(function (r) {
+  var allActive = sheetToObjects('Dinner Menus').filter(function (r) {
     return p.includeInactive ? true : truthy(r.active);
   });
-  if (p.weekday !== undefined && p.weekday !== null && p.weekday !== '') {
-    var wd = Number(p.weekday);
-    items = items.filter(function (r) { return Number(r.weekday) === wd; });
+  var items = allActive.slice();
+  var serviceWd = null;
+  var prevWd = null;
+  var includePrev = p.includePreviousDay !== false && p.includePreviousDay !== 'false';
+
+  if (p.weekday !== undefined && p.weekday !== null && p.weekday !== '' && !p.serviceDate) {
+    var wdOnly = Number(p.weekday);
+    items = items.filter(function (r) { return Number(r.weekday) === wdOnly; });
+    serviceWd = wdOnly;
   }
   if (p.serviceDate) {
     var parts = String(p.serviceDate).split('-');
     if (parts.length >= 3) {
       var sd = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
-      var w = sd.getUTCDay();
-      items = items.filter(function (r) { return Number(r.weekday) === w; });
+      serviceWd = sd.getUTCDay();
+      prevWd = (serviceWd + 6) % 7; // weekday before service date
+      if (includePrev) {
+        items = allActive.filter(function (r) {
+          var w = Number(r.weekday);
+          return w === serviceWd || w === prevWd;
+        });
+      } else {
+        items = allActive.filter(function (r) { return Number(r.weekday) === serviceWd; });
+      }
     }
   }
-  items.sort(function (a, b) {
-    var aw = Number(a.weekday) - Number(b.weekday);
-    if (aw !== 0) return aw;
-    return Number(a.sortOrder) - Number(b.sortOrder);
-  });
+  // Deduplicate by itemName (prefer service weekday copy)
+  if (includePrev && serviceWd !== null && prevWd !== null) {
+    var seen = {};
+    var serviceItems = [];
+    var prevItems = [];
+    items.filter(function (r) { return Number(r.weekday) === serviceWd; })
+      .sort(function (a, b) { return Number(a.sortOrder) - Number(b.sortOrder); })
+      .forEach(function (it) {
+        var key = String(it.itemName || '').toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        var copy = Object.assign({}, it);
+        copy.menuGroup = 'service';
+        serviceItems.push(copy);
+      });
+    items.filter(function (r) { return Number(r.weekday) === prevWd; })
+      .sort(function (a, b) { return Number(a.sortOrder) - Number(b.sortOrder); })
+      .forEach(function (it) {
+        var key = String(it.itemName || '').toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        var copy = Object.assign({}, it);
+        copy.menuGroup = 'previous';
+        prevItems.push(copy);
+      });
+    items = serviceItems.concat(prevItems);
+  } else {
+    items.sort(function (a, b) {
+      var aw = Number(a.weekday) - Number(b.weekday);
+      if (aw !== 0) return aw;
+      return Number(a.sortOrder) - Number(b.sortOrder);
+    });
+    items = items.map(function (it) {
+      var copy = Object.assign({}, it);
+      copy.menuGroup = 'service';
+      return copy;
+    });
+  }
   var byWeekday = {};
   for (var i = 0; i < 7; i++) byWeekday[i] = [];
-  items.forEach(function (it) {
+  allActive.forEach(function (it) {
     var w = Number(it.weekday);
     if (!byWeekday[w]) byWeekday[w] = [];
     byWeekday[w].push(it);
   });
   var info = dinnerCutoffInfo();
   var tomorrowWd = fijiWeekday(addFijiDays(getFijiNow(), 1));
+  var resolvedServiceWd = serviceWd !== null ? serviceWd : tomorrowWd;
+  var resolvedPrevWd = prevWd !== null ? prevWd : ((resolvedServiceWd + 6) % 7);
   return {
     success: true,
     data: {
       items: items,
+      serviceItems: items.filter(function (x) { return x.menuGroup === 'service'; }),
+      previousItems: items.filter(function (x) { return x.menuGroup === 'previous'; }),
       byWeekday: byWeekday,
       tomorrowWeekday: tomorrowWd,
       tomorrowWeekdayName: WEEKDAY_NAMES[tomorrowWd],
-      serviceDate: info.serviceDate,
+      serviceWeekday: resolvedServiceWd,
+      serviceWeekdayName: WEEKDAY_NAMES[resolvedServiceWd],
+      previousWeekday: resolvedPrevWd,
+      previousWeekdayName: WEEKDAY_NAMES[resolvedPrevWd],
+      serviceDate: p.serviceDate || info.serviceDate,
       cutoff: info
     }
   };
@@ -1964,6 +2130,192 @@ function approveLateDinnerOrder(p) {
   return { success: !!updated, data: { order: findOrder('Dinner Orders', p.id) } };
 }
 
+function mealRangeStats(daysBack) {
+  var now = getFijiNow();
+  var end = addFijiDays(now, 1); // include tomorrow service
+  var dinners = sheetToObjects('Dinner Orders');
+  var lunches = sheetToObjects('Lunch Orders');
+  var breakfasts = sheetToObjects('Breakfast Orders');
+  var boatBookings = sheetToObjects('Boat Bookings');
+  var byDay = [];
+  var totals = { breakfast: 0, lunch: 0, dinner: 0 };
+  var dinnerItemCounts = {};
+  for (var i = daysBack - 1; i >= 0; i--) {
+    var d = addFijiDays(end, -i);
+    var ds = fijiDateString(d);
+    var b = breakfasts.filter(function (o) { return String(o.serviceDate).indexOf(ds) === 0 && countsInBreakfastTotal(o); }).length;
+    var l = lunches.filter(function (o) { return String(o.serviceDate).indexOf(ds) === 0 && o.status !== 'cancelled'; }).length;
+    var dinRows = dinners.filter(function (o) {
+      return String(o.serviceDate).indexOf(ds) === 0 && o.status !== 'cancelled' && o.status !== 'rejected';
+    });
+    dinRows.forEach(function (o) {
+      var k = o.mealChoice || 'Standard';
+      dinnerItemCounts[k] = (dinnerItemCounts[k] || 0) + 1;
+    });
+    var din = dinRows.length;
+    totals.breakfast += b; totals.lunch += l; totals.dinner += din;
+    byDay.push({ date: ds, breakfast: b, lunch: l, dinner: din, total: b + l + din });
+  }
+  var items = Object.keys(dinnerItemCounts).map(function (k) { return { item: k, count: dinnerItemCounts[k] }; });
+  items.sort(function (a, b) { return b.count - a.count; });
+  return {
+    byDay: byDay,
+    totals: totals,
+    dinnerMostOrdered: items.slice(0, 5),
+    dinnerLeastOrdered: items.slice().reverse().slice(0, 5),
+    boatBookings: boatBookings.filter(function (b) { return b.status !== 'cancelled'; }).length
+  };
+}
+
+function getMealStatistics(p) {
+  var requester = getRequester(p);
+  if (!requester || !(isAdminPerm(requester) || isChefPerm(requester) || isSuperPerm(requester) || isHodPerm(requester))) {
+    try { requirePasscode(p, 'admin'); } catch (e) {
+      return { success: false, error: 'Admin/chef access required' };
+    }
+  }
+  var weekly = mealRangeStats(7);
+  var monthly = mealRangeStats(30);
+  return {
+    success: true,
+    data: {
+      weekly: weekly,
+      monthly: monthly,
+      fijiNow: formatFiji(getFijiNow())
+    }
+  };
+}
+
+/** HOD / admin: order breakfast/lunch headcount or dinner menu on behalf of staff */
+function placeMealOnBehalf(p) {
+  var requester = getRequester(p);
+  if (!requester || !(isHodPerm(requester) || isAdminPerm(requester))) {
+    return { success: false, error: 'HOD / admin required' };
+  }
+  var meal = String(p.meal || '').toLowerCase();
+  var staffName = String(p.staffName || p.userName || '').trim();
+  var department = String(p.department || requester.department || '').trim();
+  var comment = String(p.comment || p.notes || '');
+  if (!staffName) return { success: false, error: 'Staff name required' };
+  if (!department) return { success: false, error: 'Department required' };
+  if (['breakfast', 'lunch', 'dinner'].indexOf(meal) < 0) {
+    return { success: false, error: 'meal must be breakfast, lunch, or dinner' };
+  }
+  var email = String(p.userEmail || '').trim().toLowerCase();
+  var u = email ? findUserByEmail(email) : null;
+  if (!u) {
+    // synthetic placeholder email for kitchen tracking
+    email = 'behalf+' + staffName.toLowerCase().replace(/[^a-z0-9]+/g, '.') + '@pcr.local';
+  }
+  var notes = '[On behalf by ' + ((requester.firstName || '') + ' ' + (requester.lastName || '')).trim() + '] ' + comment;
+  if (meal === 'breakfast') {
+    var bi = breakfastCutoffInfo();
+    var bRow = {
+      id: uid('brk'),
+      serviceDate: p.serviceDate || bi.serviceDate,
+      userEmail: email,
+      userName: staffName,
+      department: department,
+      mealChoice: 'Breakfast',
+      notes: notes,
+      status: 'late_pending',
+      late: true,
+      createdAt: nowIso()
+    };
+    appendRow('Breakfast Orders', bRow, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
+    return { success: true, data: { order: bRow, meal: meal, message: 'Sent to Kitchen for approval' } };
+  }
+  if (meal === 'lunch') {
+    var li = lunchCutoffInfo();
+    var lRow = {
+      id: uid('lun'),
+      serviceDate: p.serviceDate || li.serviceDate,
+      userEmail: email,
+      userName: staffName,
+      department: department,
+      mealChoice: 'Lunch',
+      notes: notes,
+      status: 'ordered',
+      late: false,
+      createdAt: nowIso()
+    };
+    appendRow('Lunch Orders', lRow, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
+    return { success: true, data: { order: lRow, meal: meal, message: 'Lunch counted (headcount)' } };
+  }
+  // dinner → pending kitchen/auto workflow
+  var di = dinnerCutoffInfo();
+  var dRow = {
+    id: uid('din'),
+    serviceDate: p.serviceDate || di.serviceDate,
+    userEmail: email,
+    userName: staffName,
+    department: department,
+    mealChoice: p.mealChoice || 'Standard',
+    notes: notes,
+    status: di.open ? 'pending' : 'late_pending',
+    late: !di.open,
+    createdAt: nowIso()
+  };
+  appendRow('Dinner Orders', dRow, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
+  processDinnerWorkflow({ serviceDate: dRow.serviceDate });
+  return { success: true, data: { order: dRow, meal: meal, message: 'Dinner sent to Kitchen' } };
+}
+
+function getBreakfastOrderSheet(p) {
+  try { requireKitchenOrAdmin(p); } catch (e) { return { success: false, error: String(e.message || e) }; }
+  processBreakfastWorkflow(p || {});
+  var info = breakfastCutoffInfo();
+  var serviceDate = p.serviceDate || info.serviceDate;
+  var orders = sheetToObjects('Breakfast Orders').filter(function (o) {
+    return String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled';
+  });
+  return {
+    success: true,
+    data: {
+      serviceDate: serviceDate,
+      totalCounted: orders.filter(countsInBreakfastTotal).length,
+      orders: orders.map(function (o) {
+        return {
+          userName: o.userName,
+          department: o.department,
+          timeOrdered: o.createdAt,
+          status: o.status,
+          late: truthy(o.late),
+          notes: o.notes || ''
+        };
+      }),
+      cutoff: info
+    }
+  };
+}
+
+function getLunchOrderSheet(p) {
+  try { requireKitchenOrAdmin(p); } catch (e) { return { success: false, error: String(e.message || e) }; }
+  var info = lunchCutoffInfo();
+  var serviceDate = p.serviceDate || info.serviceDate;
+  var orders = sheetToObjects('Lunch Orders').filter(function (o) {
+    return String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled';
+  });
+  return {
+    success: true,
+    data: {
+      serviceDate: serviceDate,
+      totalCounted: orders.length,
+      orders: orders.map(function (o) {
+        return {
+          userName: o.userName,
+          department: o.department,
+          timeOrdered: o.createdAt,
+          status: o.status,
+          notes: o.notes || ''
+        };
+      }),
+      cutoff: info
+    }
+  };
+}
+
+
 function placeDinnerOrder(p) {
   processDinnerWorkflow({});
   var info = dinnerCutoffInfo();
@@ -2046,27 +2398,53 @@ function placeLunchOrder(p) {
   return { success: true, data: { order: row, late: false, cutoff: info } };
 }
 
+function countsInBreakfastTotal(o) {
+  if (!o) return false;
+  var st = String(o.status || '');
+  if (st === 'cancelled' || st === 'rejected' || st === 'declined' || st === 'late_pending') return false;
+  return st === 'ordered' || st === 'late_approved' || st === 'approved' || st === 'prepared' || st === 'served';
+}
+
 function placeBreakfastOrder(p) {
+  processBreakfastWorkflow({});
   var info = breakfastCutoffInfo();
-  if (!info.open) {
-    return { success: false, error: 'Breakfast ordering closed at 1pm Fiji for tomorrow\'s service (' + info.serviceDate + ')', cutoff: info };
+  var late = false;
+  if (info.open) {
+    late = false;
+  } else if (info.lateOpen) {
+    late = true;
+    if (!p.allowLate) {
+      return {
+        success: false,
+        error: 'Breakfast normal cutoff passed (1pm Fiji). Use late breakfast request (open until 6pm).',
+        cutoff: info,
+        needsLate: true
+      };
+    }
+  } else {
+    return {
+      success: false,
+      error: 'Breakfast fully closed after 6pm Fiji for tomorrow\'s service (' + info.serviceDate + ')',
+      cutoff: info
+    };
   }
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User required' };
   var serviceDate = p.serviceDate || info.serviceDate;
+  var status = late ? 'late_pending' : 'ordered';
 
   var existing = sheetToObjects('Breakfast Orders').filter(function (o) {
-    return String(o.userEmail).toLowerCase() === email && String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled';
+    return String(o.userEmail).toLowerCase() === email && String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled' && o.status !== 'rejected' && o.status !== 'declined';
   });
   if (existing.length) {
     updateRowById('Breakfast Orders', existing[0].id, {
       mealChoice: 'Breakfast',
-      notes: p.notes || '',
-      late: false,
-      status: 'ordered'
+      notes: p.notes || existing[0].notes || '',
+      late: late,
+      status: status
     });
-    return { success: true, data: { order: findOrder('Breakfast Orders', existing[0].id), late: false, cutoff: info } };
+    return { success: true, data: { order: findOrder('Breakfast Orders', existing[0].id), late: late, cutoff: info } };
   }
   var row = {
     id: uid('brk'),
@@ -2076,15 +2454,90 @@ function placeBreakfastOrder(p) {
     department: u.department || '',
     mealChoice: 'Breakfast',
     notes: p.notes || '',
-    status: 'ordered',
-    late: false,
+    status: status,
+    late: late,
     createdAt: nowIso()
   };
   appendRow('Breakfast Orders', row, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
-  return { success: true, data: { order: row, late: false, cutoff: info } };
+  return { success: true, data: { order: row, late: late, cutoff: info } };
+}
+
+/** Auto-decline unapproved late breakfast after 6pm Fiji */
+function processBreakfastWorkflow(p) {
+  var info = breakfastCutoffInfo();
+  var serviceDate = (p && p.serviceDate) || info.serviceDate;
+  var now = getFijiNow();
+  var declined = 0;
+  if (now.getUTCHours() >= 18) {
+    var rows = sheetToObjects('Breakfast Orders').filter(function (o) {
+      return String(o.serviceDate).indexOf(serviceDate) === 0 && o.status === 'late_pending';
+    });
+    rows.forEach(function (o) {
+      updateRowById('Breakfast Orders', o.id, {
+        status: 'rejected',
+        notes: (o.notes ? o.notes + ' | ' : '') + 'order declined please see hod or chef'
+      });
+      declined++;
+      try {
+        appendRow('Notifications', {
+          id: uid('ntf'),
+          userEmail: o.userEmail,
+          title: 'Breakfast order declined',
+          body: 'order declined please see hod or chef',
+          kind: 'breakfast_late',
+          relatedId: o.id,
+          read: false,
+          createdAt: nowIso()
+        }, ['id', 'userEmail', 'title', 'body', 'kind', 'relatedId', 'read', 'createdAt']);
+      } catch (e) {}
+    });
+  }
+  return { success: true, data: { declined: declined, cutoff: info, serviceDate: serviceDate } };
+}
+
+function canApproveLateBreakfast(p) {
+  var u = getRequester(p);
+  if (u && (isChefPerm(u) || isAdminPerm(u) || isSuperPerm(u))) return u;
+  try {
+    requirePasscode(p, 'admin');
+    return u || { email: p.requesterEmail || '' };
+  } catch (e) {
+    throw new Error('Chef / admin / superadmin required to approve late breakfast');
+  }
+}
+
+function approveLateBreakfastOrder(p) {
+  try { canApproveLateBreakfast(p); } catch (e) { return { success: false, error: String(e.message || e) }; }
+  processBreakfastWorkflow(p);
+  var o = findOrder('Breakfast Orders', p.id);
+  if (!o) return { success: false, error: 'Order not found' };
+  var status = (p.status === 'rejected' || p.action === 'reject') ? 'rejected' : 'late_approved';
+  var patch = { status: status, late: true };
+  if (status === 'rejected') {
+    patch.notes = (o.notes ? o.notes + ' | ' : '') + 'order declined please see hod or chef';
+  }
+  updateRowById('Breakfast Orders', p.id, patch);
+  return { success: true, data: { order: findOrder('Breakfast Orders', p.id) } };
+}
+
+function approveAllLateBreakfast(p) {
+  try { canApproveLateBreakfast(p); } catch (e) { return { success: false, error: String(e.message || e) }; }
+  processBreakfastWorkflow(p);
+  var info = breakfastCutoffInfo();
+  var serviceDate = p.serviceDate || info.serviceDate;
+  var rows = sheetToObjects('Breakfast Orders').filter(function (o) {
+    return String(o.serviceDate).indexOf(serviceDate) === 0 && o.status === 'late_pending';
+  });
+  var n = 0;
+  rows.forEach(function (o) {
+    updateRowById('Breakfast Orders', o.id, { status: 'late_approved', late: true });
+    n++;
+  });
+  return { success: true, data: { approved: n, serviceDate: serviceDate } };
 }
 
 function getBreakfastOrders(p) {
+  processBreakfastWorkflow(p || {});
   var orders = sheetToObjects('Breakfast Orders');
   if (p.serviceDate) orders = orders.filter(function (o) { return String(o.serviceDate).indexOf(String(p.serviceDate)) === 0; });
   if (p.userEmail) orders = orders.filter(function (o) { return String(o.userEmail).toLowerCase() === String(p.userEmail).toLowerCase(); });
@@ -2098,7 +2551,11 @@ function cancelMealOrder(p) {
   }
   var sheet = meal === 'breakfast' ? 'Breakfast Orders' : 'Lunch Orders';
   var info = meal === 'breakfast' ? breakfastCutoffInfo() : lunchCutoffInfo();
-  if (!info.open) {
+  if (meal === 'breakfast') {
+    if (!info.open && !info.lateOpen) {
+      return { success: false, error: 'Cannot cancel — breakfast fully closed after 6pm Fiji', cutoff: info };
+    }
+  } else if (!info.open) {
     return { success: false, error: 'Cannot cancel after 1pm Fiji cutoff for tomorrow\'s ' + meal, cutoff: info };
   }
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
@@ -2151,19 +2608,17 @@ function last7MealStats(serviceDate) {
   var lunches = sheetToObjects('Lunch Orders').filter(function (o) {
     return o.status !== 'cancelled';
   });
-  var breakfasts = sheetToObjects('Breakfast Orders').filter(function (o) {
-    return o.status !== 'cancelled';
-  });
+  var breakfasts = sheetToObjects('Breakfast Orders');
   var parts = String(serviceDate).split('-');
   var end = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
   var days = [];
   for (var i = 6; i >= 0; i--) {
     var d = new Date(end.getTime() - i * 86400000);
     var ds = d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
-    var b = breakfasts.filter(function (o) { return String(o.serviceDate).indexOf(ds) === 0; }).length;
+    var b = breakfasts.filter(function (o) { return String(o.serviceDate).indexOf(ds) === 0 && countsInBreakfastTotal(o); }).length;
     var l = lunches.filter(function (o) { return String(o.serviceDate).indexOf(ds) === 0; }).length;
     var din = dinners.filter(function (o) { return String(o.serviceDate).indexOf(ds) === 0; }).length;
-    days.push({ date: ds, breakfast: b, lunch: l, dinner: din, total: din });
+    days.push({ date: ds, breakfast: b, lunch: l, dinner: din, total: b + l + din });
   }
   return days;
 }
@@ -2171,6 +2626,7 @@ function last7MealStats(serviceDate) {
 function getKitchenDashboard(p) {
   try { requireKitchenOrAdmin(p); } catch (e) { return { success: false, error: String(e.message || e) }; }
   var wf = processDinnerWorkflow(p);
+  var bwf = processBreakfastWorkflow(p);
   var dinnerInfo = dinnerCutoffInfo();
   var lunchInfo = lunchCutoffInfo();
   var breakfastInfo = breakfastCutoffInfo();
@@ -2183,9 +2639,12 @@ function getKitchenDashboard(p) {
   var lunches = sheetToObjects('Lunch Orders').filter(function (o) {
     return String(o.serviceDate).indexOf(lunchDate) === 0 && o.status !== 'cancelled';
   });
-  var breakfasts = sheetToObjects('Breakfast Orders').filter(function (o) {
+  var breakfastsAll = sheetToObjects('Breakfast Orders').filter(function (o) {
     return String(o.serviceDate).indexOf(breakfastDate) === 0 && o.status !== 'cancelled';
   });
+  var breakfasts = breakfastsAll.filter(countsInBreakfastTotal);
+  var lateBreakfastPending = breakfastsAll.filter(function (o) { return o.status === 'late_pending'; });
+  var lateBreakfast = breakfastsAll.filter(function (o) { return truthy(o.late); });
   var lateDinner = dinners.filter(function (o) { return truthy(o.late); });
   var lateLunch = lunches.filter(function (o) { return truthy(o.late); });
 
@@ -2212,7 +2671,12 @@ function getKitchenDashboard(p) {
       lunchDate: lunchDate,
       breakfast: {
         total: breakfasts.length,
-        orders: breakfasts,
+        orders: breakfastsAll,
+        counted: breakfasts,
+        late: lateBreakfast,
+        latePending: lateBreakfastPending,
+        lateCount: lateBreakfast.length,
+        latePendingCount: lateBreakfastPending.length,
         cutoff: breakfastInfo,
         serviceDate: breakfastDate
       },
