@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.8.0';
+var APP_VERSION = '2.8.1';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -39,7 +39,8 @@ var ROLES = ['super_admin', 'admin', 'hod', 'assistant_hod', 'chef', 'kitchen', 
 var ALL_PERMISSIONS = ['super_admin', 'admin', 'hod', 'assistant_hod', 'boat_manager', 'boat_captain', 'chef', 'staff'];
 var FEATURE_DEFAULTS = {
   feature_live_roster: 'false',
-  feature_leave_escalation: 'false'
+  feature_leave_escalation: 'false',
+  feature_my_schedule: 'false'
 };
 var LIVE_ROSTER_SHEET_ID = '1n5onxR-Ww-0oDdPWDDUvRWuzKd-UGF51tBERtZfAcZM';
 
@@ -703,7 +704,7 @@ function isFeatureEnabled(key) {
 }
 
 function featureOffMessage(feature) {
-  return 'Feature disabled. Ask a superadmin (passcode 2026) to enable ' + feature + ' in Admin → Settings / Features.';
+  return 'Feature disabled. Ask a superadmin to enable ' + feature + ' in Admin → Settings / Features.';
 }
 
 function getAppSettings(p) {
@@ -723,7 +724,8 @@ function getAppSettings(p) {
   });
   return { success: true, data: { settings: settings, features: {
     feature_live_roster: isFeatureEnabled('feature_live_roster'),
-    feature_leave_escalation: isFeatureEnabled('feature_leave_escalation')
+    feature_leave_escalation: isFeatureEnabled('feature_leave_escalation'),
+    feature_my_schedule: isFeatureEnabled('feature_my_schedule')
   } } };
 }
 
@@ -1824,7 +1826,8 @@ function getDinnerMenus(p) {
   var items = allActive.slice();
   var serviceWd = null;
   var prevWd = null;
-  var includePrev = p.includePreviousDay !== false && p.includePreviousDay !== 'false';
+  // C67: default false — staff dinner ordering shows tomorrow (service weekday) only
+  var includePrev = p.includePreviousDay === true || p.includePreviousDay === 'true';
 
   if (p.weekday !== undefined && p.weekday !== null && p.weekday !== '' && !p.serviceDate) {
     var wdOnly = Number(p.weekday);
@@ -2118,8 +2121,20 @@ function getDinnerPrepList(p) {
   };
 }
 
+function canApproveLateDinner(p) {
+  var u = getRequester(p);
+  if (u && (isChefPerm(u) || isAdminPerm(u) || isSuperPerm(u))) return u;
+  try {
+    requirePasscode(p, 'admin');
+    return u || { email: p.requesterEmail || '' };
+  } catch (e) {
+    throw new Error('Chef / admin / superadmin required to approve late dinner');
+  }
+}
+
 function approveLateDinnerOrder(p) {
-  requirePasscode(p, 'admin'); // 2025 or 2026
+  // C67: role-gated like breakfast late — no unlock/passcode UI
+  try { canApproveLateDinner(p); } catch (e) { return { success: false, error: String(e.message || e) }; }
   var o = findOrder('Dinner Orders', p.id);
   if (!o) return { success: false, error: 'Order not found' };
   var status = p.status === 'rejected' ? 'rejected' : 'late_approved';
@@ -3066,6 +3081,9 @@ function reviewLeave(p) {
 }
 
 function getMySchedule(p) {
+  if (!isFeatureEnabled('feature_my_schedule')) {
+    return { success: false, error: featureOffMessage('feature_my_schedule'), featureOff: true };
+  }
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
   var leave = sheetToObjects('Leave Requests').filter(function (r) {
@@ -3094,6 +3112,7 @@ function getMySchedule(p) {
       liveRosterError: liveError || undefined,
       featureLiveRoster: isFeatureEnabled('feature_live_roster'),
       featureLeaveEscalation: isFeatureEnabled('feature_leave_escalation'),
+      featureMySchedule: isFeatureEnabled('feature_my_schedule'),
       weeklyShifts: uploaded.weeklyShifts,
       monthlyShifts: uploaded.monthlyShifts,
       unreadNotifications: unread,
@@ -3524,6 +3543,9 @@ function rosterDeptMatches(shiftDept, uploadDept) {
  * so a cross-dept match still gets a clean replace. Re-upload is therefore clean for that scope.
  */
 function uploadRosterParsed(p) {
+  if (!isFeatureEnabled('feature_my_schedule')) {
+    return { success: false, error: featureOffMessage('feature_my_schedule'), featureOff: true };
+  }
   var requester = requireRosterUploadAuth(p);
   var period = String(p.period || '').toLowerCase();
   if (period !== 'week' && period !== 'month') {
@@ -3866,6 +3888,9 @@ function markNotificationRead(p) {
 }
 
 function listRosterUploads(p) {
+  if (!isFeatureEnabled('feature_my_schedule')) {
+    return { success: false, error: featureOffMessage('feature_my_schedule'), featureOff: true };
+  }
   var requester = getRequester(p);
   if (!requester || !(isHodPerm(requester) || isAdminPerm(requester))) {
     return { success: false, error: 'HOD/admin required' };

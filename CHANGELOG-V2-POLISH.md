@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.8.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.8.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -193,4 +193,12 @@ Version **2.8.0**. Revert any item later by asking for its ID (e.g. “revert C7
 | C64 | APIs: `getMealStatistics`, `getBreakfastOrderSheet`, `getLunchOrderSheet`, `approveLateBreakfastOrder`, `approveAllLateBreakfast`, `processBreakfastWorkflow`. `APP_VERSION` → **2.8.0**; SW `pcr-staff-v2.8.0`. SCRIPT_URL unchanged. |
 | C65 | **Dinner ordering picker**: for tomorrow’s service, meal choice includes **service weekday menu** + **previous Fiji weekday menu** (deduped by item name). UI optgroups “Tomorrow’s menu” / “Previous day menu”. Kitchen menu CRUD unchanged (`getDinnerMenus` merge when `serviceDate` set). |
 | C66 | **Remove Admin unlock passcodes (2025/2026) UI** and **superadmin first-access PIN** (`unlockSuperadminPin` no-op). Admin/Kitchen/More gated by **role permissions only**. Backend `requirePasscode` accepts requester role (legacy passcode still honored if sent). No Re-lock / Upgrade unlock UI. |
+
+## Dinner tomorrow-only + Kitchen harden + My Schedule flag (2.8.1)
+
+| ID | Change |
+|----|--------|
+| C67 | **Dinner menu = tomorrow only**: `getDinnerMenus` defaults `includePreviousDay` to **false**; staff dinner picker lists tomorrow’s service weekday items only (no previous-day optgroups/copy). Admin menu CRUD still uses `includeInactive:true` for all weekdays. **Kitchen Admin crash fix**: guard missing `r`/`r.data` with error card; default `dinner`/`lunch`/`breakfast`/`stats` to `{}`; fingerprint + render lock stop bg-refresh spam; ensure `#kit-root` before `innerHTML`; try/catch surfaces `e.message`; print/dl guards if pack undefined. Late dinner approve: **no `askPasscode`** — role-gated `approveLateDinnerOrder` (chef/admin/super via requesterEmail, like breakfast late). Superadmin home stats / Admin kitchen tab hardened on API fail. **`feature_my_schedule`** App Setting (default **OFF**): Settings/Features toggle; when OFF hide My Schedule from home/More/nav paths; `getMySchedule` / roster upload / listRosterUploads return featureOff; leave request modal stays. Live flag seeded/set **false** so testing focuses on meals + boat. `APP_VERSION` → **2.8.1**; SW `pcr-staff-v2.8.1`. SCRIPT_URL unchanged. |
+
+
 
