@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.7.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.7.3**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -173,4 +173,11 @@ Version **2.7.2**. Revert any item later by asking for its ID (e.g. “revert C7
 | ID | Change |
 |----|--------|
 | C57 | **Breakfast + Lunch** order for **tomorrow**, close **1:00pm Fiji today** (stock/prep). No menu — one meal / headcount only; staff tap Count me in (or cancel). Dinner unchanged (8pm / tomorrow / menus / late path). Home: 3 status cards Breakfast\|Lunch\|Dinner. Nav: **Home \| Meals \| Boat \| More** with Breakfast/Lunch/Dinner pills in Meals hub. Kitchen: big **Total** for breakfast & lunch; dinner keeps item breakdown **and** total; weekly stats last 7 service days as `{ date, breakfast, lunch, dinner }`. Backend: `breakfastCutoffInfo` + lunch same (open hour<13, serviceDate tomorrow); sheet `Breakfast Orders`; `placeBreakfastOrder` / `getBreakfastOrders` / `cancelMealOrder`; `getKitchenDashboard` breakfast pack; lunch default `Lunch`, error text 1pm/tomorrow. Demo API mirrored. `APP_VERSION` → **2.7.2**; SW `pcr-staff-v2.7.2`. SCRIPT_URL unchanged. |
+
+
+## Speed pack (2.7.3)
+
+| ID | Change |
+|----|--------|
+| C58 | **Speed pack** (no forgot-password / register / kitchen redesign). (1) Single static login hero `assets/slideshow/beach-house.jpg` — removed login slideshow rotation / interval / multi-image list; header `.app-header-motif` solid/gradient only (no photo); keep golden logo; `showLoadingTips` stays plain text. (3) Skeleton shell (2–3 gray cards) on navigate for Home / Meals / Boat / Schedule. (4) In-memory + sessionStorage cache (~2.5 min TTL) for cutoffs, reminders, suggestions, boat runs, breakfast/lunch/dinner my-orders, kitchen dashboard, my schedule; instant paint then background refresh; invalidate on logout + mutations. (5) Fire-and-forget prefetch after login: getCutoffInfo, getBoatRuns, getReminders, getSuggestions, meal my-orders. (6) Compressed `golden-logo.jpg` (~512px) + login hero (~1200px, q~70–80); unused slideshow files may remain on disk unreferenced. `APP_VERSION` → **2.7.3**; SW `pcr-staff-v2.7.3`. SCRIPT_URL unchanged. |
 

@@ -38,12 +38,6 @@ tailwind.config = {
   --bg: #0a1628;
   --teal: #0d9488;
   --hero-beach: url('assets/slideshow/beach-house.jpg');
-  --hero-pool: url('assets/slideshow/hero-resort.jpg');
-  --hero-manta: url('assets/slideshow/manta.jpg');
-  --aerial: url('assets/slideshow/hero-banner.jpg');
-  --hero-activities: url('assets/slideshow/hero-activities.jpg');
-  --hero-heli: url('assets/slideshow/hero-helicopter.jpg');
-  --hero-banner-2: url('assets/slideshow/hero-banner-2.jpg');
 }
 * { -webkit-tap-highlight-color: transparent; }
 html, body {
@@ -94,7 +88,6 @@ body {
 .login-hero {
   position: relative; min-height: 100dvh;
   background: var(--hero-beach) center center / cover no-repeat;
-  transition: background-image 1.1s ease-in-out;
 }
 .login-hero::before {
   content: ''; position: absolute; inset: 0; pointer-events: none;
@@ -113,10 +106,8 @@ body {
   border: 1px solid rgba(51, 65, 85, 0.9);
 }
 .app-header-motif {
-  background-image:
-    linear-gradient(105deg, rgba(10,22,40,0.94) 0%, rgba(10,40,48,0.88) 55%, rgba(10,22,40,0.92) 100%),
-    var(--hero-banner-2);
-  background-size: cover; background-position: center 40%;
+  background:
+    linear-gradient(105deg, rgba(10,22,40,0.96) 0%, rgba(10,40,48,0.92) 55%, rgba(10,22,40,0.95) 100%);
 }
 /* home banner hidden (C53): no full-bleed strip under sticky header */
 .home-accent { display: none; }
@@ -178,6 +169,16 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
   box-shadow: 0 0 0 2px rgba(45,212,191,0.45), 0 0 18px rgba(13,148,136,0.35);
   animation: tap-glow .35s ease-out;
 }
+.skel-card {
+  border-radius: 0.75rem; border: 1px solid rgba(51,65,85,0.7);
+  background: rgba(15,23,42,0.55); padding: 1rem;
+}
+.skel-line {
+  height: 0.65rem; border-radius: 0.35rem;
+  background: linear-gradient(90deg, rgba(51,65,85,0.55), rgba(71,85,105,0.45), rgba(51,65,85,0.55));
+  background-size: 200% 100%;
+  animation: pulse-soft 1.4s ease-in-out infinite;
+}
 .loading-tips-panel {
   display: flex; align-items: center; gap: 0.75rem;
   border-radius: 0.75rem; padding: 0.75rem 0.9rem;
@@ -202,7 +203,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.7.2';
+const APP_VERSION = '2.7.3';
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -1532,40 +1533,63 @@ function cacheUsers(users){ try { localStorage.setItem(CACHE_USERS_KEY, JSON.str
 function readUsersCache(){ try { const o = JSON.parse(localStorage.getItem(CACHE_USERS_KEY)||'null'); return (o && o.users) || []; } catch(e){ return []; } }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
-const SLIDESHOW_IMGS = [
-  'assets/slideshow/hero-banner.jpg',
-  'assets/slideshow/hero-banner-2.jpg',
-  'assets/slideshow/hero-resort.jpg',
-  'assets/slideshow/hero-activities.jpg',
-  'assets/slideshow/hero-helicopter.jpg',
-  'assets/slideshow/beach-house.jpg',
-  'assets/slideshow/manta.jpg',
-  'assets/slideshow/logo.png'
-];
-const RESORT_TIPS = [
-  { tip: 'Paradise Cove sits on Naukacuvu Island in Fiji’s stunning Yasawa Islands.', img: 'assets/slideshow/hero-banner.jpg' },
-  { tip: 'Resort exteriors and pools overlook the turquoise Yasawa lagoons.', img: 'assets/slideshow/hero-resort.jpg' },
-  { tip: 'Beach house days mean soft sand, blue water, and Bula smiles.', img: 'assets/slideshow/beach-house.jpg' },
-  { tip: 'World-class diving and snorkelling — look for reef fish and graceful mantas.', img: 'assets/slideshow/manta.jpg' },
-  { tip: 'Island activities and adventures keep guests exploring Naukacuvu.', img: 'assets/slideshow/hero-activities.jpg' },
-  { tip: 'Scenic helicopter and boat transfers make every arrival feel special.', img: 'assets/slideshow/hero-helicopter.jpg' },
-  { tip: 'Visit nearby villages for authentic Fijian culture and warm hospitality.', img: 'assets/slideshow/hero-banner-2.jpg' },
-  { tip: 'Paradise Cove Resort Fiji is a family-friendly hideaway in the Yasawas.', img: 'assets/slideshow/logo.png' },
-  { tip: 'Dining celebrates fresh island flavours with sunset views over the Yasawas.', img: 'assets/slideshow/hero-resort.jpg' },
-  { tip: 'Golden sunsets over the Yasawa chain are a daily Paradise Cove highlight.', img: 'assets/slideshow/hero-banner.jpg' }
-];
-function startLoginHeroRotation(){
-  const el = $('#view-login');
-  if (!el || state._loginHeroTimer) return;
-  let i = 0;
-  const apply = function(){
-    const url = SLIDESHOW_IMGS[i % SLIDESHOW_IMGS.length];
-    el.style.backgroundImage = "url('"+url+"')";
-    el.style.backgroundSize = 'cover';
-    el.style.backgroundPosition = 'center';
-  };
-  apply();
-  state._loginHeroTimer = setInterval(function(){ i++; apply(); }, 7000);
+/* C58 — screen data cache (memory + optional sessionStorage), TTL ~2.5 min */
+const DATA_CACHE_TTL_MS = 150000;
+const DATA_CACHE_SS_KEY = 'pcr_v2_screen_cache';
+const dataCacheMem = Object.create(null);
+(function hydrateDataCache(){
+  try {
+    const raw = sessionStorage.getItem(DATA_CACHE_SS_KEY);
+    if (!raw) return;
+    const obj = JSON.parse(raw);
+    const now = Date.now();
+    Object.keys(obj || {}).forEach(function(k){
+      const e = obj[k];
+      if (e && e.at && (now - e.at) < DATA_CACHE_TTL_MS) dataCacheMem[k] = e;
+    });
+  } catch(e){}
+})();
+function persistDataCache(){
+  try { sessionStorage.setItem(DATA_CACHE_SS_KEY, JSON.stringify(dataCacheMem)); } catch(e){}
+}
+function cacheGet(key){
+  const e = dataCacheMem[key];
+  if (!e) return null;
+  if (Date.now() - e.at > DATA_CACHE_TTL_MS) { delete dataCacheMem[key]; persistDataCache(); return null; }
+  return e.data;
+}
+function cacheSet(key, data){
+  dataCacheMem[key] = { at: Date.now(), data: data };
+  persistDataCache();
+}
+function cacheInvalidate(keys){
+  if (!keys || keys === '*') {
+    Object.keys(dataCacheMem).forEach(function(k){ delete dataCacheMem[k]; });
+  } else {
+    (Array.isArray(keys) ? keys : [keys]).forEach(function(k){ delete dataCacheMem[k]; });
+  }
+  persistDataCache();
+}
+function cacheInvalidateMealBoat(){
+  Object.keys(dataCacheMem).forEach(function(k){
+    if (/^(cutoffs|boatRuns|breakfastOrders|lunchOrders|dinnerOrders|dinnerMenus|kitchenDashboard|reminders|suggestions|mySchedule)/.test(k))
+      delete dataCacheMem[k];
+  });
+  persistDataCache();
+}
+function paintSkeleton(opts){
+  opts = opts || {};
+  const n = opts.cards || 3;
+  const title = opts.title || '';
+  let html = '<div class="fade-in max-w-lg mx-auto space-y-3" data-skeleton="1">';
+  if (title) html += '<p class="text-xs text-slate-500 px-0.5">'+esc(title)+'</p>';
+  for (let i = 0; i < n; i++) {
+    html += '<div class="skel-card space-y-2"><div class="skel-line" style="width:'+(55+i*8)+'%"></div>'+
+      '<div class="skel-line" style="width:92%"></div><div class="skel-line" style="width:'+(40+i*10)+'%"></div></div>';
+  }
+  html += '</div>';
+  const mc = $('#main-content');
+  if (mc) mc.innerHTML = html;
 }
 function showLoadingTips(container){
   if (typeof container === "string") container = $(container);
@@ -1579,6 +1603,8 @@ function showLoadingTips(container){
 }
 function doLogout(){
   state.user = null; state.adminUnlock = null; localStorage.removeItem(SESSION_KEY);
+  cacheInvalidate('*');
+  if (state._loginHeroTimer) { clearInterval(state._loginHeroTimer); state._loginHeroTimer = null; }
   $('#view-main').classList.add('hidden');
   $('#view-login').classList.remove('hidden');
 }
@@ -1649,6 +1675,8 @@ function navigate(tab){
     more: renderMore, users: renderUsers, kitchen: renderKitchen, reminders: renderReminders,
     suggestions: renderSuggestions, bookings: renderMyBookings, admin: renderAdmin, profile: renderMyProfile
   };
+  const skelTabs = { home:3, meals:3, breakfast:3, lunch:3, dinner:3, boat:3, schedule:3 };
+  if (skelTabs[tab]) paintSkeleton({ cards: skelTabs[tab] });
   (map[tab]||renderHome)();
   renderNav('#bottom-nav');
 }
@@ -1738,112 +1766,148 @@ function sortRemindersHome(list){
 async function loadHomeRemindersAndSuggestions(){
   const remBox = $('#home-rem-box'), sugList = $('#home-sug-list');
   if (!remBox || !sugList) return;
-  const stopRem = showLoadingTips(remBox);
-  const stopSug = showLoadingTips(sugList);
+  const cachedRem = cacheGet('reminders');
+  const cachedSug = cacheGet('suggestions');
+  let stopRem = function(){}, stopSug = function(){};
+  if (cachedRem) paintHomeReminders(cachedRem, remBox);
+  else stopRem = showLoadingTips(remBox);
+  if (cachedSug) paintHomeSuggestions(cachedSug, sugList);
+  else stopSug = showLoadingTips(sugList);
   try {
     const [rr, sr] = await Promise.all([api('getReminders'), api('getSuggestions')]);
     stopRem(); stopSug();
-    const reminders = sortRemindersHome((rr.data && rr.data.reminders) || []).filter(r => !(r.done===true||r.done==='TRUE'));
-    let suggestions = ((sr.data && sr.data.suggestions) || []).slice();
-    suggestions.sort(function(a,b){ return Number(b.likes!=null?b.likes:b.votes||0) - Number(a.likes!=null?a.likes:a.votes||0); });
-    if (!reminders.length) {
-      remBox.innerHTML = '<p class="text-xs text-slate-500">No active reminders</p>';
-    } else {
-      let idx = 0;
-      const paint = function(){
-        const r = reminders[idx % reminders.length];
-        const pri = reminderPriorityScore(r);
-        remBox.innerHTML =
-          '<div class="fade-in rounded-lg bg-slate-900/40 border border-slate-700/60 px-3 py-2">'+
-          (pri?'<span class="ui-badge bg-rose-600/30 text-rose-200 mb-1">Important</span> ':'')+
-          '<p class="text-sm font-medium text-slate-100">'+esc(r.title)+'</p>'+
-          (r.body?'<p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">'+esc(r.body)+'</p>':'')+
-          (reminders.length>1?'<p class="text-[9px] text-slate-600 mt-1">'+(idx%reminders.length+1)+' / '+reminders.length+'</p>':'')+
-          '</div>';
-      };
-      paint();
-      if (reminders.length > 1) {
-        state._homeRemTimer = setInterval(function(){
-          if (!$('#home-rem-box')) { clearInterval(state._homeRemTimer); state._homeRemTimer=null; return; }
-          idx++; paint();
-        }, 4000);
-      }
-    }
-    if (!suggestions.length) {
-      sugList.innerHTML = '<p class="text-xs text-slate-500">No approved suggestions yet</p>';
-    } else {
-      sugList.innerHTML = suggestions.slice(0,5).map(function(s){
-        const likes = s.likes!=null ? s.likes : (s.votes||0);
-        const dislikes = s.dislikes!=null ? s.dislikes : 0;
-        return '<div class="rounded-lg bg-slate-900/35 border border-slate-700/50 px-2.5 py-2 flex justify-between gap-2 items-start">'+
-          '<div class="min-w-0"><p class="text-xs font-medium text-slate-100 truncate">'+esc(s.title)+'</p>'+
-          (s.body?'<p class="text-[10px] text-slate-500 line-clamp-1">'+esc(s.body)+'</p>':'')+'</div>'+
-          '<div class="flex flex-col items-center gap-1 shrink-0">'+
-            '<button type="button" class="text-teal-400 home-vote-sug" data-id="'+s.id+'" data-vote="like" title="Like"><i class="fa-solid fa-thumbs-up"></i> <span class="text-[10px]">'+likes+'</span></button>'+
-            '<button type="button" class="text-rose-400 home-vote-sug" data-id="'+s.id+'" data-vote="dislike" title="Dislike"><i class="fa-solid fa-thumbs-down"></i> <span class="text-[10px]">'+dislikes+'</span></button>'+
-          '</div></div>';
-      }).join('');
-      $$('.home-vote-sug').forEach(function(b){
-        b.onclick = async function(){
-          const res = await api('voteSuggestion',{ id:b.dataset.id, vote:b.dataset.vote });
-          if (!res.success) toast(res.error,'error');
-          else { toast(b.dataset.vote==='dislike'?'Disliked':'Liked','ok'); loadHomeRemindersAndSuggestions(); }
-        };
-      });
-    }
+    const remindersRaw = (rr && rr.data && rr.data.reminders) || [];
+    const suggestionsRaw = (sr && sr.data && sr.data.suggestions) || [];
+    if (rr && rr.success !== false) cacheSet('reminders', remindersRaw);
+    if (sr && sr.success !== false) cacheSet('suggestions', suggestionsRaw);
+    paintHomeReminders(remindersRaw, remBox);
+    paintHomeSuggestions(suggestionsRaw, sugList);
   } catch(e){
     stopRem(); stopSug();
-    if (remBox) remBox.innerHTML = '<p class="text-xs text-slate-500">Unable to load reminders</p>';
-    if (sugList) sugList.innerHTML = '<p class="text-xs text-slate-500">Unable to load suggestions</p>';
+    if (!cacheGet('reminders') && remBox) remBox.innerHTML = '<p class="text-xs text-slate-500">Unable to load reminders</p>';
+    if (!cacheGet('suggestions') && sugList) sugList.innerHTML = '<p class="text-xs text-slate-500">Unable to load suggestions</p>';
   }
 }
 
+function paintHomeReminders(reminders, remBox){
+  reminders = sortRemindersHome(reminders || []).filter(r => !(r.done===true||r.done==='TRUE'));
+  if (!remBox) return;
+  if (state._homeRemTimer) { clearInterval(state._homeRemTimer); state._homeRemTimer = null; }
+  if (!reminders.length) {
+    remBox.innerHTML = '<p class="text-xs text-slate-500">No active reminders</p>';
+    return;
+  }
+  let idx = 0;
+  const paint = function(){
+    const r = reminders[idx % reminders.length];
+    const pri = reminderPriorityScore(r);
+    remBox.innerHTML =
+      '<div class="fade-in rounded-lg bg-slate-900/40 border border-slate-700/60 px-3 py-2">'+
+      (pri?'<span class="ui-badge bg-rose-600/30 text-rose-200 mb-1">Important</span> ':'')+
+      '<p class="text-sm font-medium text-slate-100">'+esc(r.title)+'</p>'+
+      (r.body?'<p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">'+esc(r.body)+'</p>':'')+
+      (reminders.length>1?'<p class="text-[9px] text-slate-600 mt-1">'+(idx%reminders.length+1)+' / '+reminders.length+'</p>':'')+
+      '</div>';
+  };
+  paint();
+  if (reminders.length > 1) {
+    state._homeRemTimer = setInterval(function(){
+      if (!$('#home-rem-box')) { clearInterval(state._homeRemTimer); state._homeRemTimer=null; return; }
+      idx++; paint();
+    }, 4000);
+  }
+}
+function paintHomeSuggestions(suggestions, sugList){
+  if (!sugList) return;
+  suggestions = (suggestions || []).slice();
+  suggestions.sort(function(a,b){ return Number(b.likes!=null?b.likes:b.votes||0) - Number(a.likes!=null?a.likes:a.votes||0); });
+  if (!suggestions.length) {
+    sugList.innerHTML = '<p class="text-xs text-slate-500">No approved suggestions yet</p>';
+    return;
+  }
+  sugList.innerHTML = suggestions.slice(0,5).map(function(s){
+    const likes = s.likes!=null ? s.likes : (s.votes||0);
+    const dislikes = s.dislikes!=null ? s.dislikes : 0;
+    return '<div class="rounded-lg bg-slate-900/35 border border-slate-700/50 px-2.5 py-2 flex justify-between gap-2 items-start">'+
+      '<div class="min-w-0"><p class="text-xs font-medium text-slate-100 truncate">'+esc(s.title)+'</p>'+
+      (s.body?'<p class="text-[10px] text-slate-500 line-clamp-1">'+esc(s.body)+'</p>':'')+'</div>'+
+      '<div class="flex flex-col items-center gap-1 shrink-0">'+
+        '<button type="button" class="text-teal-400 home-vote-sug" data-id="'+s.id+'" data-vote="like" title="Like"><i class="fa-solid fa-thumbs-up"></i> <span class="text-[10px]">'+likes+'</span></button>'+
+        '<button type="button" class="text-rose-400 home-vote-sug" data-id="'+s.id+'" data-vote="dislike" title="Dislike"><i class="fa-solid fa-thumbs-down"></i> <span class="text-[10px]">'+dislikes+'</span></button>'+
+      '</div></div>';
+  }).join('');
+  $$('.home-vote-sug').forEach(function(b){
+    b.onclick = async function(){
+      const res = await api('voteSuggestion',{ id:b.dataset.id, vote:b.dataset.vote });
+      if (!res.success) toast(res.error,'error');
+      else { toast(b.dataset.vote==='dislike'?'Disliked':'Liked','ok'); cacheInvalidate(['suggestions']); loadHomeRemindersAndSuggestions(); }
+    };
+  });
+}
+
+
 async function renderDinner(){
   const di = dinnerCutoffInfo();
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="dinner-root"></div>';
-  const stopTips = showLoadingTips($('#dinner-root'));
-  let myDinner=[], menuItems=[];
+  state.mealPill = 'dinner';
+  const orderKey = 'dinnerOrders:'+di.serviceDate;
+  const menuKey = 'dinnerMenus:'+di.serviceDate;
+  const cachedOrders = cacheGet(orderKey);
+  const cachedMenus = cacheGet(menuKey);
+
+  function paintDinner(myDinner, menuItems){
+    myDinner = myDinner || [];
+    menuItems = menuItems || [];
+    const wd = fijiWeekday(addFijiDays(getFijiNow(),1));
+    let dinnerOpts = menuItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('');
+    if (!dinnerOpts) dinnerOpts = '<option value="Standard">Standard</option><option value="Vegetarian">Vegetarian</option><option value="No meal">No meal</option>';
+    const cur = myDinner[0];
+    const statusHtml = cur ? ('<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(cur.mealChoice)+'</strong> '+statusBadge(cur.status)+(cur.late?' <span class="text-amber-400">LATE</span>':'')+'</p>') : '';
+    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="dinner-root">'+
+      mealPillsHtml('dinner')+
+      '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-moon text-teal-400 mr-2"></i>Dinner</h3>'+
+      '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+di.serviceDate+'</strong> · '+WEEKDAY_NAMES[wd]+'</p>'+
+      '<p class="text-[10px] '+(di.open?'text-teal-400':'text-amber-400')+'">'+(di.open?'Ordering open':'Closed — late dinner requests only')+' — '+di.cutoffLabel+'</p></div>'+
+      statusHtml+
+      '<label class="text-[10px] text-slate-400">Tomorrow\'s menu</label>'+
+      '<select id="dinner-choice" class="w-full rounded-xl px-3 py-2 text-sm">'+dinnerOpts+'</select>'+
+      '<input id="dinner-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes / allergies"/>'+
+      '<button id="btn-dinner" class="btn-primary w-full rounded-xl py-2 text-sm text-white">'+(di.open?'Place dinner order':'Submit late dinner request')+'</button>'+
+      (!di.open?'<p class="text-[10px] text-amber-300/80">For staff who missed the 8pm Fiji cutoff for tomorrow\'s dinner. Late requests need admin approval (2025/2026).</p>':'')+
+      '</div></div>';
+    if (cur && cur.mealChoice) {
+      const sel = $('#dinner-choice');
+      if (sel) {
+        let found=false;
+        [...sel.options].forEach(o=>{ if(o.value===cur.mealChoice){ o.selected=true; found=true; }});
+        if (!found) { const o=document.createElement('option'); o.value=cur.mealChoice; o.textContent=cur.mealChoice; o.selected=true; sel.appendChild(o); }
+      }
+    }
+    bindMealPills('#dinner-root');
+    $('#btn-dinner').onclick = async () => {
+      const r = await api('placeDinnerOrder',{ mealChoice:$('#dinner-choice').value, notes:$('#dinner-notes').value, allowLate: !di.open });
+      if (!r.success) { toast(r.error,'error'); return; }
+      cacheInvalidate([orderKey, 'kitchenDashboard']);
+      toast(r.data.late?'Late dinner request submitted (pending admin)':'Dinner ordered (pending auto-approve)','ok'); renderDinner();
+    };
+  }
+
+  if (cachedOrders || cachedMenus) paintDinner(cachedOrders || [], cachedMenus || []);
+  // else skeleton from navigate remains
   try {
     const [d,m] = await Promise.all([
       api('getDinnerOrders',{ userEmail: state.user.email, serviceDate: di.serviceDate }),
       api('getDinnerMenus',{ serviceDate: di.serviceDate })
     ]);
-    myDinner = (d.data && d.data.orders) || [];
-    menuItems = (m.data && m.data.items) || (d.data && d.data.menus) || [];
-  } catch(e){}
-  stopTips();
-  const wd = fijiWeekday(addFijiDays(getFijiNow(),1));
-  let dinnerOpts = menuItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('');
-  if (!dinnerOpts) dinnerOpts = '<option value="Standard">Standard</option><option value="Vegetarian">Vegetarian</option><option value="No meal">No meal</option>';
-  const cur = myDinner[0];
-  const statusHtml = cur ? ('<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(cur.mealChoice)+'</strong> '+statusBadge(cur.status)+(cur.late?' <span class="text-amber-400">LATE</span>':'')+'</p>') : '';
-  state.mealPill = 'dinner';
-  $('#dinner-root').innerHTML =
-    mealPillsHtml('dinner')+
-    '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-moon text-teal-400 mr-2"></i>Dinner</h3>'+
-    '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+di.serviceDate+'</strong> · '+WEEKDAY_NAMES[wd]+'</p>'+
-    '<p class="text-[10px] '+(di.open?'text-teal-400':'text-amber-400')+'">'+(di.open?'Ordering open':'Closed — late dinner requests only')+' — '+di.cutoffLabel+'</p></div>'+
-    statusHtml+
-    '<label class="text-[10px] text-slate-400">Tomorrow\'s menu</label>'+
-    '<select id="dinner-choice" class="w-full rounded-xl px-3 py-2 text-sm">'+dinnerOpts+'</select>'+
-    '<input id="dinner-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes / allergies"/>'+
-    '<button id="btn-dinner" class="btn-primary w-full rounded-xl py-2 text-sm text-white">'+(di.open?'Place dinner order':'Submit late dinner request')+'</button>'+
-    (!di.open?'<p class="text-[10px] text-amber-300/80">For staff who missed the 8pm Fiji cutoff for tomorrow\'s dinner. Late requests need admin approval (2025/2026).</p>':'')+
-    '</div>';
-  if (cur && cur.mealChoice) {
-    const sel = $('#dinner-choice');
-    if (sel) {
-      let found=false;
-      [...sel.options].forEach(o=>{ if(o.value===cur.mealChoice){ o.selected=true; found=true; }});
-      if (!found) { const o=document.createElement('option'); o.value=cur.mealChoice; o.textContent=cur.mealChoice; o.selected=true; sel.appendChild(o); }
+    const myDinner = (d.data && d.data.orders) || [];
+    const menuItems = (m.data && m.data.items) || (d.data && d.data.menus) || [];
+    cacheSet(orderKey, myDinner);
+    cacheSet(menuKey, menuItems);
+    paintDinner(myDinner, menuItems);
+  } catch(e){
+    if (!(cachedOrders || cachedMenus)) {
+      $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto"><div class="glass rounded-xl p-4 text-sm text-red-300">Unable to load dinner</div></div>';
     }
   }
-  bindMealPills('#dinner-root');
-  $('#btn-dinner').onclick = async () => {
-    const r = await api('placeDinnerOrder',{ mealChoice:$('#dinner-choice').value, notes:$('#dinner-notes').value, allowLate: !di.open });
-    if (!r.success) { toast(r.error,'error'); return; }
-    toast(r.data.late?'Late dinner request submitted (pending admin)':'Dinner ordered (pending auto-approve)','ok'); renderDinner();
-  };
 }
 
 function mealPillsHtml(active){
@@ -1873,107 +1937,124 @@ function renderMeals(){
 async function renderBreakfast(){
   state.mealPill = 'breakfast';
   const bi = breakfastCutoffInfo();
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="breakfast-root"></div>';
-  const root = $('#breakfast-root');
-  const stopTips = showLoadingTips(root);
-  let myOrders=[];
+  const cacheKey = 'breakfastOrders:'+bi.serviceDate;
+  const cached = cacheGet(cacheKey);
+
+  function paintBreakfast(myOrders){
+    myOrders = (myOrders || []).filter(o => o.status !== 'cancelled');
+    const cur = myOrders[0];
+    let formHtml = '';
+    if (bi.open) {
+      formHtml =
+        '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
+        '<button id="btn-breakfast" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white">'+(cur?'Update / already counted':'Count me in')+'</button>'+
+        (cur?'<button id="btn-breakfast-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
+    } else {
+      formHtml =
+        '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1">'+
+        '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-lock mr-1"></i>Breakfast closed at 1pm Fiji</p>'+
+        '<p class="text-[10px] text-amber-200/80">Closed at 1:00 PM Fiji today for tomorrow\'s breakfast. No staff late path.</p>'+
+        '</div>';
+    }
+    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="breakfast-root">'+
+      mealPillsHtml('breakfast')+
+      '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-mug-saucer text-teal-400 mr-2"></i>Breakfast</h3>'+
+      '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+bi.serviceDate+'</strong> (tomorrow)</p>'+
+      '<p class="text-[10px] '+(bi.open?'text-teal-400':'text-amber-400')+'">'+(bi.open?'Open — count in before 1:00 PM Fiji':'Closed')+' — '+bi.cutoffLabel+'</p></div>'+
+      (cur?'<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for breakfast</p>':'')+
+      formHtml+
+      '</div></div>';
+    bindMealPills('#breakfast-root');
+    const btn = $('#btn-breakfast');
+    if (btn) btn.onclick = async () => {
+      const r = await api('placeBreakfastOrder',{});
+      if (!r.success) { toast(r.error,'error'); return; }
+      cacheInvalidate([cacheKey, 'kitchenDashboard']);
+      toast(cur?'Breakfast updated':'Counted in for breakfast','ok'); renderBreakfast();
+    };
+    const cancel = $('#btn-breakfast-cancel');
+    if (cancel) cancel.onclick = async () => {
+      const r = await api('cancelMealOrder',{ meal:'breakfast' });
+      if (!r.success) { toast(r.error,'error'); return; }
+      cacheInvalidate([cacheKey, 'kitchenDashboard']);
+      toast('Breakfast count cancelled','ok'); renderBreakfast();
+    };
+  }
+
+  if (cached) paintBreakfast(cached);
   try {
     const r = await api('getBreakfastOrders',{ userEmail: state.user.email, serviceDate: bi.serviceDate });
-    myOrders = ((r.data && r.data.orders) || []).filter(o => o.status !== 'cancelled');
-  } catch(e){}
-  stopTips();
-  const cur = myOrders[0];
-  let formHtml = '';
-  if (bi.open) {
-    formHtml =
-      '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
-      '<button id="btn-breakfast" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white">'+(cur?'Update / already counted':'Count me in')+'</button>'+
-      (cur?'<button id="btn-breakfast-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
-  } else {
-    formHtml =
-      '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1">'+
-      '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-lock mr-1"></i>Breakfast closed at 1pm Fiji</p>'+
-      '<p class="text-[10px] text-amber-200/80">Closed at 1:00 PM Fiji today for tomorrow\'s breakfast. No staff late path.</p>'+
-      '</div>';
+    const myOrders = ((r.data && r.data.orders) || []);
+    cacheSet(cacheKey, myOrders);
+    paintBreakfast(myOrders);
+  } catch(e){
+    if (!cached) $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto"><div class="glass rounded-xl p-4 text-sm text-red-300">Unable to load breakfast</div></div>';
   }
-  root.innerHTML =
-    mealPillsHtml('breakfast')+
-    '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-mug-saucer text-teal-400 mr-2"></i>Breakfast</h3>'+
-    '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+bi.serviceDate+'</strong> (tomorrow)</p>'+
-    '<p class="text-[10px] '+(bi.open?'text-teal-400':'text-amber-400')+'">'+(bi.open?'Open — count in before 1:00 PM Fiji':'Closed')+' — '+bi.cutoffLabel+'</p></div>'+
-    (cur?'<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for breakfast</p>':'')+
-    formHtml+
-    '</div>';
-  bindMealPills('#breakfast-root');
-  const btn = $('#btn-breakfast');
-  if (btn) btn.onclick = async () => {
-    const r = await api('placeBreakfastOrder',{});
-    if (!r.success) { toast(r.error,'error'); return; }
-    toast(cur?'Breakfast updated':'Counted in for breakfast','ok'); renderBreakfast();
-  };
-  const cancel = $('#btn-breakfast-cancel');
-  if (cancel) cancel.onclick = async () => {
-    const r = await api('cancelMealOrder',{ meal:'breakfast' });
-    if (!r.success) { toast(r.error,'error'); return; }
-    toast('Breakfast count cancelled','ok'); renderBreakfast();
-  };
 }
 
 async function renderLunch(){
   state.mealPill = 'lunch';
   const li = lunchCutoffInfo();
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="lunch-root"></div>';
-  const stopTips = showLoadingTips($('#lunch-root'));
-  let myLunch=[];
+  const cacheKey = 'lunchOrders:'+li.serviceDate;
+  const cached = cacheGet(cacheKey);
+
+  function paintLunch(myLunch){
+    myLunch = (myLunch || []).filter(o => o.status !== 'cancelled');
+    const cur = myLunch[0];
+    let formHtml = '';
+    if (li.open) {
+      formHtml =
+        '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
+        '<button id="btn-lunch" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white">'+(cur?'Update / already counted':'Count me in')+'</button>'+
+        (cur?'<button id="btn-lunch-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
+    } else {
+      formHtml =
+        '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1">'+
+        '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-lock mr-1"></i>Lunch closed at 1pm Fiji</p>'+
+        '<p class="text-[10px] text-amber-200/80">Closed at 1:00 PM Fiji today for tomorrow\'s lunch. No staff late path.</p>'+
+        '</div>';
+    }
+    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="lunch-root">'+
+      mealPillsHtml('lunch')+
+      '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-sun text-teal-400 mr-2"></i>Lunch</h3>'+
+      '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+li.serviceDate+'</strong> (tomorrow)</p>'+
+      '<p class="text-[10px] '+(li.open?'text-teal-400':'text-amber-400')+'">'+(li.open?'Open — count in before 1:00 PM Fiji':'Closed')+' — '+li.cutoffLabel+'</p></div>'+
+      (cur?'<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for lunch</p>':'')+
+      formHtml+
+      '</div></div>';
+    bindMealPills('#lunch-root');
+    const btn = $('#btn-lunch');
+    if (btn) btn.onclick = async () => {
+      const r = await api('placeLunchOrder',{});
+      if (!r.success) { toast(r.error,'error'); return; }
+      cacheInvalidate([cacheKey, 'kitchenDashboard']);
+      toast(cur?'Lunch updated':'Counted in for lunch','ok'); renderLunch();
+    };
+    const cancel = $('#btn-lunch-cancel');
+    if (cancel) cancel.onclick = async () => {
+      const r = await api('cancelMealOrder',{ meal:'lunch' });
+      if (!r.success) { toast(r.error,'error'); return; }
+      cacheInvalidate([cacheKey, 'kitchenDashboard']);
+      toast('Lunch count cancelled','ok'); renderLunch();
+    };
+  }
+
+  if (cached) paintLunch(cached);
   try {
     const l = await api('getLunchOrders',{ userEmail: state.user.email, serviceDate: li.serviceDate });
-    myLunch = ((l.data && l.data.orders) || []).filter(o => o.status !== 'cancelled');
-  } catch(e){}
-  stopTips();
-  const cur = myLunch[0];
-  let formHtml = '';
-  if (li.open) {
-    formHtml =
-      '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
-      '<button id="btn-lunch" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white">'+(cur?'Update / already counted':'Count me in')+'</button>'+
-      (cur?'<button id="btn-lunch-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
-  } else {
-    formHtml =
-      '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1">'+
-      '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-lock mr-1"></i>Lunch closed at 1pm Fiji</p>'+
-      '<p class="text-[10px] text-amber-200/80">Closed at 1:00 PM Fiji today for tomorrow\'s lunch. No staff late path.</p>'+
-      '</div>';
+    const myLunch = ((l.data && l.data.orders) || []);
+    cacheSet(cacheKey, myLunch);
+    paintLunch(myLunch);
+  } catch(e){
+    if (!cached) $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto"><div class="glass rounded-xl p-4 text-sm text-red-300">Unable to load lunch</div></div>';
   }
-  $('#lunch-root').innerHTML =
-    mealPillsHtml('lunch')+
-    '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-sun text-teal-400 mr-2"></i>Lunch</h3>'+
-    '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+li.serviceDate+'</strong> (tomorrow)</p>'+
-    '<p class="text-[10px] '+(li.open?'text-teal-400':'text-amber-400')+'">'+(li.open?'Open — count in before 1:00 PM Fiji':'Closed')+' — '+li.cutoffLabel+'</p></div>'+
-    (cur?'<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for lunch</p>':'')+
-    formHtml+
-    '</div>';
-  bindMealPills('#lunch-root');
-  const btn = $('#btn-lunch');
-  if (btn) btn.onclick = async () => {
-    const r = await api('placeLunchOrder',{});
-    if (!r.success) { toast(r.error,'error'); return; }
-    toast(cur?'Lunch updated':'Counted in for lunch','ok'); renderLunch();
-  };
-  const cancel = $('#btn-lunch-cancel');
-  if (cancel) cancel.onclick = async () => {
-    const r = await api('cancelMealOrder',{ meal:'lunch' });
-    if (!r.success) { toast(r.error,'error'); return; }
-    toast('Lunch count cancelled','ok'); renderLunch();
-  };
 }
 
 async function renderBoat(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="boat-root"></div>';
-  const stopTips = showLoadingTips($('#boat-root'));
-  try {
-    const r = await api('getBoatRuns');
-    stopTips();
-    const runs = (r.data && r.data.runs) || [];
+  const cachedRuns = cacheGet('boatRuns');
+
+  function paintBoat(runs){
+    runs = runs || [];
     let html = '<div class="glass rounded-xl p-3 border border-teal-500/30 space-y-2">'+
       '<p class="text-sm font-semibold text-teal-200"><i class="fa-solid fa-ship mr-1.5"></i>Staff Boat Transfer Schedule — Soso Express</p>'+
       '<div class="text-xs text-sand-200/85 space-y-1.5">'+
@@ -2010,19 +2091,19 @@ async function renderBoat(){
       html += '</div>';
     });
     html += '<button onclick="navigate(\'bookings\')" class="w-full text-center text-xs text-teal-400 py-2">View my bookings →</button>';
-    $('#boat-root').innerHTML = html;
+    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="boat-root">'+html+'</div>';
     $$('.book-run').forEach(b => b.onclick = async () => {
       const seats = prompt('Number of seats?', '1');
       if (!seats) return;
       const res = await api('bookBoat',{ runId:b.dataset.id, seats:Number(seats) });
-      if (!res.success) toast(res.error,'error'); else { toast('Booked','ok'); renderBoat(); }
+      if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['boatRuns']); toast('Booked','ok'); renderBoat(); }
     });
     $$('.cap-save').forEach(b => b.onclick = async () => {
       const id = b.dataset.id;
       const capEl = $$('.cap-inp').find(x=>x.dataset.id===id);
       const flagEl = $$('.full-flag').find(x=>x.dataset.id===id);
       const res = await api('saveBoatRun',{ id, captainUpdate:true, capacity: Number(capEl && capEl.value), fullNotification: !!(flagEl && flagEl.checked) });
-      if (!res.success) toast(res.error,'error'); else { toast('Run updated','ok'); renderBoat(); }
+      if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['boatRuns']); toast('Run updated','ok'); renderBoat(); }
     });
     const addBtn = $('#btn-add-run');
     if (addBtn) addBtn.onclick = async () => {
@@ -2037,12 +2118,21 @@ async function renderBoat(){
       $('#br-save').onclick = async () => {
         const res = await api('saveBoatRun',{ passcode, date:$('#br-date').value, time:$('#br-time').value, route:$('#br-route').value, capacity:Number($('#br-cap').value), notes:$('#br-notes').value });
         closeModal();
-        if (!res.success) toast(res.error,'error'); else { toast('Run saved','ok'); renderBoat(); }
+        if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['boatRuns']); toast('Run saved','ok'); renderBoat(); }
       };
     };
+  }
+
+  if (cachedRuns) paintBoat(cachedRuns);
+  try {
+    const r = await api('getBoatRuns');
+    const runs = (r.data && r.data.runs) || [];
+    cacheSet('boatRuns', runs);
+    paintBoat(runs);
   } catch(e) {
-    stopTips();
-    $('#boat-root').innerHTML = '<div class="glass rounded-xl p-4 text-sm text-red-300">'+esc(e.message)+'</div>';
+    if (!cachedRuns) {
+      $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="boat-root"><div class="glass rounded-xl p-4 text-sm text-red-300">'+esc(e.message)+'</div></div>';
+    }
   }
 }
 
@@ -2064,18 +2154,33 @@ async function renderMyBookings(){
     });
     $('#mb-root').innerHTML = html;
     $$('.cancel-bb').forEach(b => b.onclick = async () => {
-      await api('cancelBoatBooking',{ id:b.dataset.id }); toast('Cancelled','ok'); renderMyBookings();
+      await api('cancelBoatBooking',{ id:b.dataset.id }); cacheInvalidate(['boatRuns']); toast('Cancelled','ok'); renderMyBookings();
     });
   } catch(e){ stopMb(); $('#mb-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
 }
 
 async function renderSchedule(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="sch-root"></div>';
-  const stopTips = showLoadingTips($('#sch-root'));
+  const cachedSch = cacheGet('mySchedule');
+  const bgOnly = !!state._schBgRefresh;
+  state._schBgRefresh = false;
   try {
     await refreshFeatureFlags();
-    const r = await api('getMySchedule');
-    stopTips();
+    let r = cachedSch ? { success:true, data: cachedSch } : null;
+    if (!r) {
+      r = await api('getMySchedule');
+      if (r && r.success && r.data) cacheSet('mySchedule', r.data);
+    } else if (!bgOnly) {
+      api('getMySchedule').then(function(fresh){
+        if (fresh && fresh.success && fresh.data) {
+          cacheSet('mySchedule', fresh.data);
+          if (state.tab === 'schedule') {
+            state._schBgRefresh = true;
+            renderSchedule();
+          }
+        }
+      }).catch(function(){});
+    }
+    if (!r || !r.data) r = { success:false, data:{} };
     const leave = (r.data && r.data.leave) || [];
     const live = r.data && r.data.liveRoster;
     const weekly = (r.data && r.data.weeklyShifts) || [];
@@ -2168,11 +2273,11 @@ async function renderSchedule(){
     });
     html += '</div>';
     if (canHod() || canFullAdmin()) html += '<button id="btn-lv-admin" class="w-full text-xs text-teal-400 py-2">Leave inbox →</button>';
-    $('#sch-root').innerHTML = html;
+    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="sch-root">'+html+'</div>';
 
     $('#btn-leave').onclick = async () => {
       const res = await api('requestLeave',{ startDate:$('#lv-start').value, endDate:$('#lv-end').value, reason:$('#lv-reason').value });
-      if (!res.success) toast(res.error,'error'); else { toast('Leave submitted','ok'); renderSchedule(); }
+      if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['mySchedule']); toast('Leave submitted','ok'); renderSchedule(); }
     };
     const ba = $('#btn-lv-admin');
     if (ba) ba.onclick = () => renderLeaveAdmin();
@@ -2191,7 +2296,11 @@ async function renderSchedule(){
     if (btnParse) btnParse.onclick = () => handleRosterFileParse();
     const btnUp = $('#btn-roster-uploads');
     if (btnUp) btnUp.onclick = () => showRosterUploads();
-  } catch(e){ stopTips(); $('#sch-root').innerHTML = '<p class="text-red-300">'+esc(e.message)+'</p>'; }
+  } catch(e){
+    if (!cacheGet('mySchedule')) {
+      $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="sch-root"><p class="text-red-300">'+esc(e.message)+'</p></div>';
+    }
+  }
 }
 
 let _pendingRoster = null;
@@ -2736,10 +2845,33 @@ async function renderMyProfile(){
 }
 
 async function renderKitchen(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root"></div>';
-  const stopKitTips = showLoadingTips($('#kit-root'));
+  const cachedKit = cacheGet('kitchenDashboard');
+  const fromBg = !!state._kitBgRefresh;
+  state._kitBgRefresh = false;
+  if (!cachedKit || fromBg) {
+    if (!$('#kit-root')) $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root"></div>';
+  }
+  const stopKitTips = (cachedKit && !fromBg) ? function(){} : showLoadingTips($('#kit-root') || $('#main-content'));
   try {
-    const [r, prepR] = await Promise.all([api('getKitchenDashboard'), api('getDinnerPrepList')]);
+    let r, prepR;
+    if (cachedKit && !fromBg) {
+      r = { success:true, data: cachedKit.dash };
+      prepR = { success:true, data: cachedKit.prep };
+      Promise.all([api('getKitchenDashboard'), api('getDinnerPrepList')]).then(function(pair){
+        const fr = pair[0], fp = pair[1];
+        if (fr && fr.success && fr.data) {
+          cacheSet('kitchenDashboard', { dash: fr.data, prep: (fp && fp.data) || {} });
+          if (state.tab === 'kitchen') {
+            state._kitBgRefresh = true;
+            renderKitchen();
+          }
+        }
+      }).catch(function(){});
+    } else {
+      const pair = await Promise.all([api('getKitchenDashboard'), api('getDinnerPrepList')]);
+      r = pair[0]; prepR = pair[1];
+      if (r && r.success && r.data) cacheSet('kitchenDashboard', { dash: r.data, prep: (prepR && prepR.data) || {} });
+    }
     stopKitTips();
     const d = r.data;
     const prepData = (prepR && prepR.data) || {};
@@ -2828,8 +2960,10 @@ async function renderKitchen(){
       headcountBlock('Breakfast','breakfast',d.breakfast||{},d.breakfastDate||((d.breakfast&&d.breakfast.serviceDate)||'')) +
       headcountBlock('Lunch','lunch',d.lunch||{},d.lunchDate) +
       block('Dinner','dinner',d.dinner,d.dinnerDate) + statsHtml;
+    if (!$('#kit-root')) $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="kit-root"></div>';
     $('#kit-root').innerHTML = html;
     $$('.mark-ord').forEach(b=>b.onclick=async()=>{
+      cacheInvalidate(['kitchenDashboard']);
       await api('markOrderStatus',{ id:b.dataset.id, meal:b.dataset.meal, status:'prepared' });
       toast('Marked','ok'); renderKitchen();
     });
@@ -3537,11 +3671,33 @@ async function doLogin(email, password){
   saveSession();
   enterApp();
 }
+function prefetchAfterLogin(){
+  if (!state.user) return;
+  const email = state.user.email;
+  const bi = breakfastCutoffInfo(), li = lunchCutoffInfo(), di = dinnerCutoffInfo();
+  // fire-and-forget — never block UI
+  api('getCutoffInfo').then(function(r){ if (r && r.success) cacheSet('cutoffs', r.data || r); }).catch(function(){});
+  api('getBoatRuns').then(function(r){ if (r && r.success) cacheSet('boatRuns', (r.data && r.data.runs) || []); }).catch(function(){});
+  api('getReminders').then(function(r){ if (r && r.success) cacheSet('reminders', (r.data && r.data.reminders) || []); }).catch(function(){});
+  api('getSuggestions').then(function(r){ if (r && r.success) cacheSet('suggestions', (r.data && r.data.suggestions) || []); }).catch(function(){});
+  if (email) {
+    api('getBreakfastOrders',{ userEmail: email, serviceDate: bi.serviceDate }).then(function(r){
+      if (r && r.success) cacheSet('breakfastOrders:'+bi.serviceDate, (r.data && r.data.orders) || []);
+    }).catch(function(){});
+    api('getLunchOrders',{ userEmail: email, serviceDate: li.serviceDate }).then(function(r){
+      if (r && r.success) cacheSet('lunchOrders:'+li.serviceDate, (r.data && r.data.orders) || []);
+    }).catch(function(){});
+    api('getDinnerOrders',{ userEmail: email, serviceDate: di.serviceDate }).then(function(r){
+      if (r && r.success) cacheSet('dinnerOrders:'+di.serviceDate, (r.data && r.data.orders) || []);
+    }).catch(function(){});
+  }
+}
 function enterApp(){
   $('#view-login').classList.add('hidden');
   $('#view-main').classList.remove('hidden');
   refreshFeatureFlags().finally(()=>{ navigate('home'); maybeProfileModal(); });
   api('getVersion').then(r=>{ state.backendVersion = r.version || (r.data && r.data.version); }).catch(()=>{});
+  try { prefetchAfterLogin(); } catch(e){}
 }
 
 $('#login-form').onsubmit = async (e) => {
@@ -3675,7 +3831,6 @@ function showBackendBanner(msg){
 }
 function boot(){
   $('#ui-version').textContent = APP_VERSION;
-  startLoginHeroRotation();
   state.demo = isDemoMode();
   if (state.demo) {
     $('#demo-badge').classList.remove('hidden');
