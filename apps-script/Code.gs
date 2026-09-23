@@ -1978,13 +1978,15 @@ function getHodLeaveSummary(p) {
   if (!requester || !(isHodPerm(requester) || isAdminPerm(requester))) {
     return { success: false, error: 'HOD / admin required' };
   }
-  var dept = p.department || requester.department || '';
-  if (!isAdminPerm(requester) && !dept) {
-    return { success: false, error: 'Department required' };
-  }
   var rows = sheetToObjects('Leave Requests');
-  if (!isAdminPerm(requester) || p.department) {
-    rows = rows.filter(function (r) { return String(r.department) === String(dept); });
+  var deptLabel = 'All';
+  if (isAdminPerm(requester) && p.department) {
+    deptLabel = String(p.department);
+    rows = rows.filter(function (r) { return String(r.department) === deptLabel; });
+  } else if (!isAdminPerm(requester)) {
+    deptLabel = String(p.department || requester.department || '');
+    if (!deptLabel) return { success: false, error: 'Department required' };
+    rows = rows.filter(function (r) { return String(r.department) === deptLabel; });
   }
   var counts = { pending: 0, pending_hod: 0, pending_manager: 0, approved: 0, rejected: 0, other: 0 };
   rows.forEach(function (r) {
@@ -1995,7 +1997,7 @@ function getHodLeaveSummary(p) {
   return {
     success: true,
     data: {
-      department: dept,
+      department: deptLabel,
       counts: counts,
       requests: rows,
       escalation: isFeatureEnabled('feature_leave_escalation')
