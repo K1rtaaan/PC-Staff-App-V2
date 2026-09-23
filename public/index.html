@@ -203,7 +203,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.9.1';
+const APP_VERSION = '2.9.2';
 const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
 function deptSelectOptions(selected){
   selected = selected || '';
@@ -429,6 +429,12 @@ function formatFiji(d=getFijiNow()) {
   return fijiDateString(d)+' '+pad2(d.getUTCHours())+':'+pad2(d.getUTCMinutes())+' FJT';
 }
 function addFijiDays(d, days) { return new Date(d.getTime() + days * 86400000); }
+/** Default boat list window: Fiji today → +14 days (matches API default). */
+function boatRunsRangeParams(extra){
+  const today = fijiDateString();
+  const to = fijiDateString(addFijiDays(getFijiNow(), 14));
+  return Object.assign({ fromDate: today, toDate: to }, extra || {});
+}
 
 const SAMPLE_REMINDER_ID = 'rem_seed_high_occ_sep2026';
 const SAMPLE_REMINDER_TITLE = 'High occupancy — weeks ending 20 & 27 Sep';
@@ -718,7 +724,7 @@ function prefetchNextTabByRole(){
     if (hasPerm('chef') || hasPerm('kitchen')) {
       api('getKitchenDashboard').then(function(r){ if (r&&r.success) cacheSet('kitchenDashboard', { dash:r.data, prep:{} }); }).catch(function(){});
     } else if (hasPerm('boat_captain') || hasPerm('boat_manager') || hasPerm('boat')) {
-      api('getBoatRuns').then(function(r){ if (r&&r.success) cacheSet('boatRuns', (r.data&&r.data.runs)||[]); }).catch(function(){});
+      api('getBoatRuns', boatRunsRangeParams()).then(function(r){ if (r&&r.success) cacheSet('boatRuns', (r.data&&r.data.runs)||[]); }).catch(function(){});
     } else if (hasPerm('hod') || hasPerm('assistant_hod') || hasPerm('admin') || hasPerm('super_admin')) {
       api('getHodLeaveSummary', canFullAdmin()?{}:{ department: state.user.department }).then(function(){}).catch(function(){});
       api('getDailyOpsSummary').then(function(r){ if (r&&r.success) cacheSet('dailyOps', r.data); }).catch(function(){});
@@ -727,7 +733,7 @@ function prefetchNextTabByRole(){
       api('getDinnerOrders',{ userEmail: state.user.email, serviceDate: di.serviceDate }).then(function(r){
         if (r&&r.success) cacheSet('dinnerOrders:'+di.serviceDate, (r.data&&r.data.orders)||[]);
       }).catch(function(){});
-      api('getBoatRuns').then(function(r){ if (r&&r.success) cacheSet('boatRuns', (r.data&&r.data.runs)||[]); }).catch(function(){});
+      api('getBoatRuns', boatRunsRangeParams()).then(function(r){ if (r&&r.success) cacheSet('boatRuns', (r.data&&r.data.runs)||[]); }).catch(function(){});
     }
   } catch(e){}
 }
@@ -1200,7 +1206,19 @@ function demoApi(action, p) {
     }
 
     case 'getBoatRuns': {
-      const runs = db.boatRuns.filter(r=>r.active!==false).map(r=>{
+      const allDates = p.allDates===true || p.allDates==='true' || p.includeAll===true || p.includeAll==='true';
+      let list = db.boatRuns.filter(r=>r.active!==false);
+      if (p.date) {
+        list = list.filter(r=>String(r.date).indexOf(String(p.date))===0);
+      } else if (!allDates) {
+        const from = String(p.fromDate || p.startDate || fijiDateString()).slice(0,10);
+        const to = String(p.toDate || p.endDate || fijiDateString(addFijiDays(getFijiNow(),14))).slice(0,10);
+        list = list.filter(r=>{
+          const d = String(r.date||'').slice(0,10);
+          return d >= from && d <= to;
+        });
+      }
+      const runs = list.map(r=>{
         const used = db.boatBookings.filter(b=>b.runId===r.id && b.status!=='cancelled').reduce((s,b)=>s+Number(b.seats||1),0);
         return Object.assign({}, r, { paxBooked: used, fullNotification: !!r.fullNotification });
       });
@@ -1230,6 +1248,25 @@ function demoApi(action, p) {
       }
       const run = { id:uid('run'), date:p.date||fijiDateString(), time:p.time, route:p.route, capacity:p.capacity||20, notes:p.notes||'', fullNotification:false, active:true };
       db.boatRuns.push(run); saveDemo(db); return Promise.resolve(ok({ run }));
+    }
+    case 'dedupeBoatRuns': {
+      if (!(canFullAdmin() || passOk(p.passcode))) return Promise.resolve(fail('Admin required'));
+      const normT = (t)=>{ t=String(t||''); const m=t.match(/(\d{1,2}):(\d{2})/); return m?((m[1].length===1?'0':'')+m[1]+':'+m[2]):t; };
+      const groups={};
+      (db.boatRuns||[]).forEach(r=>{
+        if (r.active===false) return;
+        const key=String(r.date||'').slice(0,10)+'|'+normT(r.time)+'|'+String(r.route||'').trim();
+        (groups[key]=groups[key]||[]).push(r);
+      });
+      let deactivated=0, duplicateGroups=0;
+      Object.keys(groups).forEach(k=>{
+        const list=groups[k].slice().sort((a,b)=>String(a.createdAt||a.id).localeCompare(String(b.createdAt||b.id)));
+        if (list.length<2) return;
+        duplicateGroups++;
+        for (let i=1;i<list.length;i++){ list[i].active=false; deactivated++; }
+      });
+      saveDemo(db);
+      return Promise.resolve(ok({ deactivated, duplicateGroups, message: deactivated?('Deactivated '+deactivated+' duplicates'):'No active duplicates found' }));
     }
     case 'deleteBoatRun': {
       if (!(canBoatManager() || passOk(p.passcode))) return Promise.resolve(fail('Boat manager / admin required'));
@@ -2906,7 +2943,7 @@ async function renderBoat(){
 
   if (cachedRuns) paintBoat(cachedRuns);
   try {
-    const r = await api('getBoatRuns');
+    const r = await api('getBoatRuns', boatRunsRangeParams());
     const runs = (r.data && r.data.runs) || [];
     cacheSet('boatRuns', runs);
     paintBoat(runs);
@@ -5115,7 +5152,7 @@ function prefetchAfterLogin(){
   const bi = breakfastCutoffInfo(), li = lunchCutoffInfo(), di = dinnerCutoffInfo();
   // fire-and-forget — never block UI
   api('getCutoffInfo').then(function(r){ if (r && r.success) cacheSet('cutoffs', r.data || r); }).catch(function(){});
-  api('getBoatRuns').then(function(r){ if (r && r.success) cacheSet('boatRuns', (r.data && r.data.runs) || []); }).catch(function(){});
+  api('getBoatRuns', boatRunsRangeParams()).then(function(r){ if (r && r.success) cacheSet('boatRuns', (r.data && r.data.runs) || []); }).catch(function(){});
   api('getReminders').then(function(r){ if (r && r.success) cacheSet('reminders', (r.data && r.data.reminders) || []); }).catch(function(){});
   api('getSuggestions').then(function(r){ if (r && r.success) cacheSet('suggestions', (r.data && r.data.suggestions) || []); }).catch(function(){});
   if (email) {

@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.9.1';
+var APP_VERSION = '2.9.2';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -68,34 +68,52 @@ function doPost(e) {
   return handleRequest(e, 'POST');
 }
 
+function parseRequestPayload(e, method) {
+  var payload = {};
+  if (method === 'POST' && e && e.postData && e.postData.contents) {
+    payload = JSON.parse(e.postData.contents);
+  } else if (e && e.parameter) {
+    payload = {};
+    var keys = Object.keys(e.parameter);
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      var v = e.parameter[k];
+      if (typeof v === 'string') {
+        var trimmed = v.replace(/^\s+/, '');
+        if (trimmed.charAt(0) === '{' || trimmed.charAt(0) === '[') {
+          try { v = JSON.parse(v); } catch (err) {}
+        }
+      }
+      payload[k] = v;
+    }
+    if (payload.payload) {
+      try {
+        var nested = (typeof payload.payload === 'string') ? JSON.parse(payload.payload) : payload.payload;
+        payload = Object.assign({}, payload, nested);
+      } catch (err) {}
+    }
+  }
+  return payload;
+}
+
 function handleRequest(e, method) {
   try {
-    initializeSheets();
-    var payload = {};
-    if (method === 'POST' && e && e.postData && e.postData.contents) {
-      payload = JSON.parse(e.postData.contents);
-    } else if (e && e.parameter) {
-      payload = {};
-      var keys = Object.keys(e.parameter);
-      for (var i = 0; i < keys.length; i++) {
-        var k = keys[i];
-        var v = e.parameter[k];
-        if (typeof v === 'string') {
-          var trimmed = v.replace(/^\s+/, '');
-          if (trimmed.charAt(0) === '{' || trimmed.charAt(0) === '[') {
-            try { v = JSON.parse(v); } catch (err) {}
-          }
-        }
-        payload[k] = v;
-      }
-      if (payload.payload) {
-        try {
-          var nested = (typeof payload.payload === 'string') ? JSON.parse(payload.payload) : payload.payload;
-          payload = Object.assign({}, payload, nested);
-        } catch (err) {}
-      }
-    }
+    var payload = parseRequestPayload(e, method);
     var action = payload.action || (e && e.parameter && e.parameter.action) || '';
+    // C97: getVersion/health — pure fast path (no spreadsheet open, no seed)
+    if (action === 'getVersion' || action === 'health') {
+      return jsonOut({
+        success: true,
+        ok: true,
+        version: APP_VERSION,
+        sheetId: SHEET_ID,
+        fijiNow: formatFiji(getFijiNow())
+      });
+    }
+    // Explicit admin init keeps full initializeSheets (below in routeAction)
+    if (action !== 'initSheets') {
+      assertSheetsReady();
+    }
     var result = routeAction(action, payload);
     return jsonOut(result);
   } catch (err) {
@@ -113,6 +131,7 @@ function routeAction(action, p) {
   switch (action) {
     case 'getVersion':
     case 'health':
+      // Also reachable via routeAction; prefer handleRequest fast path
       return { success: true, ok: true, version: APP_VERSION, sheetId: SHEET_ID, fijiNow: formatFiji(getFijiNow()) };
 
     case 'login': return login(p);
@@ -134,6 +153,7 @@ function routeAction(action, p) {
     case 'deleteUser': return deleteUser(p);
 
     case 'getBoatRuns': return getBoatRuns(p);
+    case 'dedupeBoatRuns': return dedupeBoatRuns(p);
     case 'saveBoatRun': return saveBoatRun(p);
     case 'deleteBoatRun': return deleteBoatRun(p);
     case 'getBoatBookings': return getBoatBookings(p);
@@ -197,13 +217,15 @@ function routeAction(action, p) {
 
     case 'getCutoffInfo': return getCutoffInfo(p);
     case 'initSheets':
+      requirePasscode(p, 'admin');
       initializeSheets();
       ensureSuperAdmin();
       seedAlertEmails();
       seedDinnerMenus();
       seedSampleReminders();
-      seedVillageBoatRuns();
-      return { success: true, data: { message: 'Sheets initialized', version: APP_VERSION } };
+      var boatSeed = seedVillageBoatRuns();
+      markSheetsReady('initSheets');
+      return { success: true, data: { message: 'Sheets initialized', version: APP_VERSION, boatRuns: boatSeed } };
 
     case 'seedVillageBoatSchedule':
     case 'seedStaffSamples': {
@@ -343,6 +365,53 @@ function getSS() {
   throw new Error('No V2 spreadsheet bound. Open this script from the PCR Staff App V2 sheet.');
 }
 
+/** Core tabs that must exist before serving production reads (no auto-seed). */
+var REQUIRED_SHEETS = [
+  'Users', 'App Settings', 'Boat Runs', 'Boat Bookings',
+  'Dinner Orders', 'Lunch Orders', 'Breakfast Orders',
+  'Reminders', 'Suggestions', 'Leave Requests', 'Emergency Travel',
+  'Alert Emails', 'Verification Codes', 'Dinner Menus',
+  'Dinner Prep Snapshots', 'Roster Uploads', 'Roster Shifts', 'Notifications'
+];
+
+/**
+ * Lightweight readiness check for hot-path requests.
+ * Does NOT create columns or seed menus/boats/reminders.
+ * If a required sheet is missing, returns a clear admin-init error.
+ */
+function assertSheetsReady() {
+  var cache = CacheService.getScriptCache();
+  try {
+    if (cache.get('pcr_sheets_ready') === '1') {
+      return getSS();
+    }
+  } catch (eCache) {}
+
+  var ss = getSS();
+  var missing = [];
+  for (var i = 0; i < REQUIRED_SHEETS.length; i++) {
+    if (!ss.getSheetByName(REQUIRED_SHEETS[i])) missing.push(REQUIRED_SHEETS[i]);
+  }
+  if (missing.length) {
+    throw new Error(
+      'Sheets not initialized (missing: ' + missing.join(', ') +
+      '). Ask an admin to run action initSheets once, then retry.'
+    );
+  }
+  // Sheets exist — cache readiness. Flag sheets_ready is set only by initializeSheets / markSheetsReady.
+  try { cache.put('pcr_sheets_ready', '1', 21600); } catch (ePut) {}
+  return ss;
+}
+
+function markSheetsReady(by) {
+  try {
+    setSetting('sheets_ready', 'true', by || 'system');
+  } catch (e) {}
+  try {
+    CacheService.getScriptCache().put('pcr_sheets_ready', '1', 21600);
+  } catch (e2) {}
+}
+
 function ensureSheet(ss, name, headers) {
   var sh = ss.getSheetByName(name);
   if (!sh) {
@@ -440,6 +509,7 @@ function initializeSheets() {
   seedDinnerMenus();
   seedSampleReminders();
   seedVillageBoatRuns();
+  markSheetsReady('initializeSheets');
 }
 
 function sheetCellToValue(v, headerName) {
@@ -942,9 +1012,22 @@ function seedVillageBoatRuns() {
   var headers = ['id', 'date', 'time', 'route', 'capacity', 'notes', 'fullNotification', 'active', 'createdBy', 'createdAt'];
   var added = 0;
   var skipped = 0;
+  var skippedDatesWithRuns = 0;
   var today = getFijiNow();
   for (var d = 0; d < 14; d++) {
     var date = fijiDateString(addFijiDays(today, d));
+    // C97: never seed a date that already has any active run (avoids recreating duplicates on re-init)
+    var dateHasActive = false;
+    for (var ei = 0; ei < existing.length; ei++) {
+      var er = existing[ei];
+      var erActive = truthy(er.active) || er.active === '' || er.active === undefined;
+      if (erActive && normalizeDateKey(er.date) === date) { dateHasActive = true; break; }
+    }
+    if (dateHasActive) {
+      skippedDatesWithRuns++;
+      skipped += VILLAGE_BOAT_SLOTS.length;
+      continue;
+    }
     for (var s = 0; s < VILLAGE_BOAT_SLOTS.length; s++) {
       var slot = VILLAGE_BOAT_SLOTS[s];
       var found = false;
@@ -974,7 +1057,14 @@ function seedVillageBoatRuns() {
       added++;
     }
   }
-  return { added: added, skipped: skipped, deactivated: deactivated, days: 14, slotsPerDay: VILLAGE_BOAT_SLOTS.length };
+  return {
+    added: added,
+    skipped: skipped,
+    skippedDatesWithRuns: skippedDatesWithRuns,
+    deactivated: deactivated,
+    days: 14,
+    slotsPerDay: VILLAGE_BOAT_SLOTS.length
+  };
 }
 
 function deactivateBrokenSeedBoatRuns() {
@@ -1697,11 +1787,28 @@ function saveAlertEmails(p) {
 
 /* ========== BOAT ========== */
 
+function boatDateInWindow(dateStr, fromDate, toDate) {
+  var d = normalizeDateKey(dateStr);
+  if (!d) return false;
+  if (fromDate && d < fromDate) return false;
+  if (toDate && d > toDate) return false;
+  return true;
+}
+
 function getBoatRuns(p) {
+  p = p || {};
   var runs = sheetToObjects('Boat Runs').filter(function (r) {
     return p.includeInactive || truthy(r.active) || r.active === '' || r.active === undefined;
   });
-  if (p.date) runs = runs.filter(function (r) { return String(r.date).indexOf(String(p.date)) === 0; });
+  var allDates = p.allDates === true || p.allDates === 'true' || p.includeAll === true || p.includeAll === 'true';
+  if (p.date) {
+    runs = runs.filter(function (r) { return String(r.date).indexOf(String(p.date)) === 0; });
+  } else if (!allDates) {
+    var today = fijiDateString(getFijiNow());
+    var fromDate = normalizeDateKey(p.fromDate || p.startDate) || today;
+    var toDate = normalizeDateKey(p.toDate || p.endDate) || fijiDateString(addFijiDays(getFijiNow(), 14));
+    runs = runs.filter(function (r) { return boatDateInWindow(r.date, fromDate, toDate); });
+  }
   var bookings = sheetToObjects('Boat Bookings');
   runs = runs.map(function (r) {
     var used = bookings.filter(function (b) {
@@ -1713,6 +1820,73 @@ function getBoatRuns(p) {
     });
   });
   return { success: true, data: { runs: runs } };
+}
+
+/**
+ * Soft-dedupe active Boat Runs by (date, time, route).
+ * Keeps earliest createdAt (then lowest id); sets active:false on the rest.
+ * Admin/super only.
+ */
+function dedupeBoatRuns(p) {
+  p = p || {};
+  try { requirePasscode(p, 'admin'); } catch (e) {
+    return { success: false, error: String(e.message || e) };
+  }
+  var sh = getSS().getSheetByName('Boat Runs');
+  if (!sh) return { success: false, error: 'Boat Runs sheet missing — run initSheets' };
+  var rows = sheetToObjects('Boat Runs');
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  var activeCol = headers.indexOf('active') + 1;
+  if (activeCol < 1) return { success: false, error: 'active column missing' };
+
+  var groups = {};
+  rows.forEach(function (r) {
+    var active = truthy(r.active) || r.active === '' || r.active === undefined;
+    if (!active) return;
+    var key = normalizeDateKey(r.date) + '|' + normalizeTimeKey(r.time) + '|' + String(r.route || '').trim();
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(r);
+  });
+
+  function sortKeepFirst(a, b) {
+    var ca = String(a.createdAt || '');
+    var cb = String(b.createdAt || '');
+    if (ca && cb && ca !== cb) return ca < cb ? -1 : 1;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  }
+
+  var deactivated = 0;
+  var kept = 0;
+  var duplicateGroups = 0;
+  var samples = [];
+  Object.keys(groups).forEach(function (key) {
+    var list = groups[key];
+    if (list.length < 2) { kept++; return; }
+    duplicateGroups++;
+    list.sort(sortKeepFirst);
+    kept++;
+    for (var i = 1; i < list.length; i++) {
+      sh.getRange(list[i]._row, activeCol).setValue(false);
+      list[i].active = false;
+      deactivated++;
+      if (samples.length < 20) {
+        samples.push({ keptId: list[0].id, deactivatedId: list[i].id, key: key });
+      }
+    }
+  });
+
+  return {
+    success: true,
+    data: {
+      deactivated: deactivated,
+      keptActiveSlots: kept,
+      duplicateGroups: duplicateGroups,
+      samples: samples,
+      message: deactivated
+        ? ('Deactivated ' + deactivated + ' duplicate run(s) across ' + duplicateGroups + ' slot(s)')
+        : 'No active duplicates found'
+    }
+  };
 }
 
 function saveBoatRun(p) {
@@ -2216,7 +2390,8 @@ function deleteDinnerMenuItem(p) {
  */
 function processDinnerWorkflow(p) {
   p = p || {};
-  initializeSheets();
+  // C97: do not re-init/seed on kitchen hot path; menus already present in production
+  assertSheetsReady();
   seedDinnerMenus();
   var now = getFijiNow();
   var hour = now.getUTCHours();
@@ -3826,7 +4001,7 @@ function uploadRosterParsed(p) {
   }
   var notes = String(p.notes || '');
 
-  initializeSheets();
+  assertSheetsReady();
   var users = sheetToObjects('Users');
   var uploadId = String(p.uploadId || '').trim();
   var cache = CacheService.getScriptCache();

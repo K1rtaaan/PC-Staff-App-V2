@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.9.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.9.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -249,6 +249,34 @@ Version **2.9.1**. Revert any item later by asking for its ID (e.g. “revert C7
 | C94 | **Human statuses** — Confirmed / Waiting chef / Cancelled / Rejected instead of raw `pending_approval` etc. |
 | C95 | **Preferred / display name** — optional profile field; greeting + kitchen/boat `userName` prefer it; Users sheet column via `initializeSheets`. |
 | C96 | `APP_VERSION` → **2.9.1**; SW cache `pcr-staff-v2.9.1`. SCRIPT_URL unchanged. `feature_my_schedule` remains OFF. Dinner=tomorrow; B/L next-day headcount; late breakfast 1–6pm Fiji. |
+
+## Speed + boat dedupe (2.9.2)
+
+| ID | Change |
+|----|--------|
+| C97 | **Apps Script hot-path speed**: remove `initializeSheets()` / seeding from every request. `getVersion`/`health` are a pure fast path (no spreadsheet). Other actions use lightweight `assertSheetsReady()` (existence check + cache). Full create/seed only via admin `initSheets`. Sets `sheets_ready` on init. |
+| C98 | **Boat runs window + dedupe**: `getBoatRuns` defaults to Fiji **today → +14 days** (still supports `date`, or `allDates`/`fromDate`/`toDate`). Client Boat/Home prefetch uses that window. New admin `dedupeBoatRuns` soft-deactivates duplicate active (date,time,route) rows (keep earliest `createdAt` / lowest id). `seedVillageBoatRuns` skips any date that already has active runs so re-init cannot recreate duplicates. |
+| C99 | `APP_VERSION` → **2.9.2**; SW cache `pcr-staff-v2.9.2`. SCRIPT_URL unchanged. `feature_my_schedule` remains OFF. Dinner/B/L rules unchanged. |
+
+### Rollback / restore (pre-speed 2.9.2)
+
+Shipped rollback tag **`v2.9.1-pre-speed`** (SHA `f9280fa171e54c4554cee980124c636d417babf7`, also branch `backup/2.9.1-pre-speed`).
+
+```bash
+cd /workspace/pcr-staff-app   # or clone PC-Staff-App-V2
+git fetch --tags
+git checkout v2.9.1-pre-speed
+# rebuild static host
+git checkout gh-pages && git checkout v2.9.1-pre-speed -- public/ && \
+  rm -rf assets index.html manifest.json sw.js 2>/dev/null; cp -a public/. . && \
+  git add -A && git commit -m "Restore public from v2.9.1-pre-speed" && git push origin gh-pages
+# Apps Script
+cd apps-script && clasp push && clasp deploy --deploymentId AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8
+# verify
+curl -sSL "<SCRIPT_URL>?action=getVersion"
+```
+
+Or: `git checkout v2.9.1-pre-speed` then redeploy `public/` to gh-pages and clasp-push that tree’s `Code.gs`.
 
 ### Rollback / restore (pre-UX)
 
