@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.9.0';
+var APP_VERSION = '2.9.1';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -378,7 +378,7 @@ function ensureColumns(sh, headers) {
 function initializeSheets() {
   var ss = getSS();
   ensureSheet(ss, 'Users', [
-    'id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact',
+    'id', 'email', 'password', 'firstName', 'lastName', 'preferredName', 'department', 'contact',
     'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified', 'photoUrl'
   ]);
   ensureSheet(ss, 'App Settings', ['key', 'value', 'updatedAt', 'updatedBy']);
@@ -1012,6 +1012,7 @@ function publicUser(u) {
     email: u.email,
     firstName: u.firstName || '',
     lastName: u.lastName || '',
+    preferredName: u.preferredName || '',
     department: u.department || '',
     contact: u.contact || '',
     role: role,
@@ -1024,6 +1025,14 @@ function publicUser(u) {
     photoUrl: u.photoUrl || '',
     needsProfile: !(u.firstName && u.lastName && u.department)
   };
+}
+
+/** Prefer short preferredName when set (kitchen/boat lists + greetings). */
+function displayUserName(u) {
+  if (!u) return '';
+  var pref = String(u.preferredName || '').trim();
+  if (pref) return pref;
+  return ((u.firstName || '') + ' ' + (u.lastName || '')).trim();
 }
 
 function login(p) {
@@ -1477,15 +1486,19 @@ function updateUser(p) {
   var patch = {};
   // C59: staff cannot change firstName, lastName, department (read-only on profile)
   if (selfUpdate && !adminUpdate) {
-    ['contact', 'roster', 'village'].forEach(function (k) {
-      if (p[k] !== undefined) patch[k] = k === 'village' ? normalizeStaffLocation(p[k]) : p[k];
+    ['contact', 'roster', 'village', 'preferredName'].forEach(function (k) {
+      if (p[k] !== undefined) patch[k] = k === 'village' ? normalizeStaffLocation(p[k]) : (k === 'preferredName' ? String(p[k] || '').trim().slice(0, 40) : p[k]);
     });
     if (p.firstName !== undefined || p.lastName !== undefined || p.department !== undefined) {
       // silently ignore locked fields (UI should be read-only)
     }
   } else {
-    ['firstName', 'lastName', 'contact', 'department', 'roster', 'village'].forEach(function (k) {
-      if (p[k] !== undefined) patch[k] = k === 'village' ? normalizeStaffLocation(p[k]) : p[k];
+    ['firstName', 'lastName', 'preferredName', 'contact', 'department', 'roster', 'village'].forEach(function (k) {
+      if (p[k] !== undefined) {
+        if (k === 'village') patch[k] = normalizeStaffLocation(p[k]);
+        else if (k === 'preferredName') patch[k] = String(p[k] || '').trim().slice(0, 40);
+        else patch[k] = p[k];
+      }
     });
   }
   if (selfUpdate && p.photoUrl !== undefined) {
@@ -1791,7 +1804,7 @@ function bookBoat(p) {
     id: uid('bb'),
     runId: runId,
     userEmail: email,
-    userName: ((u.firstName || '') + ' ' + (u.lastName || '')).trim(),
+    userName: displayUserName(u),
     seats: seats,
     status: 'confirmed',
     notes: p.notes || '',
@@ -1924,7 +1937,7 @@ function requestEmergencyTravel(p) {
   var row = {
     id: uid('em'),
     userEmail: email,
-    userName: ((u.firstName || '') + ' ' + (u.lastName || '')).trim(),
+    userName: displayUserName(u),
     department: u.department || '',
     reason: reason,
     seats: seats,
@@ -2588,7 +2601,7 @@ function placeDinnerOrder(p) {
     id: uid('din'),
     serviceDate: serviceDate,
     userEmail: email,
-    userName: ((u.firstName || '') + ' ' + (u.lastName || '')).trim(),
+    userName: displayUserName(u),
     department: u.department || '',
     mealChoice: p.mealChoice || 'Standard',
     notes: p.notes || '',
@@ -2628,7 +2641,7 @@ function placeLunchOrder(p) {
     id: uid('lun'),
     serviceDate: serviceDate,
     userEmail: email,
-    userName: ((u.firstName || '') + ' ' + (u.lastName || '')).trim(),
+    userName: displayUserName(u),
     department: u.department || '',
     mealChoice: 'Lunch',
     notes: p.notes || '',
@@ -2692,7 +2705,7 @@ function placeBreakfastOrder(p) {
     id: uid('brk'),
     serviceDate: serviceDate,
     userEmail: email,
-    userName: ((u.firstName || '') + ' ' + (u.lastName || '')).trim(),
+    userName: displayUserName(u),
     department: u.department || '',
     mealChoice: 'Breakfast',
     notes: p.notes || '',
@@ -2788,14 +2801,26 @@ function getBreakfastOrders(p) {
 
 function cancelMealOrder(p) {
   var meal = String(p.meal || '').toLowerCase();
-  if (meal !== 'breakfast' && meal !== 'lunch') {
-    return { success: false, error: 'meal must be breakfast or lunch' };
+  if (meal !== 'breakfast' && meal !== 'lunch' && meal !== 'dinner') {
+    return { success: false, error: 'meal must be breakfast, lunch, or dinner' };
   }
-  var sheet = meal === 'breakfast' ? 'Breakfast Orders' : 'Lunch Orders';
-  var info = meal === 'breakfast' ? breakfastCutoffInfo() : lunchCutoffInfo();
+  var sheet = meal === 'breakfast' ? 'Breakfast Orders' : (meal === 'lunch' ? 'Lunch Orders' : 'Dinner Orders');
+  var info = meal === 'breakfast' ? breakfastCutoffInfo() : (meal === 'lunch' ? lunchCutoffInfo() : dinnerCutoffInfo());
   if (meal === 'breakfast') {
     if (!info.open && !info.lateOpen) {
       return { success: false, error: 'Cannot cancel — breakfast fully closed after 6pm Fiji', cutoff: info };
+    }
+  } else if (meal === 'dinner') {
+    // allow cancel while open or during late window (chef still reviewing)
+    if (!info.open) {
+      var existingLate = sheetToObjects(sheet).filter(function (o) {
+        return String(o.userEmail).toLowerCase() === String(p.userEmail || p.requesterEmail || '').toLowerCase()
+          && String(o.serviceDate).indexOf(String(p.serviceDate || info.serviceDate)) === 0
+          && (o.status === 'late_pending' || o.status === 'pending');
+      });
+      if (!existingLate.length) {
+        return { success: false, error: 'Cannot cancel dinner after cutoff unless still pending/late', cutoff: info };
+      }
     }
   } else if (!info.open) {
     return { success: false, error: 'Cannot cancel after 1pm Fiji cutoff for tomorrow\'s ' + meal, cutoff: info };
@@ -3202,7 +3227,7 @@ function requestLeave(p) {
   var row = {
     id: uid('lv'),
     userEmail: email,
-    userName: ((u.firstName || '') + ' ' + (u.lastName || '')).trim(),
+    userName: displayUserName(u),
     department: u.department || '',
     startDate: p.startDate || '',
     endDate: p.endDate || '',

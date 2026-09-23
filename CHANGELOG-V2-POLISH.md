@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.9.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.9.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -223,3 +223,50 @@ Version **2.9.0**. Revert any item later by asking for its ID (e.g. “revert C7
 | C74 | **HOD leave summary**: More → Department leave summary (counts by status + list). Reachable with `feature_my_schedule` OFF. |
 | C75 | **Emergency off-island travel**: separate `Emergency Travel` requests (`pending`→`confirmed`/`rejected`); staff form on Boat; inbox for captain/manager/admin. Distinct from village schedule booking. |
 | C76 | `APP_VERSION` → **2.9.0**; SW cache `pcr-staff-v2.9.0`. SCRIPT_URL unchanged. Parked: 26–28. |
+
+
+## UX pack (2.9.1)
+
+| ID | Change |
+|----|--------|
+| C77 | **Do this now** strip on Home — role-aware actions (book dinner / breakfast / lunch / boat / late awaiting chef / emergency pending). Hidden when empty. |
+| C78 | **Remember last choices** — dinner meal/notes + boat seats/route in localStorage; “Same as last time” on dinner. |
+| C79 | **Big primary CTAs** — Book/Cancel/Approve emphasized; boat Edit/Remove + captain tools nested under Manage / details. |
+| C80 | **Passcode trim** — leave inbox view open without passcode; askPasscode only on approve/reject (+ existing destructive admin). Read-only ops/PDF/kitchen unchanged. |
+| C81 | **Fewer confirm loops** — meal/boat cancel: single confirm + toast Undo (no double modals). |
+| C82 | **Honest offline/errors** — api() network/parse → “Couldn’t reach kitchen / server — try again” + Retry on Meals/Boat lists. |
+| C83 | **Prefetch next tab** — after Home / login, warm Kitchen / Boat / leave+ops / Meals by role. |
+| C84 | **Skeletons** — kitchen + leave summary + ops cards while loading (meals/boat already). |
+| C85 | **PDF path** — View PDF primary for dive/boat trip + chef sheets; Download secondary. |
+| C86 | **Role-specific first paint** — chef→Kitchen, boat_captain/manager→Boat, HOD/admin→Home (ops), staff→Meals. Hash/`?tab=` deep links preserved. |
+| C87 | **Cutoff one-liners** — under Meals titles with Fiji weekday/service date (e.g. Dinner for Thursday · open until 8:00pm today). |
+| C88 | **Late state chips** — yellow “Needs chef OK” / “Waiting approval” on user’s late breakfast/dinner. |
+| C89 | **Boat capacity bar** — “12 / 20” + progress; Full greys Book (“Full — ask Boat”). |
+| C90 | **Ops cards deep-link** — B/L/D → Kitchen section (or Meals); Boat→Boat; Leave→HOD leave summary. |
+| C91 | **Copy buttons** — “Copy today’s boat pax” + “Copy dinner totals” (plain text) on Ops + Boat/Kitchen. |
+| C92 | *(skipped)* Quiet daily digests / push notifications. |
+| C93 | **First-login coach** — 3 steps Meals/Boat/Profile (+ Approvals for HOD); localStorage `pcr_v2_coach_done`; dismissible. |
+| C94 | **Human statuses** — Confirmed / Waiting chef / Cancelled / Rejected instead of raw `pending_approval` etc. |
+| C95 | **Preferred / display name** — optional profile field; greeting + kitchen/boat `userName` prefer it; Users sheet column via `initializeSheets`. |
+| C96 | `APP_VERSION` → **2.9.1**; SW cache `pcr-staff-v2.9.1`. SCRIPT_URL unchanged. `feature_my_schedule` remains OFF. Dinner=tomorrow; B/L next-day headcount; late breakfast 1–6pm Fiji. |
+
+### Rollback / restore (pre-UX)
+
+Shipped from tag **`v2.9.0-pre-ux`** (also branch `backup/2.9.0-pre-ux`).
+
+```bash
+cd /workspace/pcr-staff-app   # or clone PC-Staff-App-V2
+git fetch --tags
+git checkout v2.9.0-pre-ux
+# rebuild static host
+git checkout gh-pages && git checkout v2.9.0-pre-ux -- public/ && \
+  rm -rf assets index.html manifest.json sw.js 2>/dev/null; cp -a public/. . && \
+  git add -A && git commit -m "Restore public from v2.9.0-pre-ux" && git push origin gh-pages
+# Apps Script
+cd apps-script && clasp push && clasp deploy --deploymentId <SAME_DEPLOYMENT_ID>
+# verify
+curl -sS "<SCRIPT_URL>?action=getVersion"
+```
+
+Or: `git checkout v2.9.0-pre-ux` then redeploy `public/` to gh-pages and clasp-push that tree’s `Code.gs`.
+

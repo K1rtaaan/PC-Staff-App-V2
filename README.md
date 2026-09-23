@@ -2,7 +2,7 @@
 
 Mobile-first staff portal for meals, boats, roster/leave, kitchen, suggestions, and staff directory.
 
-**Version:** 2.9.0  
+**Version:** 2.9.1  
 **Primary stack:** single-file HTML (`public/`) + Google Apps Script (`apps-script/`) + Google Sheet  
 **Demo mode:** works with empty `API_URL` or `?demo=1` (no backend required)
 
