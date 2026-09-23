@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.8.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.9.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -209,3 +209,17 @@ Version **2.8.2**. Revert any item later by asking for its ID (e.g. “revert C7
 
 
 
+
+
+## Security / boat / ops / emergency (2.9.0)
+
+| ID | Change |
+|----|--------|
+| C69 | **Security department** added to register, profile, HOD meal-on-behalf, and admin create-user department dropdowns (`PCR_DEPARTMENTS`). |
+| C70 | **Block duplicate boat bookings**: one confirmed booking per `userEmail` per `runId` (API + demo); clear error asking to cancel first. |
+| C71 | **Boat schedule Edit / Remove**: boat_manager/admin can edit date/time/route/capacity/notes and deactivate a run (weather) without passcode UI; role-gated `requireBoatManagerOrAdmin`. |
+| C72 | **Dive trip summary PDF**: View/Download PDF per run (route, date/time, total pax, bookings). Visible to boat_manager/captain/admin/super + Dive department. Title “Boat Trip Summary — Dive”. |
+| C73 | **Daily Operational Dashboard** on Home for admin/super/HOD: Today’s Summary cards (Breakfast/Lunch/Dinner counts for Fiji today, boat pax, dive pax best-effort, staff on leave). Tappable to meals/boat. |
+| C74 | **HOD leave summary**: More → Department leave summary (counts by status + list). Reachable with `feature_my_schedule` OFF. |
+| C75 | **Emergency off-island travel**: separate `Emergency Travel` requests (`pending`→`confirmed`/`rejected`); staff form on Boat; inbox for captain/manager/admin. Distinct from village schedule booking. |
+| C76 | `APP_VERSION` → **2.9.0**; SW cache `pcr-staff-v2.9.0`. SCRIPT_URL unchanged. Parked: 26–28. |

@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.8.2';
+var APP_VERSION = '2.9.0';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -140,6 +140,12 @@ function routeAction(action, p) {
     case 'bookBoat': return bookBoat(p);
     case 'cancelBoatBooking': return cancelBoatBooking(p);
     case 'myBoatBookings': return myBoatBookings(p);
+    case 'getDailyOpsSummary': return getDailyOpsSummary(p);
+    case 'getBoatTripSummary': return getBoatTripSummary(p);
+    case 'requestEmergencyTravel': return requestEmergencyTravel(p);
+    case 'getEmergencyTravel': return getEmergencyTravel(p);
+    case 'reviewEmergencyTravel': return reviewEmergencyTravel(p);
+    case 'getHodLeaveSummary': return getHodLeaveSummary(p);
 
     case 'getDinnerOrders': return getDinnerOrders(p);
     case 'placeDinnerOrder': return placeDinnerOrder(p);
@@ -405,6 +411,10 @@ function initializeSheets() {
     'id', 'userEmail', 'userName', 'department', 'startDate', 'endDate', 'reason',
     'status', 'reviewedBy', 'hodNote', 'managerNote', 'notifyNote', 'createdAt'
   ]);
+  ensureSheet(ss, 'Emergency Travel', [
+    'id', 'userEmail', 'userName', 'department', 'reason', 'seats', 'preferredTime',
+    'status', 'reviewedBy', 'reviewNote', 'createdAt'
+  ]);
   ensureSheet(ss, 'Alert Emails', ['email', 'label', 'active']);
   ensureSheet(ss, 'Verification Codes', [
     'email', 'code', 'expiresAt', 'used', 'purpose'
@@ -640,6 +650,23 @@ function isBoatCaptainPerm(u) {
   var p = userPermissions(u);
   return p.indexOf('boat_captain') >= 0 || isBoatManagerPerm(u);
 }
+
+function requireBoatManagerOrAdmin(p) {
+  var u = getRequester(p);
+  if (!u) throw new Error('Login required');
+  if (isBoatManagerPerm(u) || isAdminPerm(u)) return u;
+  try { requirePasscode(p, 'admin'); return u; } catch (e) {
+    throw new Error('Boat manager / admin required');
+  }
+}
+
+function canSeeBoatOps(u) {
+  if (!u) return false;
+  var p = userPermissions(u);
+  return p.indexOf('boat_manager') >= 0 || p.indexOf('boat_captain') >= 0 ||
+    p.indexOf('admin') >= 0 || p.indexOf('super_admin') >= 0;
+}
+
 
 function ensureFeatureDefaults() {
   var existing = sheetToObjects('App Settings');
@@ -1691,15 +1718,22 @@ function saveBoatRun(p) {
     var capUpdated = updateRowById('Boat Runs', p.id, capPatch);
     return { success: !!capUpdated, data: { run: capUpdated }, error: capUpdated ? undefined : 'Not found' };
   }
-  // full CRUD requires admin passcode (boat_manager uses Admin → Boat UI)
-  requirePasscode(p);
+  // C70: boat_manager / admin role-gated (no passcode UI)
+  try { requireBoatManagerOrAdmin(p); } catch (e) { return { success: false, error: String(e.message || e) }; }
   if (p.id) {
-    var updated = updateRowById('Boat Runs', p.id, {
-      date: p.date, time: p.time, route: p.route, capacity: p.capacity,
-      notes: p.notes,
-      fullNotification: p.fullNotification === true || p.fullNotification === 'true' || p.fullNotification === 'TRUE',
-      active: p.active !== false
-    });
+    var patch = {};
+    if (p.date !== undefined) patch.date = p.date;
+    if (p.time !== undefined) patch.time = p.time;
+    if (p.route !== undefined) patch.route = p.route;
+    if (p.capacity !== undefined) patch.capacity = p.capacity;
+    if (p.notes !== undefined) patch.notes = p.notes;
+    if (p.fullNotification !== undefined) {
+      patch.fullNotification = p.fullNotification === true || p.fullNotification === 'true' || p.fullNotification === 'TRUE';
+    }
+    if (p.active !== undefined) {
+      patch.active = !(p.active === false || p.active === 'false' || p.active === 'FALSE' || p.active === 0 || p.active === '0');
+    }
+    var updated = updateRowById('Boat Runs', p.id, patch);
     return { success: !!updated, data: { run: updated }, error: updated ? undefined : 'Not found' };
   }
   var row = {
@@ -1719,7 +1753,8 @@ function saveBoatRun(p) {
 }
 
 function deleteBoatRun(p) {
-  requirePasscode(p);
+  try { requireBoatManagerOrAdmin(p); } catch (e) { return { success: false, error: String(e.message || e) }; }
+  if (!p.id) return { success: false, error: 'Run id required' };
   updateRowById('Boat Runs', p.id, { active: false });
   return { success: true };
 }
@@ -1741,6 +1776,12 @@ function bookBoat(p) {
   var existing = sheetToObjects('Boat Bookings').filter(function (b) {
     return b.runId === runId && b.status !== 'cancelled';
   });
+  var mine = existing.filter(function (b) {
+    return String(b.userEmail).toLowerCase() === email && String(b.status || 'confirmed') === 'confirmed';
+  });
+  if (mine.length) {
+    return { success: false, error: 'You already have a confirmed booking on this run. Cancel it first — only one booking per run.' };
+  }
   var seats = Number(p.seats || 1);
   var used = existing.reduce(function (s, b) { return s + Number(b.seats || 1); }, 0);
   if (used + seats > Number(run.capacity || 20)) {
@@ -1754,6 +1795,7 @@ function bookBoat(p) {
     seats: seats,
     status: 'confirmed',
     notes: p.notes || '',
+    emergency: false,
     createdAt: nowIso()
   };
   appendRow('Boat Bookings', row, ['id', 'runId', 'userEmail', 'userName', 'seats', 'status', 'notes', 'createdAt']);
@@ -1778,6 +1820,189 @@ function myBoatBookings(p) {
   });
   return { success: true, data: { bookings: bookings } };
 }
+
+function countedMealStatus(st) {
+  st = String(st || '');
+  return st && st !== 'cancelled' && st !== 'rejected' && st !== 'declined' && st !== 'late_pending';
+}
+
+function getBoatTripSummary(p) {
+  var requester = getRequester(p);
+  var diveDept = requester && /dive/i.test(String(requester.department || ''));
+  if (!requester || !(canSeeBoatOps(requester) || diveDept)) {
+    return { success: false, error: 'Boat manager / captain / admin / Dive required' };
+  }
+  var runId = p.runId || p.id;
+  if (!runId) return { success: false, error: 'runId required' };
+  var runs = sheetToObjects('Boat Runs').filter(function (r) { return r.id === runId; });
+  if (!runs.length) return { success: false, error: 'Run not found' };
+  var run = runs[0];
+  var bookings = sheetToObjects('Boat Bookings').filter(function (b) {
+    return b.runId === runId && b.status !== 'cancelled';
+  });
+  var totalPax = bookings.reduce(function (s, b) { return s + Number(b.seats || 1); }, 0);
+  return {
+    success: true,
+    data: {
+      run: run,
+      bookings: bookings,
+      totalPax: totalPax,
+      title: 'Boat Trip Summary — Dive'
+    }
+  };
+}
+
+function getDailyOpsSummary(p) {
+  var requester = getRequester(p);
+  if (!requester || !(isAdminPerm(requester) || isHodPerm(requester))) {
+    return { success: false, error: 'Admin / HOD required' };
+  }
+  var today = fijiDateString(getFijiNow());
+  function mealCount(sheetName) {
+    return sheetToObjects(sheetName).filter(function (o) {
+      return String(o.serviceDate).indexOf(today) === 0 && countedMealStatus(o.status);
+    }).length;
+  }
+  var breakfast = mealCount('Breakfast Orders');
+  var lunch = mealCount('Lunch Orders');
+  var dinner = mealCount('Dinner Orders');
+  var runs = sheetToObjects('Boat Runs').filter(function (r) {
+    return String(r.date).indexOf(today) === 0 && (truthy(r.active) || r.active === '' || r.active === undefined);
+  });
+  var runIds = {};
+  runs.forEach(function (r) { runIds[r.id] = r; });
+  var bookings = sheetToObjects('Boat Bookings').filter(function (b) {
+    return runIds[b.runId] && b.status !== 'cancelled' && String(b.status || 'confirmed') === 'confirmed';
+  });
+  var boatPax = bookings.reduce(function (s, b) { return s + Number(b.seats || 1); }, 0);
+  var divePax = bookings.filter(function (b) {
+    var run = runIds[b.runId] || {};
+    var hay = String(run.route || '') + ' ' + String(run.notes || '');
+    return /dive/i.test(hay);
+  }).reduce(function (s, b) { return s + Number(b.seats || 1); }, 0);
+  // also count users with Dive/Diveshop department on today's boats
+  var diveDeptPax = bookings.filter(function (b) {
+    var u = findUserByEmail(b.userEmail);
+    var dept = u ? String(u.department || '') : '';
+    return /dive/i.test(dept);
+  }).reduce(function (s, b) { return s + Number(b.seats || 1); }, 0);
+  if (divePax === 0 && diveDeptPax > 0) divePax = diveDeptPax;
+  var leave = sheetToObjects('Leave Requests').filter(function (r) {
+    var st = String(r.status || '');
+    if (st !== 'approved' && st !== 'pending' && st !== 'pending_hod' && st !== 'pending_manager') return false;
+    var start = String(r.startDate || '').slice(0, 10);
+    var end = String(r.endDate || start).slice(0, 10);
+    return start && end && start <= today && today <= end;
+  });
+  var emergencyPending = sheetToObjects('Emergency Travel').filter(function (r) {
+    return String(r.status) === 'pending';
+  }).length;
+  return {
+    success: true,
+    data: {
+      date: today,
+      breakfast: breakfast,
+      lunch: lunch,
+      dinner: dinner,
+      boatPax: boatPax,
+      divePax: divePax,
+      staffOnLeave: leave.length,
+      leaveActive: leave,
+      emergencyPending: emergencyPending
+    }
+  };
+}
+
+function requestEmergencyTravel(p) {
+  var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
+  var u = findUserByEmail(email);
+  if (!u) return { success: false, error: 'User required' };
+  var reason = String(p.reason || '').trim();
+  if (!reason) return { success: false, error: 'Reason is required' };
+  var seats = Number(p.seats || 1);
+  if (!(seats > 0)) return { success: false, error: 'Seats must be at least 1' };
+  var row = {
+    id: uid('em'),
+    userEmail: email,
+    userName: ((u.firstName || '') + ' ' + (u.lastName || '')).trim(),
+    department: u.department || '',
+    reason: reason,
+    seats: seats,
+    preferredTime: String(p.preferredTime || '').trim(),
+    status: 'pending',
+    reviewedBy: '',
+    reviewNote: '',
+    createdAt: nowIso()
+  };
+  appendRow('Emergency Travel', row, [
+    'id', 'userEmail', 'userName', 'department', 'reason', 'seats', 'preferredTime',
+    'status', 'reviewedBy', 'reviewNote', 'createdAt'
+  ]);
+  return { success: true, data: { request: row } };
+}
+
+function getEmergencyTravel(p) {
+  var requester = getRequester(p);
+  if (!requester) return { success: false, error: 'Login required' };
+  var rows = sheetToObjects('Emergency Travel');
+  if (canSeeBoatOps(requester) || isAdminPerm(requester)) {
+    // all
+  } else {
+    var email = String(requester.email || '').toLowerCase();
+    rows = rows.filter(function (r) { return String(r.userEmail).toLowerCase() === email; });
+  }
+  if (p.status) rows = rows.filter(function (r) { return String(r.status) === String(p.status); });
+  return { success: true, data: { requests: rows } };
+}
+
+function reviewEmergencyTravel(p) {
+  var requester = getRequester(p);
+  if (!requester || !canSeeBoatOps(requester)) {
+    return { success: false, error: 'Boat captain / manager / admin required' };
+  }
+  if (!p.id) return { success: false, error: 'id required' };
+  var action = String(p.status || p.action || '').toLowerCase();
+  var status = (action === 'confirmed' || action === 'approve' || action === 'approved') ? 'confirmed' :
+    (action === 'rejected' || action === 'reject' || action === 'declined') ? 'rejected' : '';
+  if (!status) return { success: false, error: 'status must be confirmed or rejected' };
+  var updated = updateRowById('Emergency Travel', p.id, {
+    status: status,
+    reviewedBy: requester.email || '',
+    reviewNote: String(p.note || p.reviewNote || '')
+  });
+  return { success: !!updated, data: { request: updated }, error: updated ? undefined : 'Not found' };
+}
+
+function getHodLeaveSummary(p) {
+  var requester = getRequester(p);
+  if (!requester || !(isHodPerm(requester) || isAdminPerm(requester))) {
+    return { success: false, error: 'HOD / admin required' };
+  }
+  var dept = p.department || requester.department || '';
+  if (!isAdminPerm(requester) && !dept) {
+    return { success: false, error: 'Department required' };
+  }
+  var rows = sheetToObjects('Leave Requests');
+  if (!isAdminPerm(requester) || p.department) {
+    rows = rows.filter(function (r) { return String(r.department) === String(dept); });
+  }
+  var counts = { pending: 0, pending_hod: 0, pending_manager: 0, approved: 0, rejected: 0, other: 0 };
+  rows.forEach(function (r) {
+    var st = String(r.status || 'other');
+    if (counts[st] !== undefined) counts[st]++;
+    else counts.other++;
+  });
+  return {
+    success: true,
+    data: {
+      department: dept,
+      counts: counts,
+      requests: rows,
+      escalation: isFeatureEnabled('feature_leave_escalation')
+    }
+  };
+}
+
 
 /* ========== MEALS ========== */
 

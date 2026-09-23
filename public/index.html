@@ -203,7 +203,15 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.8.2';
+const APP_VERSION = '2.9.0';
+const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
+function deptSelectOptions(selected){
+  selected = selected || '';
+  return '<option value="">Select department…</option>'+PCR_DEPARTMENTS.map(function(d){
+    return '<option value="'+d.replace(/"/g,'')+'"'+(selected===d?' selected':'')+'>'+d+'</option>';
+  }).join('');
+}
+
 const SUPER_PASS = '2026';
 const ADMIN_PASS = '2025';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
@@ -295,6 +303,7 @@ const DEMO_KEY = 'pcr_v2_demo_db';
               <option value="Maintenance">Maintenance</option>
               <option value="Diveshop">Diveshop</option>
               <option value="Activities">Activities</option>
+              <option value="Security">Security</option>
               <option value="Management">Management</option>
               <option value="IT/Office">IT/Office</option>
               <option value="Other">Other</option>
@@ -616,6 +625,7 @@ function defaultDemoDb() {
     ],
     suggestions: [{ id:'sug1', userEmail:'ana.tui@paradisecoveresortfiji.com', userName:'Ana Tui', title:'More shade at jetty', body:'Umbrellas for afternoon boats', votes:3, likes:3, dislikes:0, voters:'a:like,b:like,c:like', createdAt:formatFiji(), status:'approved' }],
     leaveRequests: [],
+    emergencyTravel: [],
     appSettings: { feature_live_roster:'false', feature_leave_escalation:'false', feature_my_schedule:'false', superadmin_pin:'' },
     alertEmails: [
       'leanne@paradisecoveresortfiji.com','agm@paradisecoveresortfiji.com','cesare@paradisecoveresortfiji.com',
@@ -951,23 +961,41 @@ function demoApi(action, p) {
         if (p.fullNotification!==undefined) r.fullNotification = !!(p.fullNotification===true||p.fullNotification==='true');
         saveDemo(db); return Promise.resolve(ok({ run:r }));
       }
-      if (!passOk(p.passcode)) return Promise.resolve(fail('passcode'));
+      const boatOk = canBoatManager() || passOk(p.passcode);
+      if (!boatOk) return Promise.resolve(fail('Boat manager / admin required'));
       if (p.id) {
         const r = db.boatRuns.find(x=>x.id===p.id);
-        Object.assign(r, { date:p.date, time:p.time, route:p.route, capacity:p.capacity, notes:p.notes, fullNotification:!!(p.fullNotification===true||p.fullNotification==='true') });
+        if (!r) return Promise.resolve(fail('Not found'));
+        if (p.date!==undefined) r.date=p.date;
+        if (p.time!==undefined) r.time=p.time;
+        if (p.route!==undefined) r.route=p.route;
+        if (p.capacity!==undefined) r.capacity=p.capacity;
+        if (p.notes!==undefined) r.notes=p.notes;
+        if (p.fullNotification!==undefined) r.fullNotification=!!(p.fullNotification===true||p.fullNotification==='true');
+        if (p.active!==undefined) r.active=!(p.active===false||p.active==='false');
         saveDemo(db); return Promise.resolve(ok({ run:r }));
       }
       const run = { id:uid('run'), date:p.date||fijiDateString(), time:p.time, route:p.route, capacity:p.capacity||20, notes:p.notes||'', fullNotification:false, active:true };
       db.boatRuns.push(run); saveDemo(db); return Promise.resolve(ok({ run }));
     }
+    case 'deleteBoatRun': {
+      if (!(canBoatManager() || passOk(p.passcode))) return Promise.resolve(fail('Boat manager / admin required'));
+      const r = db.boatRuns.find(x=>x.id===p.id);
+      if (r) r.active=false; saveDemo(db); return Promise.resolve(ok({}));
+    }
     case 'bookBoat': {
       const run = db.boatRuns.find(r=>r.id===p.runId);
       if (!run) return Promise.resolve(fail('Run not found'));
-      const used = db.boatBookings.filter(b=>b.runId===p.runId && b.status!=='cancelled').reduce((s,b)=>s+Number(b.seats||1),0);
+      const email = String(p.userEmail||state.user.email).toLowerCase();
+      const active = db.boatBookings.filter(b=>b.runId===p.runId && b.status!=='cancelled');
+      if (active.some(b=>String(b.userEmail).toLowerCase()===email && String(b.status||'confirmed')==='confirmed')) {
+        return Promise.resolve(fail('You already have a confirmed booking on this run. Cancel it first — only one booking per run.'));
+      }
+      const used = active.reduce((s,b)=>s+Number(b.seats||1),0);
       const seats = Number(p.seats||1);
       if (used+seats > Number(run.capacity)) return Promise.resolve(fail('Not enough seats'));
-      const u = db.users.find(x=>x.email===(p.userEmail||state.user.email));
-      const booking = { id:uid('bb'), runId:p.runId, userEmail:u.email, userName:u.firstName+' '+u.lastName, seats, status:'confirmed', notes:p.notes||'', createdAt:formatFiji() };
+      const u = db.users.find(x=>x.email===email);
+      const booking = { id:uid('bb'), runId:p.runId, userEmail:u.email, userName:u.firstName+' '+u.lastName, seats, status:'confirmed', notes:p.notes||'', emergency:false, createdAt:formatFiji() };
       db.boatBookings.push(booking); saveDemo(db); return Promise.resolve(ok({ booking }));
     }
     case 'cancelBoatBooking': {
@@ -1352,6 +1380,74 @@ function demoApi(action, p) {
       Object.keys(map).forEach(em=>{ parts.push(em+':'+map[em]); if(map[em]==='dislike') dislikes++; else likes++; });
       s.voters=parts.join(','); s.likes=likes; s.dislikes=dislikes; s.votes=likes-dislikes;
       saveDemo(db); return Promise.resolve(ok({ votes:s.votes, likes, dislikes, myVote:dir }));
+    }
+    case 'getDailyOpsSummary': {
+      const today = fijiDateString();
+      const counted = (o)=> { const st=String(o.status||''); return st && st!=='cancelled' && st!=='rejected' && st!=='declined' && st!=='late_pending'; };
+      const breakfast = (db.breakfastOrders||[]).filter(o=>String(o.serviceDate).startsWith(today)&&counted(o)).length;
+      const lunch = (db.lunchOrders||[]).filter(o=>String(o.serviceDate).startsWith(today)&&counted(o)).length;
+      const dinner = (db.dinnerOrders||[]).filter(o=>String(o.serviceDate).startsWith(today)&&counted(o)).length;
+      const runs = (db.boatRuns||[]).filter(r=>String(r.date).startsWith(today)&&r.active!==false);
+      const runMap = Object.fromEntries(runs.map(r=>[r.id,r]));
+      const bookings = (db.boatBookings||[]).filter(b=>runMap[b.runId]&&b.status!=='cancelled');
+      const boatPax = bookings.reduce((s,b)=>s+Number(b.seats||1),0);
+      let divePax = bookings.filter(b=>{ const run=runMap[b.runId]||{}; return /dive/i.test(String(run.route||'')+' '+String(run.notes||'')); }).reduce((s,b)=>s+Number(b.seats||1),0);
+      if (!divePax) {
+        divePax = bookings.filter(b=>{ const u=db.users.find(x=>x.email===b.userEmail); return u && /dive/i.test(String(u.department||'')); }).reduce((s,b)=>s+Number(b.seats||1),0);
+      }
+      const leave = (db.leaveRequests||[]).filter(r=>{
+        const st=String(r.status||'');
+        if (!['approved','pending','pending_hod','pending_manager'].includes(st)) return false;
+        const start=String(r.startDate||'').slice(0,10), end=String(r.endDate||start).slice(0,10);
+        return start && end && start<=today && today<=end;
+      });
+      if (!db.emergencyTravel) db.emergencyTravel=[];
+      const emergencyPending = db.emergencyTravel.filter(r=>r.status==='pending').length;
+      return Promise.resolve(ok({ date:today, breakfast, lunch, dinner, boatPax, divePax, staffOnLeave:leave.length, leaveActive:leave, emergencyPending }));
+    }
+    case 'getBoatTripSummary': {
+      const run = db.boatRuns.find(r=>r.id===(p.runId||p.id));
+      if (!run) return Promise.resolve(fail('Run not found'));
+      const bookings = db.boatBookings.filter(b=>b.runId===run.id && b.status!=='cancelled');
+      const totalPax = bookings.reduce((s,b)=>s+Number(b.seats||1),0);
+      return Promise.resolve(ok({ run, bookings, totalPax, title:'Boat Trip Summary — Dive' }));
+    }
+    case 'requestEmergencyTravel': {
+      if (!db.emergencyTravel) db.emergencyTravel=[];
+      const email = String(p.userEmail||state.user.email).toLowerCase();
+      const u = db.users.find(x=>x.email===email);
+      if (!u) return Promise.resolve(fail('User required'));
+      if (!String(p.reason||'').trim()) return Promise.resolve(fail('Reason is required'));
+      const row = { id:uid('em'), userEmail:email, userName:(u.firstName+' '+u.lastName).trim(), department:u.department||'', reason:String(p.reason).trim(), seats:Number(p.seats||1), preferredTime:String(p.preferredTime||'').trim(), status:'pending', reviewedBy:'', reviewNote:'', createdAt:formatFiji() };
+      db.emergencyTravel.push(row); saveDemo(db); return Promise.resolve(ok({ request:row }));
+    }
+    case 'getEmergencyTravel': {
+      if (!db.emergencyTravel) db.emergencyTravel=[];
+      let rows = db.emergencyTravel.slice();
+      if (!(canBoatCaptain()||canBoatManager()||canFullAdmin())) {
+        const email = String(state.user.email).toLowerCase();
+        rows = rows.filter(r=>String(r.userEmail).toLowerCase()===email);
+      }
+      if (p.status) rows = rows.filter(r=>r.status===p.status);
+      return Promise.resolve(ok({ requests:rows }));
+    }
+    case 'reviewEmergencyTravel': {
+      if (!(canBoatCaptain()||canBoatManager()||canFullAdmin())) return Promise.resolve(fail('Boat captain / manager / admin required'));
+      if (!db.emergencyTravel) db.emergencyTravel=[];
+      const r = db.emergencyTravel.find(x=>x.id===p.id);
+      if (!r) return Promise.resolve(fail('Not found'));
+      const action = String(p.status||p.action||'').toLowerCase();
+      r.status = (action==='confirmed'||action==='approve'||action==='approved') ? 'confirmed' : 'rejected';
+      r.reviewedBy = state.user.email; r.reviewNote = String(p.note||p.reviewNote||'');
+      saveDemo(db); return Promise.resolve(ok({ request:r }));
+    }
+    case 'getHodLeaveSummary': {
+      const dept = p.department || (state.user&&state.user.department) || '';
+      let rows = (db.leaveRequests||[]).slice();
+      if (!(canFullAdmin() && !p.department)) rows = rows.filter(r=>String(r.department)===String(dept));
+      const counts = { pending:0, pending_hod:0, pending_manager:0, approved:0, rejected:0, other:0 };
+      rows.forEach(r=>{ const st=String(r.status||'other'); if(counts[st]!==undefined) counts[st]++; else counts.other++; });
+      return Promise.resolve(ok({ department:dept, counts, requests:rows, escalation:String((db.appSettings||{}).feature_leave_escalation)==='true' }));
     }
     case 'getLeaveRequests': {
       let rows = db.leaveRequests.slice();
@@ -1949,6 +2045,7 @@ function renderHome(){
   }, 0);
   loadHomeRemindersAndSuggestions();
   if (hasPerm('super_admin')) loadSuperadminHomeStats();
+  else if (canFullAdmin() || canHod()) loadDailyOpsDashboard();
 }
 
 async function loadSuperadminHomeStats(){
@@ -1983,6 +2080,51 @@ function sortRemindersHome(list){
     return String(b.dueDate||b.createdAt||'').localeCompare(String(a.dueDate||a.createdAt||''));
   });
 }
+async function loadDailyOpsDashboard(){
+  const host = document.querySelector('#home-ops-dashboard');
+  // Insert card after meal status grid if missing
+  let box = host;
+  if (!box) {
+    const mealGrid = document.querySelector('.grid.grid-cols-3.gap-2');
+    if (!mealGrid || !mealGrid.parentElement) return;
+    box = document.createElement('div');
+    box.id = 'home-ops-dashboard';
+    box.className = 'space-y-2';
+    mealGrid.parentElement.insertBefore(box, mealGrid.nextSibling);
+  }
+  box.innerHTML = '<div class="glass rounded-xl p-3 text-xs text-slate-400">Loading today\'s summary…</div>';
+  try {
+    const r = await api('getDailyOpsSummary');
+    if (!r || !r.success || !r.data) {
+      box.innerHTML = '<div class="glass rounded-xl p-3 text-xs text-rose-300">Ops summary unavailable'+(r&&r.error?': '+esc(r.error):'')+'</div>';
+      return;
+    }
+    const d = r.data;
+    function card(label, val, tab, icon){
+      const go = tab ? 'onclick="navigate(\''+tab+'\')"': '';
+      return '<button type="button" '+go+' class="ui-card glass rounded-xl p-2.5 text-left border border-slate-700/80 min-h-[64px]">'+
+        '<p class="text-[9px] uppercase tracking-wide text-slate-400"><i class="fa-solid '+icon+' text-teal-400/80 mr-0.5"></i>'+label+'</p>'+
+        '<p class="text-xl font-semibold text-teal-300 mt-0.5">'+esc(String(val!=null?val:0))+'</p></button>';
+    }
+    box.innerHTML =
+      '<div class="glass rounded-xl p-3 border border-teal-600/30 space-y-2">'+
+      '<p class="text-xs font-semibold text-teal-200"><i class="fa-solid fa-gauge-high mr-1"></i>Today\'s Summary <span class="text-[10px] text-slate-500 font-normal">'+esc(d.date||'')+' Fiji</span></p>'+
+      '<div class="grid grid-cols-3 gap-2">'+
+      card('Breakfast', d.breakfast, 'breakfast', 'fa-mug-saucer')+
+      card('Lunch', d.lunch, 'lunch', 'fa-sun')+
+      card('Dinner', d.dinner, 'dinner', 'fa-moon')+
+      '</div><div class="grid grid-cols-3 gap-2">'+
+      card('Boat pax', d.boatPax, 'boat', 'fa-ship')+
+      card('Dive', d.divePax, 'boat', 'fa-water')+
+      card('On leave', d.staffOnLeave, null, 'fa-plane-departure')+
+      '</div>'+
+      (d.emergencyPending?('<p class="text-[10px] text-amber-300"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+d.emergencyPending+' emergency travel pending — see Boat</p>'):'')+
+      '</div>';
+  } catch(e){
+    box.innerHTML = '<div class="glass rounded-xl p-3 text-xs text-rose-300">'+esc(e.message)+'</div>';
+  }
+}
+
 async function loadHomeRemindersAndSuggestions(){
   const remBox = $('#home-rem-box'), sugList = $('#home-sug-list');
   if (!remBox || !sugList) return;
@@ -2328,11 +2470,13 @@ async function renderBoat(){
       '</div>'+
       '<p class="text-[10px] text-slate-400 pt-1">Be at pickup a few minutes early. Soso Express in service.</p>'+
       '</div>';
-    html += '<div class="flex justify-between items-center"><h3 class="font-semibold text-sm">Upcoming boat runs</h3>'+
-      (canBoatManager()?'<button id="btn-add-run" class="text-xs text-teal-400"><i class="fa-solid fa-plus mr-1"></i>Add run</button>':'')+'</div>';
+    html += '<div class="flex justify-between items-center flex-wrap gap-2"><h3 class="font-semibold text-sm">Upcoming boat runs</h3><div class="flex gap-2">'+
+      '<button id="btn-emerg-travel" class="text-xs text-amber-300"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Emergency travel</button>'+
+      (canBoatManager()?'<button id="btn-add-run" class="text-xs text-teal-400"><i class="fa-solid fa-plus mr-1"></i>Add run</button>':'')+
+      '</div></div>';
     if (canBoatCaptain()) {
       html += '<div class="glass rounded-xl p-3 border border-sky-500/30"><p class="text-xs font-semibold text-sky-200 mb-1"><i class="fa-solid fa-anchor mr-1"></i>Captain board — pax booked</p>'+
-        '<p class="text-[10px] text-slate-400">Update capacity or mark boat full notification.</p></div>';
+        '<p class="text-[10px] text-slate-400">Update capacity or mark boat full notification. Emergency travel inbox below when pending.</p></div>';
     }
     if (!runs.length) html += '<p class="text-sm text-sand-200/50">No runs scheduled.</p>';
     runs.forEach(run => {
@@ -2340,7 +2484,7 @@ async function renderBoat(){
       html += '<div class="glass rounded-xl p-3 space-y-2"><div class="flex justify-between gap-2"><div><p class="font-medium text-sm">'+esc(run.route)+'</p>'+
         '<p class="text-xs text-sand-200/60">'+esc(run.date)+' · '+esc(run.time)+'</p>'+
         '<p class="text-[10px] text-sand-200/40">'+used+'/'+run.capacity+' seats · '+esc(run.notes||'')+(run.fullNotification?' · <span class="text-amber-300">FULL notify on</span>':'')+'</p></div>'+
-        '<button class="btn-primary text-xs px-3 py-1.5 rounded-lg text-white h-fit book-run" data-id="'+run.id+'">Book</button></div>';
+        '<button class="btn-primary text-xs px-3 py-1.5 rounded-lg text-white h-fit book-run min-h-[40px]" data-id="'+run.id+'">Book</button></div>';
       if (canBoatCaptain()) {
         html += '<div class="flex flex-wrap gap-2 items-center text-[11px] border-t border-slate-700/60 pt-2">'+
           '<span class="badge bg-sky-600/25 text-sky-200">Pax booked: '+used+'</span>'+
@@ -2348,8 +2492,24 @@ async function renderBoat(){
           '<label class="flex items-center gap-1"><input type="checkbox" class="full-flag" data-id="'+run.id+'" '+(run.fullNotification?'checked':'')+'/> Full notify</label>'+
           '<button class="text-teal-400 cap-save" data-id="'+run.id+'">Save</button></div>';
       }
+      if (canSeeBoatTripPdf()) {
+        html += '<div class="flex flex-wrap gap-2 items-center text-[11px] border-t border-slate-700/60 pt-2">'+
+          '<span class="text-slate-400">Trip summary (Dive)</span>'+
+          '<button type="button" class="text-xs px-2 py-1.5 rounded-lg border border-teal-500/40 text-teal-300 trip-pdf-view" data-id="'+run.id+'">View PDF</button>'+
+          '<button type="button" class="text-xs px-2 py-1.5 rounded-lg bg-teal-600/30 text-teal-200 font-medium trip-pdf-dl" data-id="'+run.id+'">Download PDF</button>';
+        if (canBoatManager()) {
+          html += '<button type="button" class="text-xs px-2 py-1.5 rounded-lg border border-sky-500/40 text-sky-300 run-edit ml-auto" data-id="'+run.id+'">Edit</button>'+
+            '<button type="button" class="text-xs px-2 py-1.5 rounded-lg border border-rose-500/40 text-rose-300 run-remove" data-id="'+run.id+'">Remove</button>';
+        }
+        html += '</div>';
+      } else if (canBoatManager()) {
+        html += '<div class="flex flex-wrap gap-2 items-center text-[11px] border-t border-slate-700/60 pt-2">'+
+          '<button type="button" class="text-xs px-2 py-1.5 rounded-lg border border-sky-500/40 text-sky-300 run-edit" data-id="'+run.id+'">Edit</button>'+
+          '<button type="button" class="text-xs px-2 py-1.5 rounded-lg border border-rose-500/40 text-rose-300 run-remove" data-id="'+run.id+'">Remove</button></div>';
+      }
       html += '</div>';
     });
+    html += '<div id="boat-emerg-box" class="space-y-2"></div>';
     html += '<button onclick="navigate(\'bookings\')" class="w-full text-center text-xs text-teal-400 py-2">View my bookings →</button>';
     $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="boat-root">'+html+'</div>';
     $$('.book-run').forEach(b => b.onclick = async () => {
@@ -2365,22 +2525,19 @@ async function renderBoat(){
       const res = await api('saveBoatRun',{ id, captainUpdate:true, capacity: Number(capEl && capEl.value), fullNotification: !!(flagEl && flagEl.checked) });
       if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['boatRuns']); toast('Run updated','ok'); renderBoat(); }
     });
+    $$('.run-edit').forEach(b => b.onclick = () => openEditBoatRunModal(runs.find(r=>r.id===b.dataset.id)));
+    $$('.run-remove').forEach(b => b.onclick = async () => {
+      if (!confirm('Deactivate this run (e.g. weather)? Bookings stay but the run is hidden.')) return;
+      const res = await api('deleteBoatRun',{ id:b.dataset.id });
+      if (!res.success) toast(res.error||'Failed','error'); else { cacheInvalidate(['boatRuns']); toast('Run removed','ok'); renderBoat(); }
+    });
+    $$('.trip-pdf-view').forEach(b => b.onclick = () => openBoatTripPdf(b.dataset.id, false));
+    $$('.trip-pdf-dl').forEach(b => b.onclick = () => openBoatTripPdf(b.dataset.id, true));
     const addBtn = $('#btn-add-run');
-    if (addBtn) addBtn.onclick = async () => {
-      const passcode = await askPasscode(); if (!passcode) return;
-      openModal('<h3 class="font-semibold mb-3">New boat run</h3><div class="space-y-2">'+
-        '<input id="br-date" type="date" class="w-full rounded-xl px-3 py-2 text-sm" value="'+fijiDateString()+'"/>'+
-        '<input id="br-time" type="time" class="w-full rounded-xl px-3 py-2 text-sm" value="07:00"/>'+
-        '<input id="br-route" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Route" value="Denarau → Resort"/>'+
-        '<input id="br-cap" type="number" class="w-full rounded-xl px-3 py-2 text-sm" value="20"/>'+
-        '<input id="br-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes"/>'+
-        '<button id="br-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Save</button></div>');
-      $('#br-save').onclick = async () => {
-        const res = await api('saveBoatRun',{ passcode, date:$('#br-date').value, time:$('#br-time').value, route:$('#br-route').value, capacity:Number($('#br-cap').value), notes:$('#br-notes').value });
-        closeModal();
-        if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['boatRuns']); toast('Run saved','ok'); renderBoat(); }
-      };
-    };
+    if (addBtn) addBtn.onclick = () => openEditBoatRunModal(null);
+    const emBtn = $('#btn-emerg-travel');
+    if (emBtn) emBtn.onclick = () => openEmergencyTravelModal();
+    loadBoatEmergencyInbox();
   }
 
   if (cachedRuns) paintBoat(cachedRuns);
@@ -2394,6 +2551,129 @@ async function renderBoat(){
       $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="boat-root"><div class="glass rounded-xl p-4 text-sm text-red-300">'+esc(e.message)+'</div></div>';
     }
   }
+}
+
+function canSeeBoatTripPdf(){
+  return canBoatCaptain() || canBoatManager() || canFullAdmin() || hasPerm('super_admin') ||
+    /dive/i.test(String((state.user&&state.user.department)||''));
+}
+
+function openEditBoatRunModal(run){
+  const isEdit = !!(run && run.id);
+  openModal('<h3 class="font-semibold mb-3">'+(isEdit?'Edit boat run':'New boat run')+'</h3><div class="space-y-2">'+
+    '<input id="br-date" type="date" class="w-full rounded-xl px-3 py-2 text-sm" value="'+esc((run&&run.date)||fijiDateString())+'"/>'+
+    '<input id="br-time" type="time" class="w-full rounded-xl px-3 py-2 text-sm" value="'+esc((run&&run.time)||'07:00')+'"/>'+
+    '<input id="br-route" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Route" value="'+esc((run&&run.route)||'Denarau → Resort')+'"/>'+
+    '<input id="br-cap" type="number" class="w-full rounded-xl px-3 py-2 text-sm" value="'+esc(String((run&&run.capacity)!=null?run.capacity:20))+'"/>'+
+    '<input id="br-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes (e.g. Dive trip)" value="'+esc((run&&run.notes)||'')+'"/>'+
+    '<button id="br-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">'+(isEdit?'Save changes':'Save')+'</button></div>');
+  $('#br-save').onclick = async () => {
+    const payload = { date:$('#br-date').value, time:$('#br-time').value, route:$('#br-route').value, capacity:Number($('#br-cap').value), notes:$('#br-notes').value };
+    if (isEdit) payload.id = run.id;
+    const res = await api('saveBoatRun', payload);
+    closeModal();
+    if (!res.success) toast(res.error,'error'); else { cacheInvalidate(['boatRuns']); toast(isEdit?'Run updated':'Run saved','ok'); renderBoat(); }
+  };
+}
+
+function buildBoatTripSummaryHtml(data){
+  data = data || {};
+  const run = data.run || {};
+  const bookings = (data.bookings || []).slice();
+  const totalPax = data.totalPax != null ? data.totalPax : bookings.reduce((s,b)=>s+Number(b.seats||1),0);
+  const logo = goldenLogoAbsUrl();
+  const printed = formatFiji();
+  let rows = bookings.map(b =>
+    '<tr><td>'+esc(b.userName||'')+'</td><td style="text-align:center">'+esc(String(b.seats||1))+'</td><td>'+esc(b.status||'')+'</td></tr>'
+  ).join('');
+  if (!bookings.length) rows = '<tr><td colspan="3" style="padding:10px;color:#666">No bookings</td></tr>';
+  return '<div class="boat-trip-sheet" style="font-family:system-ui,-apple-system,sans-serif;color:#111;background:#fff;max-width:800px;margin:0 auto;padding:18px 20px">'+
+    '<div style="text-align:center;border-bottom:2px solid #0d9488;padding-bottom:10px;margin-bottom:14px">'+
+    '<img src="'+logo+'" alt="Paradise Cove Resort" style="height:70px;object-fit:contain;display:block;margin:0 auto 6px"/>'+
+    '<h1 style="margin:4px 0 2px;font-size:20px">'+esc(data.title||'Boat Trip Summary — Dive')+'</h1>'+
+    '<p style="margin:2px 0;font-size:13px"><strong>Route:</strong> '+esc(run.route||'')+'</p>'+
+    '<p style="margin:2px 0;font-size:13px"><strong>Date / time:</strong> '+esc(run.date||'')+' · '+esc(run.time||'')+'</p>'+
+    (run.notes?'<p style="margin:2px 0;font-size:12px;color:#444"><strong>Notes:</strong> '+esc(run.notes)+'</p>':'')+
+    '<p style="margin:2px 0;font-size:12px;color:#444"><strong>Printed:</strong> '+esc(printed)+'</p>'+
+    '<p style="margin:8px 0 0;font-size:15px">Total pax: <strong style="font-size:18px">'+esc(String(totalPax))+'</strong></p>'+
+    '</div>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
+    '<thead><tr style="background:#f0fdfa"><th>Name</th><th>Seats</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div style="margin-top:28px;padding-top:14px;border-top:1px solid #ccc;font-size:13px;line-height:1.8">'+
+    '<div><strong>Captain / Dive admin:</strong> ________________________________</div>'+
+    '<div style="margin-top:10px"><strong>Signature:</strong> ________________________________ &nbsp;&nbsp; <strong>Date:</strong> ______________</div>'+
+    '</div></div>';
+}
+
+async function openBoatTripPdf(runId, download){
+  try {
+    toast(download?'Preparing PDF…':'Opening…','ok');
+    const r = await api('getBoatTripSummary',{ runId });
+    if (!r.success) { toast(r.error||'Failed','error'); return; }
+    const html = buildBoatTripSummaryHtml(r.data);
+    await ensureHtml2Pdf();
+    const el = document.createElement('div');
+    el.innerHTML = html;
+    const opt = { margin:8, filename:'boat-trip-'+(r.data.run&&r.data.run.date||'summary')+'.pdf', image:{type:'jpeg',quality:0.95}, html2canvas:{scale:2,useCORS:true}, jsPDF:{unit:'mm',format:'a4',orientation:'portrait'} };
+    if (download) {
+      const blob = await html2pdf().set(opt).from(el).outputPdf('blob');
+      downloadBlob(opt.filename, blob);
+      toast('PDF downloaded','ok');
+    } else {
+      const blob = await html2pdf().set(opt).from(el).outputPdf('blob');
+      window.open(URL.createObjectURL(blob), '_blank');
+    }
+  } catch(e){ toast(e.message||'PDF failed','error'); }
+}
+
+function openEmergencyTravelModal(){
+  openModal('<h3 class="font-semibold mb-2"><i class="fa-solid fa-triangle-exclamation text-amber-400 mr-2"></i>Emergency off-island travel</h3>'+
+    '<p class="text-[10px] text-slate-400 mb-3">Not a village schedule booking — captain/manager will confirm or reject.</p>'+
+    '<textarea id="em-reason" class="ui-input mb-2" rows="3" placeholder="Reason (required)"></textarea>'+
+    '<input id="em-seats" type="number" min="1" class="ui-input mb-2" value="1" placeholder="Seats"/>'+
+    '<input id="em-time" class="ui-input mb-2" placeholder="Preferred time (e.g. ASAP / 14:00)"/>'+
+    '<button id="em-go" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white min-h-[44px]">Submit request</button>');
+  $('#em-go').onclick = async () => {
+    const res = await api('requestEmergencyTravel',{ reason:$('#em-reason').value.trim(), seats:Number($('#em-seats').value||1), preferredTime:$('#em-time').value.trim() });
+    if (!res.success) { toast(res.error||'Failed','error'); return; }
+    closeModal(); toast('Emergency travel submitted','ok');
+    if (state.tab==='boat') renderBoat();
+  };
+}
+
+async function loadBoatEmergencyInbox(){
+  const box = $('#boat-emerg-box');
+  if (!box) return;
+  const isOps = canBoatCaptain() || canBoatManager() || canFullAdmin();
+  try {
+    const r = await api('getEmergencyTravel', isOps ? { status:'pending' } : {});
+    const list = (r.data && r.data.requests) || [];
+    if (!isOps) {
+      const mine = list.filter(x => String(x.userEmail).toLowerCase()===String(state.user.email).toLowerCase()).slice(0,5);
+      if (!mine.length) { box.innerHTML = ''; return; }
+      box.innerHTML = '<div class="glass rounded-xl p-3 space-y-2"><p class="text-xs font-semibold text-amber-200">My emergency travel</p>'+
+        mine.map(x => '<p class="text-xs">'+esc(x.preferredTime||'—')+' · '+esc(x.seats)+' seat(s) · '+statusBadge(x.status)+'<br/><span class="text-sand-200/60">'+esc(x.reason)+'</span></p>').join('')+'</div>';
+      return;
+    }
+    if (!list.length) { box.innerHTML = ''; return; }
+    let html = '<div class="glass rounded-xl p-3 space-y-2 border border-amber-500/30"><p class="text-xs font-semibold text-amber-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Emergency travel inbox</p>';
+    list.forEach(x => {
+      html += '<div class="rounded-lg border border-slate-700/60 p-2 text-xs space-y-1"><p class="font-medium">'+esc(x.userName)+' · '+esc(x.department)+'</p>'+
+        '<p>'+esc(x.seats)+' seat(s) · preferred '+esc(x.preferredTime||'—')+'</p><p class="text-sand-200/60">'+esc(x.reason)+'</p>'+
+        '<div class="flex gap-2 mt-1"><button class="flex-1 btn-primary rounded-lg py-1.5 text-xs text-white em-ok" data-id="'+x.id+'">Confirm</button>'+
+        '<button class="flex-1 bg-red-700/80 rounded-lg py-1.5 text-xs em-no" data-id="'+x.id+'">Reject</button></div></div>';
+    });
+    html += '</div>';
+    box.innerHTML = html;
+    $$('.em-ok').forEach(b => b.onclick = async () => {
+      const res = await api('reviewEmergencyTravel',{ id:b.dataset.id, status:'confirmed' });
+      if (!res.success) toast(res.error,'error'); else { toast('Confirmed','ok'); renderBoat(); }
+    });
+    $$('.em-no').forEach(b => b.onclick = async () => {
+      const res = await api('reviewEmergencyTravel',{ id:b.dataset.id, status:'rejected' });
+      if (!res.success) toast(res.error,'error'); else { toast('Rejected','ok'); renderBoat(); }
+    });
+  } catch(e){ /* non-fatal */ }
 }
 
 async function renderMyBookings(){
@@ -2886,6 +3166,36 @@ async function renderDepartmentRoster(){
   openModal(html);
 }
 
+async function renderHodLeaveSummary(){
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="hod-leave-root"><p class="text-sm text-slate-400">Loading leave summary…</p></div>';
+  try {
+    const r = await api('getHodLeaveSummary', canFullAdmin() ? {} : { department: state.user.department });
+    if (!r.success) { toast(r.error||'Failed','error'); return; }
+    const d = r.data || {};
+    const c = d.counts || {};
+    const reqs = d.requests || [];
+    let html = '<div class="fade-in max-w-lg mx-auto space-y-3">'+
+      '<h3 class="font-semibold text-sm"><i class="fa-solid fa-clipboard-list text-teal-400 mr-2"></i>Leave summary</h3>'+
+      '<p class="text-[10px] text-slate-400">Department: <strong>'+esc(d.department||'All')+'</strong>'+(d.escalation?' · escalation ON':'')+'</p>'+
+      '<div class="grid grid-cols-3 gap-2 text-center">'+
+      '<div class="glass rounded-xl p-2"><p class="text-[9px] text-slate-400">Pending</p><p class="text-lg text-amber-300">'+(c.pending||0)+(c.pending_hod?('+'+(c.pending_hod)):'' )+'</p></div>'+
+      '<div class="glass rounded-xl p-2"><p class="text-[9px] text-slate-400">Approved</p><p class="text-lg text-teal-300">'+(c.approved||0)+'</p></div>'+
+      '<div class="glass rounded-xl p-2"><p class="text-[9px] text-slate-400">Rejected</p><p class="text-lg text-rose-300">'+(c.rejected||0)+'</p></div></div>'+
+      '<div class="space-y-2"><h4 class="text-xs font-semibold text-slate-300">Requests</h4>';
+    if (!reqs.length) html += '<p class="text-xs text-sand-200/50">No leave requests for this department</p>';
+    reqs.slice().sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).forEach(l => {
+      html += '<div class="glass rounded-xl p-3 text-sm"><p class="font-medium">'+esc(l.userName)+'</p>'+
+        '<p class="text-xs">'+esc(l.startDate)+' → '+esc(l.endDate)+'</p>'+
+        '<p class="text-xs text-sand-200/60">'+esc(l.reason||'')+'</p>'+statusBadge(l.status)+'</div>';
+    });
+    html += '</div><button onclick="renderLeaveAdmin()" class="w-full text-center text-xs text-teal-400 py-2">Open leave inbox →</button>';
+    html += '<button onclick="navigate(\'more\')" class="w-full text-center text-xs text-slate-500 py-1">← Back to More</button></div>';
+    $('#main-content').innerHTML = html;
+  } catch(e){
+    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto"><div class="glass rounded-xl p-4 text-sm text-red-300">'+esc(e.message)+'</div></div>';
+  }
+}
+
 async function renderLeaveAdmin(){
   await refreshFeatureFlags();
   const escOn = featureOn('feature_leave_escalation');
@@ -2955,6 +3265,7 @@ function renderMore(){
     html += moreRow('reminders','fa-bullhorn','Broadcast Reminders');
     html += moreRow('suggestions','fa-lightbulb','Review Suggestions');
     html += '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-inbox text-teal-400 w-5"></i><span class="flex-1">Requested Inbox (pending leave)</span></button>';
+    html += '<button onclick="renderHodLeaveSummary()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-clipboard-list text-teal-400 w-5"></i><span class="flex-1">Leave summary (all / filter)</span></button>';
     if (isSuper) html += moreRow('admin','fa-envelope','Manage Alert Emails');
   }
 
@@ -2966,9 +3277,10 @@ function renderMore(){
     html += moreRow('kitchen','fa-fire-burner','Kitchen dashboard');
   }
 
-  // HOD section
+  // HOD section — leave summary reachable even if feature_my_schedule OFF
   if (isHodOnly || (canHod() && !isAdm)) {
     html += '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-3">HOD</p>';
+    html += '<button onclick="renderHodLeaveSummary()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-clipboard-list text-teal-400 w-5"></i><span class="flex-1">Department leave summary</span></button>';
     html += '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-inbox text-teal-400 w-5"></i><span class="flex-1">Department leave requests</span></button>';
     html += '<button onclick="openMealOnBehalfModal()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-utensils text-teal-400 w-5"></i><span class="flex-1">Meal on behalf</span></button>';
     if (featureOn('feature_my_schedule')) html += moreRow('schedule','fa-file-arrow-up','Roster upload / My Schedule');
@@ -3009,7 +3321,7 @@ async function renderMealStatsPage(){
 function openMealOnBehalfModal(){
   openModal('<h3 class="font-semibold mb-3">Meal on behalf</h3>'+
     '<input id="mob-name" class="ui-input mb-2" placeholder="Staff name (roster)"/>'+
-    '<input id="mob-dept" class="ui-input mb-2" placeholder="Department" value="'+esc(state.user.department||'')+'"/>'+
+    '<select id="mob-dept" class="ui-input mb-2">'+deptSelectOptions(state.user.department||'')+'</select>'+
     '<textarea id="mob-comment" class="ui-input mb-2" rows="2" placeholder="Comment"></textarea>'+
     '<select id="mob-meal" class="ui-input mb-2"><option value="breakfast">Breakfast (headcount)</option><option value="lunch">Lunch (headcount)</option><option value="dinner">Dinner (menu)</option></select>'+
     '<input id="mob-choice" class="ui-input mb-2" placeholder="Dinner meal choice (if dinner)"/>'+
@@ -4093,7 +4405,7 @@ async function openAddUser(){
     '<input id="au-pass" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="password"/>'+
     '<div class="grid grid-cols-2 gap-2"><input id="au-fn" class="rounded-xl px-3 py-2 text-sm" placeholder="First"/>'+
     '<input id="au-ln" class="rounded-xl px-3 py-2 text-sm" placeholder="Last"/></div>'+
-    '<input id="au-dept" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Department"/>'+
+    '<select id="au-dept" class="w-full rounded-xl px-3 py-2 text-sm">'+deptSelectOptions('')+'</select>'+
     '<input id="au-contact" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Contact"/>'+
     '<select id="au-role" class="w-full rounded-xl px-3 py-2 text-sm"><option value="staff">Staff</option><option value="kitchen">Kitchen</option>'+
     '<option value="boat">Boat</option><option value="hod">HOD</option><option value="admin">Admin</option>'+
@@ -4353,8 +4665,7 @@ async function renderAdminKitchenTab(full){
 
 function maybeProfileModal(){
   if (!state.user || !state.user.needsProfile) return;
-  const DEPTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Management','IT/Office','Other'];
-  const deptOpts = DEPTS.map(d => '<option value="'+d.replace(/"/g,'')+'"'+(state.user.department===d?' selected':'')+'>'+d+'</option>').join('');
+    const deptOpts = PCR_DEPARTMENTS.map(d => '<option value="'+d.replace(/"/g,'')+'"'+(state.user.department===d?' selected':'')+'>'+d+'</option>').join('');
   const curPhoto = state.user.photoUrl || localPhoto(state.user.email) || '';
   openModal('<h3 class="font-semibold mb-1 text-slate-100">Complete Your Profile</h3>'+
     '<p class="text-xs text-slate-400 mb-3">First name, last name and department are required.</p><div class="space-y-2">'+
