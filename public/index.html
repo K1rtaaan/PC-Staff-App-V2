@@ -203,7 +203,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.9.2';
+const APP_VERSION = '2.9.3';
 const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
 function deptSelectOptions(selected){
   selected = selected || '';
@@ -708,7 +708,7 @@ function roleLandingTab(){
   // Deep links / hash win
   try {
     const h = (location.hash||'').replace(/^#/, '');
-    if (h && ['home','meals','boat','kitchen','more','admin','bookings','profile','users','reminders','suggestions'].includes(h)) return h;
+    if (h && ['home','meals','boat','kitchen','more','admin','bookings','profile','users','reminders','suggestions','myorders'].includes(h)) return h;
     const q = new URLSearchParams(location.search).get('tab');
     if (q) return q;
   } catch(e){}
@@ -737,6 +737,13 @@ function prefetchNextTabByRole(){
     }
   } catch(e){}
 }
+/** C100: when a user cancelled then re-booked, several rows exist — prefer the latest active one. */
+function pickActiveOrder(list){
+  list = list || [];
+  const inactive = st => ['cancelled','rejected','declined'].includes(String(st||''));
+  for (let i = list.length - 1; i >= 0; i--) if (!inactive(list[i].status)) return list[i];
+  return list[list.length - 1];
+}
 function buildDoThisNowActions(){
   const actions = [];
   const di = dinnerCutoffInfo(), li = lunchCutoffInfo(), bi = breakfastCutoffInfo();
@@ -745,7 +752,7 @@ function buildDoThisNowActions(){
   const diKey = 'dinnerOrders:'+di.serviceDate;
   const bf = (cacheGet(bfKey)||[])[0];
   const lu = (cacheGet(luKey)||[])[0];
-  const din = (cacheGet(diKey)||[])[0];
+  const din = pickActiveOrder(cacheGet(diKey)||[]);
   if (di.open && !(din && din.status && din.status!=='cancelled' && din.status!=='rejected')) {
     actions.push({ id:'dtn-dinner', icon:'fa-moon', label:'Book dinner', sub:'Open until 8pm', tab:'dinner', primary:true });
   }
@@ -801,6 +808,220 @@ function paintDoThisNowStrip(){
         (a.sub?'<p class="text-[10px] text-slate-400 ml-5">'+a.sub+'</p>':'')+'</button>';
     }).join('')+'</div></div>';
   $$('.dtn-act').forEach(function(b){ b.onclick = function(){ navigate(b.dataset.tab); }; });
+}
+/* ========== C100: My Orders summary (yesterday / today / tomorrow) ========== */
+/** Pure builder shared by demo mode — mirrors Code.gs getMyOrdersSummary (read-only). */
+function buildMyOrdersSummary(src, email, now){
+  now = now || getFijiNow();
+  email = String(email||'').trim().toLowerCase();
+  const hour = now.getUTCHours();
+  const dates = { yesterday: fijiDateString(addFijiDays(now,-1)), today: fijiDateString(now), tomorrow: fijiDateString(addFijiDays(now,1)) };
+  const dl = [dates.yesterday, dates.today, dates.tomorrow];
+  const keyOf = v => String(v||'').slice(0,10);
+  const mine = o => String(o.userEmail||'').trim().toLowerCase() === email;
+  const inactive = st => ['cancelled','rejected','declined'].includes(String(st||''));
+  function pick(rows){
+    const out = {};
+    (rows||[]).forEach((o, idx) => {
+      if (!mine(o) || !dl.includes(keyOf(o.serviceDate))) return;
+      const d = keyOf(o.serviceDate), cur = out[d];
+      const oo = Object.assign({ _i: idx }, o);
+      if (!cur) { out[d] = oo; return; }
+      const ca = !inactive(cur.status), oa = !inactive(o.status);
+      if ((oa && !ca) || (oa === ca && idx > cur._i)) out[d] = oo;
+    });
+    return out;
+  }
+  const b = pick(src.breakfast), l = pick(src.lunch), dn = pick(src.dinner);
+  function dinnerEff(o, sd){
+    const st = String(o.status||'');
+    if (st !== 'pending' || o.late === true || o.late === 'TRUE' || o.late === 'true') return st;
+    const h = sd <= dates.today ? 24 : hour;
+    const th = h>=19?19:(h>=17?17:(h>=12?12:0));
+    return demoParseHour(o.createdAt) < th ? 'approved' : st;
+  }
+  function meal(o, kind, sd){
+    if (!o) return { ordered:false, status:'not_ordered', late:false };
+    const st = String(o.status||'');
+    const out = { ordered: !inactive(st), id:o.id, status:st, effectiveStatus: kind==='dinner'?dinnerEff(o, sd):st,
+      late: o.late===true||o.late==='TRUE'||o.late==='true', notes:o.notes||'', createdAt:o.createdAt||'' };
+    if (kind !== 'dinner') { out.qty = out.ordered?1:0; out.counted = out.ordered && st!=='late_pending'; }
+    else out.items = o.mealChoice ? [{ name:String(o.mealChoice), qty:1 }] : [];
+    return out;
+  }
+  const runMap = {};
+  (src.runs||[]).forEach(r => { if (dl.includes(keyOf(r.date))) runMap[String(r.id)] = r; });
+  const myB = (src.bookings||[]).filter(mine);
+  const bi = breakfastCutoffInfo(now), li = lunchCutoffInfo(now), di = dinnerCutoffInfo(now);
+  const days = {};
+  ['yesterday','today','tomorrow'].forEach(k => {
+    const d = dates[k];
+    days[k] = {
+      key:k, date:d, weekday: fijiWeekdayName(d), readOnly: k!=='tomorrow',
+      breakfast: meal(b[d],'breakfast',d), lunch: meal(l[d],'lunch',d), dinner: meal(dn[d],'dinner',d),
+      boats: myB.filter(x => runMap[String(x.runId)] && keyOf(runMap[String(x.runId)].date)===d).map(x => {
+        const r = runMap[String(x.runId)];
+        return { id:x.id, runId:x.runId, date:keyOf(r.date), time:String(r.time||''), route:r.route||'', seats:Number(x.seats||1), status:String(x.status||'confirmed'), notes:x.notes||'' };
+      }).sort((a,c)=>String(a.time).localeCompare(String(c.time)))
+    };
+  });
+  return {
+    email, fijiNow: formatFiji(now), dates, days,
+    cutoffs: {
+      serviceDate: dates.tomorrow,
+      breakfast: { open:bi.open, lateOpen:bi.lateOpen, fullyClosed:bi.fullyClosed, label: bi.open?'Open until 1:00pm today':(bi.lateOpen?'Late request until 6:00pm (needs chef OK)':'Closed after 6:00pm') },
+      lunch: { open:li.open, label: li.open?'Open until 1:00pm today':'Closed at 1:00pm' },
+      dinner: { open:di.open, label: di.open?'Open until 8:00pm today':'Closed at 8:00pm — late requests need chef OK' }
+    }
+  };
+}
+function myOrdersDateLabel(ds){
+  const p = String(ds||'').slice(0,10).split('-');
+  if (p.length!==3) return ds||'';
+  const d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2], 12));
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
+  return WEEKDAY_NAMES[d.getUTCDay()].slice(0,3)+' '+d.getUTCDate()+' '+mon;
+}
+/** Human chip: Confirmed / Waiting chef / Cancelled / Rejected / Not ordered (+ Prepared/Served) */
+function myOrderChip(m){
+  const st = String((m && (m.effectiveStatus || m.status)) || 'not_ordered');
+  let label, cls;
+  if (st==='not_ordered' || !st) { label='Not ordered'; cls='bg-slate-700/40 text-slate-400'; }
+  else if (st==='pending' || st==='late_pending' || st==='pending_approval') { label='Waiting chef'; cls='bg-orange-500/20 text-orange-300'; }
+  else if (st==='cancelled') { label='Cancelled'; cls='bg-slate-600/30 text-slate-400'; }
+  else if (st==='rejected' || st==='declined') { label='Rejected'; cls='bg-red-500/20 text-red-300'; }
+  else if (st==='prepared') { label='Prepared'; cls='bg-sky-500/20 text-sky-300'; }
+  else if (st==='served') { label='Served'; cls='bg-emerald-500/20 text-emerald-300'; }
+  else { label='Confirmed'; cls='bg-teal-500/20 text-teal-300'; }
+  return '<span class="ui-badge '+cls+'">'+label+'</span>';
+}
+function myOrdersDefaultDay(){
+  // Tomorrow while any window for tomorrow is still open (dinner closes 8pm Fiji); otherwise Today.
+  return dinnerCutoffInfo().open ? 'tomorrow' : 'today';
+}
+async function fetchMyOrdersSummary(){
+  const r = await api('getMyOrdersSummary', { requesterEmail: state.user && state.user.email });
+  if (!r || !r.success || !r.data) throw new Error((r && r.error) || 'Could not load your orders');
+  cacheSet('myOrders', r.data);
+  return r.data;
+}
+function renderMyOrders(){
+  if (!state.myOrdersDay) state.myOrdersDay = myOrdersDefaultDay();
+  const cached = cacheGet('myOrders');
+  const paintSkel = function(){
+    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" data-skeleton="1" id="myo-root">'+
+      '<div class="skel-card"><div class="skel-line" style="width:60%"></div></div>'+
+      [0,1,2,3].map(i=>'<div class="skel-card space-y-2"><div class="skel-line" style="width:'+(35+i*10)+'%"></div><div class="skel-line" style="width:80%"></div></div>').join('')+'</div>';
+  };
+  if (cached) paintMyOrders(cached, true); else paintSkel();
+  const token = (state._myoToken = (state._myoToken||0)+1);
+  fetchMyOrdersSummary().then(function(data){
+    if (state.tab !== 'myorders' || token !== state._myoToken) return;
+    paintMyOrders(data, false);
+  }).catch(function(e){
+    if (state.tab !== 'myorders' || token !== state._myoToken) return;
+    if (cached) { toast('Showing saved copy — '+(e.message||'refresh failed'),'error'); return; }
+    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3"><div class="glass rounded-xl p-4 border border-rose-500/30 space-y-2">'+
+      '<p class="text-sm text-rose-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Couldn\'t load your orders</p>'+
+      '<p class="text-[11px] text-slate-400">'+esc(e.message||'Network error')+'</p>'+
+      '<button type="button" id="myo-retry" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white min-h-[44px]">Retry</button></div></div>';
+    const rb = $('#myo-retry'); if (rb) rb.onclick = function(){ cacheInvalidate(['myOrders']); renderMyOrders(); };
+  });
+}
+function paintMyOrders(data, stale){
+  const dayKey = state.myOrdersDay || 'today';
+  const day = (data.days && data.days[dayKey]) || {};
+  const cut = data.cutoffs || {};
+  const isTom = dayKey === 'tomorrow';
+  const tabs = ['yesterday','today','tomorrow'].map(function(k){
+    const d = data.days && data.days[k];
+    const lbl = k.charAt(0).toUpperCase()+k.slice(1);
+    return '<button type="button" class="myo-tab flex-1 rounded-lg px-1 py-2 text-center border min-h-[44px] '+(k===dayKey?'bg-teal-600/30 border-teal-500/50 text-teal-100':'bg-slate-900/40 border-slate-700/60 text-slate-400')+'" data-day="'+k+'">'+
+      '<span class="block text-[12px] font-medium">'+lbl+'</span><span class="block text-[10px] opacity-80">'+esc(d?myOrdersDateLabel(d.date):'')+'</span></button>';
+  }).join('');
+  function action(meal, m){
+    if (!isTom) return '';
+    const c = cut[meal] || {};
+    const open = !!c.open, late = meal==='breakfast' ? !!c.lateOpen : (meal==='dinner' && !c.open);
+    let label = '';
+    if (m.ordered) {
+      if (open || (meal==='breakfast' && c.lateOpen) || (meal==='dinner' && (m.status==='pending' || m.status==='late_pending'))) label = 'Change / Cancel';
+    } else {
+      if (open) label = 'Order now';
+      else if (late) label = 'Late request';
+    }
+    if (!label) return '';
+    return '<button type="button" class="myo-go text-[11px] px-2.5 py-1.5 rounded-lg border '+(label==='Order now'?'border-teal-500/60 text-teal-200 bg-teal-600/20':'border-slate-600 text-slate-300')+' min-h-[36px] shrink-0" data-meal="'+meal+'">'+label+'</button>';
+  }
+  function row(meal, icon, title, m){
+    m = m || { status:'not_ordered' };
+    let sub = '';
+    if (meal==='dinner' && m.items && m.items.length && m.status!=='not_ordered') {
+      const muted = !m.ordered;
+      sub += m.items.map(function(it){ return '<p class="text-[11px] '+(muted?'text-slate-500 line-through':'text-slate-300')+'">'+esc(it.name)+(Number(it.qty)>1?' × '+Number(it.qty):'')+'</p>'; }).join('');
+    }
+    if ((meal==='breakfast' || meal==='lunch') && m.ordered) sub += '<p class="text-[10px] text-slate-500">Headcount: '+(m.qty||1)+(m.counted===false?' · not yet counted':'')+'</p>';
+    if (m.late) sub += '<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-200 text-[10px] font-medium px-2 py-0.5 mt-0.5"><i class="fa-solid fa-clock"></i> Late</span>';
+    if (m.notes && m.ordered) sub += '<p class="text-[10px] text-slate-500 truncate">'+esc(m.notes)+'</p>';
+    if (isTom && cut[meal]) sub += '<p class="text-[10px] '+(cut[meal].open?'text-teal-400/90':'text-slate-500')+'">'+esc(cut[meal].label||'')+'</p>';
+    return '<div class="glass rounded-xl p-3 flex items-start gap-3">'+
+      '<i class="fa-solid '+icon+' text-teal-400 w-5 mt-0.5"></i>'+
+      '<div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap"><p class="text-sm font-medium text-slate-100">'+title+'</p>'+myOrderChip(m)+'</div>'+sub+'</div>'+
+      action(meal, m)+'</div>';
+  }
+  const boats = day.boats || [];
+  const boatHtml = boats.length ? boats.map(function(b){
+    const st = String(b.status||'confirmed');
+    return '<div class="flex items-center justify-between gap-2 py-1.5 border-t border-slate-700/50 first:border-t-0">'+
+      '<div class="min-w-0"><p class="text-sm text-slate-100">'+esc(b.time)+' · '+esc(b.route)+'</p>'+
+      '<p class="text-[10px] text-slate-500">'+b.seats+' seat'+(b.seats===1?'':'s')+'</p></div>'+
+      myOrderChip({ status: st==='confirmed'?'confirmed':st })+'</div>';
+  }).join('') : '<p class="text-xs text-slate-500">No boat booking</p>';
+  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="myo-root">'+
+    '<div class="flex items-center justify-between"><p class="text-xs text-slate-400">'+esc(fullDisplayName())+' · Fiji service dates</p>'+
+    '<button type="button" id="myo-refresh" class="text-[11px] text-teal-400 min-h-[36px] px-2"><i class="fa-solid fa-rotate'+(stale?' fa-spin':'')+' mr-1"></i>Refresh</button></div>'+
+    '<div class="flex gap-1.5">'+tabs+'</div>'+
+    '<p class="text-[11px] text-slate-300 px-0.5"><strong>'+esc(myOrdersDateLabel(day.date))+'</strong>'+(day.readOnly?' <span class="text-slate-500">· read-only</span>':' <span class="text-teal-400/90">· you can still change open meals</span>')+'</p>'+
+    row('breakfast','fa-mug-saucer','Breakfast', day.breakfast)+
+    row('lunch','fa-sun','Lunch', day.lunch)+
+    row('dinner','fa-moon','Dinner', day.dinner)+
+    '<div class="glass rounded-xl p-3"><p class="text-xs font-semibold text-slate-200 mb-1"><i class="fa-solid fa-ship text-teal-400 mr-1"></i>Boat</p>'+boatHtml+
+    (isTom||dayKey==='today'?'<button type="button" id="myo-boat" class="mt-2 text-[11px] text-teal-400">Open Boat →</button>':'')+'</div>'+
+    '<p class="text-[10px] text-slate-500 text-center">Updated '+esc(data.fijiNow||'')+'</p></div>';
+  $$('.myo-tab').forEach(function(b){ b.onclick = function(){ state.myOrdersDay = b.dataset.day; paintMyOrders(data, false); }; });
+  $$('.myo-go').forEach(function(b){ b.onclick = function(){ navigate(b.dataset.meal); }; });
+  const bb = $('#myo-boat'); if (bb) bb.onclick = function(){ navigate('boat'); };
+  const rf = $('#myo-refresh'); if (rf) rf.onclick = function(){ cacheInvalidate(['myOrders']); renderMyOrders(); };
+}
+/** Home card next to "Do this now" — tomorrow at a glance, taps into My Orders. */
+function paintHomeMyOrdersCard(data){
+  const host = $('#home-myorders');
+  if (!host) return;
+  const t = data && data.days && data.days.tomorrow;
+  const mini = function(lbl, m){
+    const st = m ? String(m.effectiveStatus||m.status||'not_ordered') : null;
+    let cls = 'text-slate-500', icon = 'fa-minus';
+    if (st && st!=='not_ordered') {
+      if (['cancelled','rejected','declined'].includes(st)) { cls='text-rose-300'; icon='fa-xmark'; }
+      else if (['pending','late_pending'].includes(st)) { cls='text-orange-300'; icon='fa-hourglass-half'; }
+      else { cls='text-teal-300'; icon='fa-check'; }
+    }
+    return '<span class="'+cls+'"><i class="fa-solid '+icon+' mr-0.5"></i>'+lbl+'</span>';
+  };
+  host.innerHTML = '<button type="button" id="home-myorders-btn" class="ui-card glass w-full rounded-xl p-3 text-left border border-indigo-500/30 min-h-[56px]">'+
+    '<div class="flex items-center justify-between"><p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-list-check text-teal-400 mr-1"></i>My Orders</p>'+
+    '<span class="text-[10px] text-teal-400">Yesterday · Today · Tomorrow →</span></div>'+
+    (t ? '<p class="text-[11px] mt-1 flex flex-wrap gap-x-3 gap-y-0.5"><span class="text-slate-400">'+esc(myOrdersDateLabel(t.date))+':</span>'+mini('Breakfast',t.breakfast)+mini('Lunch',t.lunch)+mini('Dinner',t.dinner)+
+      '<span class="'+((t.boats||[]).some(b=>b.status!=='cancelled')?'text-teal-300':'text-slate-500')+'"><i class="fa-solid fa-ship mr-0.5"></i>'+(t.boats||[]).filter(b=>b.status!=='cancelled').length+'</span></p>'
+      : '<p class="text-[11px] mt-1 text-slate-500">See your breakfast, lunch, dinner & boat status</p>')+
+    '</button>';
+  const b = $('#home-myorders-btn'); if (b) b.onclick = function(){ navigate('myorders'); };
+}
+function loadHomeMyOrdersCard(){
+  const c = cacheGet('myOrders');
+  paintHomeMyOrdersCard(c);
+  if (c) return;
+  fetchMyOrdersSummary().then(function(d){ if (state.tab==='home') paintHomeMyOrdersCard(d); }).catch(function(){});
 }
 function maybeShowFirstLoginCoach(){
   try { if (localStorage.getItem(LS_COACH_DONE)==='1') return; } catch(e){ return; }
@@ -1970,6 +2191,12 @@ function demoApi(action, p) {
     case 'unlockSuperadminPin': {
       return Promise.resolve(ok({ unlocked:true, deprecated:true, message:'PIN flow removed' }));
     }
+    case 'getMyOrdersSummary': {
+      // C100: read-only, requester's own data only (no workflow processing)
+      const email = String((state.user && state.user.email) || p.requesterEmail || '').toLowerCase();
+      if (!email) return Promise.resolve(fail('requesterEmail required'));
+      return Promise.resolve(ok(buildMyOrdersSummary({ breakfast: db.breakfastOrders||[], lunch: db.lunchOrders||[], dinner: db.dinnerOrders||[], bookings: db.boatBookings||[], runs: db.boatRuns||[] }, email)));
+    }
     case 'getCutoffInfo':
       return Promise.resolve(ok({ fijiNow:formatFiji(), breakfast:breakfastCutoffInfo(), dinner:dinnerCutoffInfo(), lunch:lunchCutoffInfo() }));
     case 'deleteUser': {
@@ -2138,13 +2365,16 @@ function cacheInvalidate(keys){
   if (!keys || keys === '*') {
     Object.keys(dataCacheMem).forEach(function(k){ delete dataCacheMem[k]; });
   } else {
-    (Array.isArray(keys) ? keys : [keys]).forEach(function(k){ delete dataCacheMem[k]; });
+    const list = Array.isArray(keys) ? keys : [keys];
+    list.forEach(function(k){ delete dataCacheMem[k]; });
+    // C100: any meal/boat change makes My Orders stale
+    if (list.some(function(k){ return /Orders|boat|kitchen/i.test(String(k)); })) delete dataCacheMem['myOrders'];
   }
   persistDataCache();
 }
 function cacheInvalidateMealBoat(){
   Object.keys(dataCacheMem).forEach(function(k){
-    if (/^(cutoffs|boatRuns|breakfastOrders|lunchOrders|dinnerOrders|dinnerMenus|kitchenDashboard|reminders|suggestions|mySchedule)/.test(k))
+    if (/^(cutoffs|boatRuns|breakfastOrders|lunchOrders|dinnerOrders|dinnerMenus|kitchenDashboard|reminders|suggestions|mySchedule|myOrders)/.test(k))
       delete dataCacheMem[k];
   });
   persistDataCache();
@@ -2250,7 +2480,7 @@ function navigate(tab){
     tab = 'meals';
   }
   state.tab = tab;
-  const titles = { home:'Home', breakfast:'Breakfast', dinner:'Dinner', lunch:'Lunch', meals:'Meals', boat:'Boat Schedule', schedule:'My Schedule', more:'More', users:'Staff Directory', kitchen:'Kitchen', reminders:'Reminders', suggestions:'Suggestions', bookings:'My Bookings', admin:'Admin', profile:'My Profile' };
+  const titles = { home:'Home', breakfast:'Breakfast', dinner:'Dinner', lunch:'Lunch', meals:'Meals', boat:'Boat Schedule', schedule:'My Schedule', more:'More', users:'Staff Directory', kitchen:'Kitchen', reminders:'Reminders', suggestions:'Suggestions', bookings:'My Bookings', admin:'Admin', profile:'My Profile', myorders:'My Orders' };
   const ht = $('#header-title');
   if (ht) ht.textContent = titles[tab] || tab;
   const sticky = $('#app-sticky');
@@ -2258,7 +2488,8 @@ function navigate(tab){
   const map = {
     home: renderHome, dinner: renderDinner, lunch: renderLunch, breakfast: renderBreakfast, meals: renderMeals, boat: renderBoat, schedule: renderSchedule,
     more: renderMore, users: renderUsers, kitchen: renderKitchen, reminders: renderReminders,
-    suggestions: renderSuggestions, bookings: renderMyBookings, admin: renderAdmin, profile: renderMyProfile
+    suggestions: renderSuggestions, bookings: renderMyBookings, admin: renderAdmin, profile: renderMyProfile,
+    myorders: renderMyOrders
   };
   const skelTabs = { home:3, meals:3, breakfast:3, lunch:3, dinner:3, boat:3, schedule:3, kitchen:4 };
   if (skelTabs[tab]) paintSkeleton({ cards: skelTabs[tab] });
@@ -2296,6 +2527,7 @@ function renderHome(){
           '<p class="mt-0.5 text-[10px] text-teal-400/90"><i class="fa-regular fa-clock mr-1"></i>'+formatFiji()+'</p>'+
         '</div></div>'+
       '<div id="home-dothisnow" class="hidden"></div>'+
+      '<div id="home-myorders"></div>'+
       '<div class="grid grid-cols-3 gap-2">'+
         '<button type="button" onclick="navigate(\'breakfast\')" class="meal-card-btn ui-card glass rounded-xl p-2.5 text-left '+(bi.open||bi.lateOpen?'meal-open-glow border-teal-600/40':'')+'">'+
           '<p class="text-[9px] uppercase tracking-wide text-slate-400">Breakfast</p>'+
@@ -2339,6 +2571,7 @@ function renderHome(){
   }, 0);
   loadHomeRemindersAndSuggestions();
   paintDoThisNowStrip();
+  loadHomeMyOrdersCard();
   // refresh strip after meal caches warm
   setTimeout(paintDoThisNowStrip, 800);
   setTimeout(paintDoThisNowStrip, 2500);
@@ -2542,7 +2775,7 @@ async function renderDinner(){
       dinnerOpts = menuItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('');
     }
     if (!dinnerOpts) dinnerOpts = '<option value="Standard">Standard</option><option value="Vegetarian">Vegetarian</option><option value="No meal">No meal</option>';
-    const cur = myDinner[0];
+    const cur = pickActiveOrder(myDinner); // C100: prefer active row over an older cancelled one
     const lateChip = cur ? lateStateChip(cur.status) : '';
     const statusHtml = cur ? ('<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(cur.mealChoice)+'</strong> '+statusBadge(cur.status)+(cur.late?' <span class="text-amber-400">LATE</span>':'')+(lateChip?' '+lateChip:'')+'</p>') : '';
     const last = loadLastDinner();
@@ -2646,7 +2879,8 @@ function mealPillsHtml(active){
   return '<div class="flex gap-1.5 mb-3">'+pills.map(p =>
     '<button type="button" class="meal-pill flex-1 rounded-xl px-2 py-2 text-[11px] font-medium border '+(active===p.id?'bg-teal-600/30 border-teal-500/50 text-teal-200':'bg-slate-900/40 border-slate-700/60 text-slate-400')+'" data-pill="'+p.id+'">'+
     '<i class="fa-solid '+p.icon+' mr-1"></i>'+p.label+'</button>'
-  ).join('')+'</div>';
+  ).join('')+'</div>'+
+  '<div class="flex justify-end -mt-2 mb-2"><button type="button" onclick="navigate(\'myorders\')" class="text-[11px] text-teal-400 px-1 min-h-[32px]"><i class="fa-solid fa-list-check mr-1"></i>My Orders →</button></div>';
 }
 function bindMealPills(rootSel){
   $$((rootSel||'')+' .meal-pill').forEach(b => b.onclick = () => {
@@ -3662,6 +3896,7 @@ function renderMore(){
   const isHodOnly = canHod() && !isAdm;
   let html = '<div class="fade-in max-w-lg mx-auto space-y-2">'+
     (featureOn('feature_my_schedule') ? moreRow('schedule','fa-calendar','My schedule / leave') : '')+
+    moreRow('myorders','fa-list-check','My Orders (yesterday · today · tomorrow)')+
     moreRow('profile','fa-user','My profile / photo')+
     moreRow('reminders','fa-bell','Reminders (staff-wide)')+moreRow('suggestions','fa-lightbulb','Suggestion box')+
     moreRow('bookings','fa-ticket','My boat bookings');

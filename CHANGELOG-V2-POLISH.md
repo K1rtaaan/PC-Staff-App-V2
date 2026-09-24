@@ -298,3 +298,29 @@ curl -sS "<SCRIPT_URL>?action=getVersion"
 
 Or: `git checkout v2.9.0-pre-ux` then redeploy `public/` to gh-pages and clasp-push that tree’s `Code.gs`.
 
+
+## My Orders summary (2.9.3)
+
+| ID | Change |
+|----|--------|
+| C100 | **My Orders** — new read-only API action `getMyOrdersSummary` (requester's own email only; ignores other `userEmail`). One call returns Fiji **yesterday / today / tomorrow**: breakfast (status, late, headcount), lunch (status, headcount), dinner (status, late, items), boat bookings on each date (time, route, seats, status), plus tomorrow's cutoff state (B/L open until 1pm, late breakfast 1–6pm, dinner until 8pm). Reads each sheet once (Breakfast/Lunch/Dinner Orders, Boat Bookings, Boat Runs only if the user has bookings); **no** `processDinnerWorkflow` / `processBreakfastWorkflow`, no writes. Pending dinner shows the read-only projection of the 12/17/19 auto-approve waves (`effectiveStatus`). Demo `?demo=1` implements the same action (`buildMyOrdersSummary`). **UI**: Home "My Orders" card under *Do this now* (tomorrow at a glance), More → *My Orders*, and a *My Orders →* link under the Meals pills. Screen: Yesterday · Today · Tomorrow tabs with date labels (e.g. "Thu 24 Sep"); defaults to **Tomorrow** while dinner is still open (before 8pm Fiji), otherwise **Today**. Chips: Confirmed / Waiting chef / Cancelled / Rejected / Not ordered (+ Late). Tomorrow shows *Order now* / *Late request* / *Change / Cancel* → meal tab; yesterday/today read-only. Skeleton, error card with Retry, 2.5-min cache + soft refresh on revisit; meal/boat changes invalidate it. Also fixes Dinner tab showing an older *cancelled* row instead of the re-booked active one (`pickActiveOrder`). |
+| C101 | `APP_VERSION` → **2.9.3**; SW cache `pcr-staff-v2.9.3`; Code.gs 2.9.3. SCRIPT_URL / deployment unchanged. `feature_my_schedule` OFF. Dinner=tomorrow only; B/L next-day headcount 1pm; late breakfast 1–6pm Fiji. |
+
+### Rollback / restore (pre-My Orders 2.9.3)
+
+Rollback tag **`v2.9.2-pre-myorders`** (SHA `88f04404a25b50767a852b22683a53fa02751c99`, also branch `backup/2.9.2-pre-myorders`) = live 2.9.2.
+
+```bash
+cd /workspace/pcr-staff-app   # or clone PC-Staff-App-V2
+git fetch --tags
+# rebuild static host from the tag
+git checkout gh-pages && git checkout v2.9.2-pre-myorders -- public/ && \
+  rm -rf assets index.html manifest.json sw.js 2>/dev/null; cp -a public/. . && rm -rf public && \
+  git add -A && git commit -m "Restore public from v2.9.2-pre-myorders" && git push origin gh-pages
+git checkout main
+# Apps Script (same deployment id)
+git checkout v2.9.2-pre-myorders -- apps-script/Code.gs && cd apps-script && clasp push -f && \
+  clasp deploy --deploymentId AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8 -d "rollback 2.9.2"
+# verify → version 2.9.2
+curl -sSL "https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec?action=getVersion"
+```

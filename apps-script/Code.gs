@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.9.2';
+var APP_VERSION = '2.9.3';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -216,6 +216,7 @@ function routeAction(action, p) {
     case 'unlockSuperadminPin': return unlockSuperadminPin(p);
 
     case 'getCutoffInfo': return getCutoffInfo(p);
+    case 'getMyOrdersSummary': return getMyOrdersSummary(p);
     case 'initSheets':
       requirePasscode(p, 'admin');
       initializeSheets();
@@ -3011,6 +3012,140 @@ function cancelMealOrder(p) {
   }
   var o = updateRowById(sheet, existing[0].id, { status: 'cancelled' });
   return { success: !!o, data: { order: o, cutoff: info } };
+}
+
+/* ========== C100: MY ORDERS SUMMARY (read-only) ========== */
+
+/**
+ * getMyOrdersSummary — the requester's own B/L/D + boat bookings for Fiji
+ * yesterday / today / tomorrow in ONE call.
+ * Read-only: no processDinnerWorkflow / processBreakfastWorkflow, no writes.
+ * Each sheet is read once and filtered by email + the 3 service dates.
+ * Uses requesterEmail (the logged-in user) — ignores any other userEmail.
+ */
+function getMyOrdersSummary(p) {
+  var t0 = Date.now();
+  p = p || {};
+  var email = String(p.requesterEmail || p.email || p.userEmail || '').trim().toLowerCase();
+  if (!email) return { success: false, error: 'requesterEmail required' };
+
+  var now = getFijiNow();
+  var hour = now.getUTCHours();
+  var dates = {
+    yesterday: fijiDateString(addFijiDays(now, -1)),
+    today: fijiDateString(now),
+    tomorrow: fijiDateString(addFijiDays(now, 1))
+  };
+  var dateList = [dates.yesterday, dates.today, dates.tomorrow];
+  function keyOf(v) { return String(v || '').slice(0, 10); }
+  function inDates(v) { return dateList.indexOf(keyOf(v)) >= 0; }
+  function isMine(o) { return String(o.userEmail || '').trim().toLowerCase() === email; }
+  function isInactive(st) { st = String(st || ''); return st === 'cancelled' || st === 'rejected' || st === 'declined'; }
+
+  // Pick one row per date: latest active row, else latest (cancelled/rejected) row.
+  function pickByDate(rows) {
+    var out = {};
+    rows.forEach(function (o) {
+      var d = keyOf(o.serviceDate);
+      var cur = out[d];
+      if (!cur) { out[d] = o; return; }
+      var curActive = !isInactive(cur.status), oActive = !isInactive(o.status);
+      if (oActive && !curActive) out[d] = o;
+      else if (oActive === curActive && (o._row || 0) > (cur._row || 0)) out[d] = o;
+    });
+    return out;
+  }
+  function readMine(sheet) {
+    return sheetToObjects(sheet).filter(function (o) { return isMine(o) && inDates(o.serviceDate); });
+  }
+
+  var bRows = pickByDate(readMine('Breakfast Orders'));
+  var lRows = pickByDate(readMine('Lunch Orders'));
+  var dRows = pickByDate(readMine('Dinner Orders'));
+
+  // Boat: bookings for this user, then runs only if needed.
+  var myBookings = sheetToObjects('Boat Bookings').filter(isMine);
+  var runMap = {};
+  if (myBookings.length) {
+    var wantRuns = {};
+    myBookings.forEach(function (b) { wantRuns[String(b.runId)] = true; });
+    sheetToObjects('Boat Runs').forEach(function (r) {
+      if (wantRuns[String(r.id)] && inDates(r.date)) runMap[String(r.id)] = r;
+    });
+  }
+
+  // Read-only projection of the dinner auto-approve waves (12/17/19 Fiji)
+  function dinnerEffectiveStatus(o, serviceDate) {
+    var st = String(o.status || '');
+    if (st !== 'pending' || truthy(o.late)) return st;
+    var h = serviceDate <= dates.today ? 24 : hour; // ordering day already over
+    var threshold = h >= 19 ? 19 : (h >= 17 ? 17 : (h >= 12 ? 12 : 0));
+    return parseFijiHourFromCreatedAt(o.createdAt) < threshold ? 'approved' : st;
+  }
+  function mealOut(o, meal, serviceDate) {
+    if (!o) return { ordered: false, status: 'not_ordered', late: false };
+    var st = String(o.status || '');
+    var eff = meal === 'dinner' ? dinnerEffectiveStatus(o, serviceDate) : st;
+    var out = {
+      ordered: !isInactive(st),
+      id: o.id,
+      status: st,
+      effectiveStatus: eff,
+      late: truthy(o.late),
+      notes: o.notes || '',
+      createdAt: o.createdAt || ''
+    };
+    if (meal === 'breakfast' || meal === 'lunch') {
+      out.qty = out.ordered ? 1 : 0;
+      out.counted = (meal === 'breakfast') ? countsInBreakfastTotal(o) : countedMealStatus(st);
+    }
+    if (meal === 'dinner') {
+      out.items = o.mealChoice ? [{ name: String(o.mealChoice), qty: 1 }] : [];
+    }
+    return out;
+  }
+
+  var bi = breakfastCutoffInfo(now), li = lunchCutoffInfo(now), di = dinnerCutoffInfo(now);
+  var days = {};
+  ['yesterday', 'today', 'tomorrow'].forEach(function (k) {
+    var d = dates[k];
+    var boats = myBookings.filter(function (b) { return runMap[String(b.runId)] && keyOf(runMap[String(b.runId)].date) === d; })
+      .map(function (b) {
+        var r = runMap[String(b.runId)];
+        return {
+          id: b.id, runId: b.runId, date: keyOf(r.date), time: String(r.time || ''), route: r.route || '',
+          seats: Number(b.seats || 1), status: String(b.status || 'confirmed'), notes: b.notes || ''
+        };
+      })
+      .sort(function (a, b) { return String(a.time).localeCompare(String(b.time)); });
+    days[k] = {
+      key: k,
+      date: d,
+      weekday: WEEKDAY_NAMES[new Date(d + 'T12:00:00Z').getUTCDay()],
+      readOnly: k !== 'tomorrow',
+      breakfast: mealOut(bRows[d], 'breakfast', d),
+      lunch: mealOut(lRows[d], 'lunch', d),
+      dinner: mealOut(dRows[d], 'dinner', d),
+      boats: boats
+    };
+  });
+
+  return {
+    success: true,
+    data: {
+      email: email,
+      fijiNow: formatFiji(now),
+      dates: dates,
+      days: days,
+      cutoffs: {
+        serviceDate: dates.tomorrow,
+        breakfast: { open: bi.open, lateOpen: bi.lateOpen, fullyClosed: bi.fullyClosed, label: bi.open ? 'Open until 1:00pm today' : (bi.lateOpen ? 'Late request until 6:00pm (needs chef OK)' : 'Closed after 6:00pm') },
+        lunch: { open: li.open, label: li.open ? 'Open until 1:00pm today' : 'Closed at 1:00pm' },
+        dinner: { open: di.open, label: di.open ? 'Open until 8:00pm today' : 'Closed at 8:00pm — late requests need chef OK' }
+      },
+      ms: Date.now() - t0
+    }
+  };
 }
 
 function findOrder(sheet, id) {
