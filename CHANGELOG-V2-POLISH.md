@@ -410,3 +410,35 @@ Rollback: tag `v2.10.0-pre-redesign` / branch `backup/2.10.0-pre-redesign` (SHA 
 | R13 | Backend: new sheets/columns via initSheets/assertSheetsReady; server-side role/ownership checks on every new action; counts exclude pending late/special; `getUsers` no longer public |
 | R14 | Demo mode runs the real `V3.gs` in the browser (`assets/v3-demo-server.js`, built by `npm run build`); demo seed `v3seed-1` covers every role incl. a pending-join staff member |
 | R15 | Boot: duplicate getV3Home / getSuperDashboard reads on app open merged into one |
+
+### 3.0 review pass (R16–R40) — still branch `redesign-3.0`, not deployed
+
+| ID | Change / fix |
+|----|--------------|
+| R16 | **One admin password `2026`.** `SUPER_PASS`/`ADMIN_PASS` (2025/2026) removed from `Code.gs`, `index.html` and the demo; `ADMIN_PASSWORD` + `isAdminPassword()` on the server only. The phone never holds the password (demo mode checks a SHA-256 hash). |
+| R17 | `requirePasscode` rewritten: must be signed in; `'admin'` level = role (admin/chef/HOD/asst HOD); `'super'` level = superadmin role **and** the password. A password alone never grants anything (the "passcode only" back door is gone). |
+| R18 | Password prompt (`#pass-overlay`) for sensitive actions: grant/remove admin or superadmin, delete user, apply role migration, archive rows (real move), feature flags, alert emails, email sender. Remembered for 10 min, forgotten on sign-out or when the server says it is wrong. Dry-run archive and migration preview need no password. |
+| R19 | **Session tokens.** `login` returns an HMAC-signed token (key = Script Property `PCR_SESSION_SECRET` + the user's password, 60-day expiry). `handleRequest` → `bindRequestIdentity` replaces the client's `requesterEmail` with the token's email on every call; only login/register/verify/reset/version/health/cutoff work without a token. Changing or resetting a password signs that user out everywhere; own password change returns a fresh token. Emergency switch: App Setting `auth_legacy_email=true`. |
+| R20 | Plain staff can no longer act for another `userEmail` (orders, boat bookings, leave, profile) — forced to their own account on the server. |
+| R21 | Phones signed in with 2.x (no token) are sent to the login screen once with "Please sign in again — the app was updated." An expired token does the same (`sessionExpired`). |
+| R22 | **Codes by email only.** `register`, `requestVerification`, `requestPasswordReset` never return the code; `verification_delivery` is forced to `email`; the on-screen code overlay and the "Show on screen" setting are removed. `verifyEmail` only accepts verify-purpose codes. |
+| R23 | Mail sender: `sendAppMail` sends from the script owner (MailApp) or, when App Setting `mail_from` is set, from that Gmail "send as" alias via GmailApp (falls back to the owner); `mail_sender_name` sets the display name. Both editable in Manage → App settings (superadmin + password). |
+| R24 | Code throttling: 1 code per email per minute, 5 per hour; 5 wrong codes lock that email for 30 min. |
+| R25 | **Seat limits**: admin 5, superadmin 3, boat manager 2, chef 3 (`V3_SEAT_LIMITS`). Active accounts only; an HOD/chef who is also boat manager uses a boat seat. Enforced in `setUserAccess`, `addUser`, `updateUser`, `approveUser` with a clear message ("Chef seats are full (3 of 3 used: …). Remove the chef role from someone first."). |
+| R26 | Users & roles shows "x of N used" cards (full = amber, over = red); role dropdown shows "(x of N)" and disables full roles; new `getSeatUsage` action; `getUsers` returns `seats` for admins. |
+| R27 | "Also boat manager" checkbox for HOD / chef (secondary `boat_manager` permission) — keeps rights for people who run a department and the boat. Labels read "HOD · Boat manager", list chip "+ Boat". Boat tools appear in More for secondary boat managers. |
+| R28 | **Migration keeps everyone's rights**: HOD + captain → HOD + boat manager; assistant HOD + captain → boat manager + assistant HOD flag; the preview lists anyone who would lose a right, and Apply is refused if anyone would, or if a seat limit would be exceeded. Apply needs admin + password. |
+| R29 | Migration preview now shows seats after migration, "Check before applying" warnings (HOD / assistant HOD in department "Other", chef outside a kitchen department, inactive role holders) and a per-user change list (name, department, from → to). Same warnings appear on the user cards. |
+| R30 | SheetJS 0.20.3, pdf.js 3.11.174 (+ worker) and html2pdf 0.14.0 self-hosted in `assets/vendor/` (lazy-loaded, same origin, cached by the service worker after first use) — no third-party CDN at runtime. |
+| R31 | `setAppSetting` whitelists keys (`feature_*`, `mail_from`, `mail_sender_name`, …) and validates `mail_from`; needs superadmin + password. |
+| R32 | `ensureSuperAdmin` no longer rewrites the main superadmin's password on every call (only repairs role/active/verified). |
+| R33 | `deleteUser` needs the admin password; admin can delete staff-level users, only superadmin can delete admins; nobody can delete themselves. `importUsersCSV` admin only; HOD approvals limited to their own department. |
+| R34 | Dead 2.x code removed: superadmin PIN (`unlockSuperadminPin`, `requireSuperadminPinIfSet`), 2.x `requestLeave`/`reviewLeave` handlers (routed to the 3.0 two-step leave), unused permission helpers; frontend 2.x Home/Meals/More/Users screens, user editor, add/import/pending modals and ~20 unused helpers (index.html about 1,000 lines shorter). The 2.x "Leave inbox" opens the 3.0 Approvals inbox. |
+| R35 | Fixed: toggling a feature flag from Manage → App settings jumped to the classic admin screen (now stays on Settings). |
+| R36 | Fixed: the classic admin "Leave inbox" used the 2.x modal with no HOD → management step; now the Approvals inbox. Labels: "Staff Directory / permissions" → "Users & roles", super hint text updated, "Codes: sent by email". |
+| R37 | `getRequester` only reads the (token-bound) `requesterEmail`; no `p.email` fallback. |
+| R38 | Demo: codes go to a demo outbox (`db.demoMail`) instead of the screen; demo seed `v3seed-2` adds an HOD + captain, an assistant HOD + captain in "Other", and an HOD in "Other" (upgrade from `v3seed-1` is incremental). Demo mode uses the same V3.gs seat / migration / password rules. |
+| R39 | Tests moved into the repo: `tools/tests/` (backend unit tests with Apps Script stubs, flows, smoke, regression, offline, SW update, archive, 3.0 review screenshots). See `tools/tests/README.md`. |
+| R40 | Version 3.0.0 everywhere (`APP_VERSION` in Code.gs + index.html, `sw.js` VERSION/cache `pcr-staff-v3.0.0`, header comment). |
+
+**Deploy notes (when 3.0 is approved — not done on this branch):** everyone signs in once after the update (tokens). `PCR_SESSION_SECRET` is created automatically on first login. `mail_from` needs a Gmail "Send mail as" alias on the script owner's account plus the `https://mail.google.com/` scope in `appsscript.json` and re-authorisation; blank = script owner (works today). Run the migration preview first, fix the "Other" departments, then Apply with the admin password.

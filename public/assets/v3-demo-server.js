@@ -44,6 +44,7 @@ var uid = S.uid;
 var updateRowById = S.updateRowById;
 var userPermissions = S.userPermissions;
 var withIdempotency = S.withIdempotency;
+var isAdminPassword = S.isAdminPassword;
 var Utilities = S.Utilities;
 var MailApp = S.MailApp;
 var LockService = S.LockService;
@@ -61,6 +62,12 @@ var CacheService = S.CacheService;
  */
 
 var V3_ROLES = ['super_admin', 'admin', 'hod', 'chef', 'boat_manager', 'staff'];
+/** Seat limits per role (ACTIVE users). boat_manager counts primary holders AND HOD / chef accounts that also hold boat_manager. */
+var V3_SEAT_LIMITS = { super_admin: 3, admin: 5, boat_manager: 2, chef: 3 };
+var V3_SEAT_LABEL = { super_admin: 'Superadmin', admin: 'Admin', boat_manager: 'Boat manager', chef: 'Chef' };
+/** Roles that may also hold boat_manager as a second permission (keeps rights of e.g. an HOD who runs the boats). */
+var V3_BOAT_SECONDARY_ROLES = { hod: 1, chef: 1 };
+var V3_KITCHEN_DEPTS = ['kitchen', 'br kitchen', 'donu kitchen'];
 var V3_ORDER_COLS = ['orderType', 'reason', 'requestedBy', 'guestName', 'guestCompany', 'decidedBy', 'decidedAt', 'cancelReason', 'cancelledAt'];
 /** Lazy: Apps Script may load V3.gs before Code.gs, so never read another file's globals at load time. */
 function v3OrderHeaders() { return ORDER_HEADERS.concat(V3_ORDER_COLS); }
@@ -125,10 +132,61 @@ function v3Role(u) {
   if (p.indexOf('boat_manager') >= 0 || p.indexOf('boat_captain') >= 0) return 'boat_manager';
   return 'staff';
 }
-function v3PermsForRole(role) {
+function v3PermsForRole(role, alsoBoat) {
   if (role === 'super_admin') return 'super_admin,admin';
   if (V3_ROLES.indexOf(role) < 0) return 'staff';
-  return role;
+  return role + (alsoBoat && V3_BOAT_SECONDARY_ROLES[role] ? ',boat_manager' : '');
+}
+function v3HasBoatPerm(u) { var p = userPermissions(u); return p.indexOf('boat_manager') >= 0 || p.indexOf('boat_captain') >= 0; }
+/** HOD / chef who also holds boat_manager (a primary boat manager returns false). */
+function v3BoatSecondary(u) { return !!u && !!V3_BOAT_SECONDARY_ROLES[v3Role(u)] && v3HasBoatPerm(u); }
+function v3IsActiveUser(u) { return !!u && (truthy(u.active) || String(u.email).toLowerCase() === SUPERADMIN_EMAIL); }
+/** Seats a user occupies (only active users use seats). */
+function v3SeatsOf(u) {
+  if (!v3IsActiveUser(u)) return [];
+  var r = v3Role(u), out = [];
+  if (r === 'super_admin' || r === 'admin' || r === 'chef') out.push(r);
+  if (r !== 'super_admin' && r !== 'admin' && v3HasBoatPerm(u)) out.push('boat_manager');
+  return out;
+}
+function v3SeatUsage(users) {
+  users = users || sheetToObjects('Users');
+  var out = {};
+  Object.keys(V3_SEAT_LIMITS).forEach(function (k) { out[k] = { role: k, label: V3_SEAT_LABEL[k], limit: V3_SEAT_LIMITS[k], used: 0, free: 0, users: [] }; });
+  users.forEach(function (u) {
+    v3SeatsOf(u).forEach(function (k) {
+      out[k].used++;
+      out[k].users.push({ email: String(u.email || '').toLowerCase(), name: v3Name(u), department: u.department || '', role: v3Role(u), secondary: k === 'boat_manager' && v3Role(u) !== 'boat_manager' });
+    });
+  });
+  Object.keys(out).forEach(function (k) { out[k].free = Math.max(0, out[k].limit - out[k].used); out[k].over = Math.max(0, out[k].used - out[k].limit); });
+  return out;
+}
+/** '' when `after` fits, else a clear error. Only seats the user does NOT already hold are checked. */
+function v3SeatCheck(before, after, users) {
+  users = users || sheetToObjects('Users');
+  var id = before ? String(before.id) : '';
+  var others = users.filter(function (u) { return !id || String(u.id) !== id; });
+  var had = before ? v3SeatsOf(before) : [];
+  var usage = v3SeatUsage(others);
+  var need = v3SeatsOf(after).filter(function (k) { return had.indexOf(k) < 0; });
+  for (var i = 0; i < need.length; i++) {
+    var k = need[i], s = usage[k];
+    if (s.used + 1 > s.limit) {
+      return s.label + ' seats are full (' + s.used + ' of ' + s.limit + ' used: ' + s.users.map(function (x) { return x.name; }).join(', ') +
+        '). Remove the ' + s.label.toLowerCase() + ' role from someone first.';
+    }
+  }
+  return '';
+}
+function v3IsVagueDept(d) { var n = normDept(d); return !n || n === 'other' || n === 'others' || n === 'n/a' || n === '-'; }
+function v3IsKitchenDept(d) { return V3_KITCHEN_DEPTS.indexOf(normDept(d)) >= 0; }
+/** Things an admin should look at for one user (department "Other", chef outside the kitchen, ...). */
+function v3UserWarnings(u) {
+  var w = [], r = v3Role(u);
+  if ((r === 'hod' || isAsstHod(u)) && v3IsVagueDept(u.department)) w.push((r === 'hod' ? 'HOD' : 'Assistant HOD') + ' in department "' + (u.department || 'blank') + '" — set the real department so leave / join requests reach them');
+  if (r === 'chef' && !v3IsKitchenDept(u.department)) w.push('Chef in ' + (u.department || 'no department') + ' (not a kitchen department) — check this is right');
+  return w;
 }
 function isAsstHod(u) {
   if (!u) return false;
@@ -210,6 +268,7 @@ function routeV3(action, p) {
     updateDeptStaff: updateDeptStaff,
     removeFromDept: removeFromDept,
     setUserAccess: setUserAccess,
+    getSeatUsage: getSeatUsage,
     migrateRoles: migrateRoles,
     submitLeave: function (q) { return withIdempotency('submitLeave', q, submitLeave); },
     decideLeave: decideLeave,
@@ -247,6 +306,9 @@ function routeV3(action, p) {
 /* ========== DEPARTMENTS ========== */
 function v3UserOut(u) {
   var pu = publicUser(u);
+  pu.boatManager = v3HasBoatPerm(u) || v3Role(u) === 'boat_manager';
+  pu.boatSecondary = v3BoatSecondary(u);
+  pu.warnings = v3UserWarnings(u);
   pu.deptStatus = deptStatusOf(u);
   pu.deptDecidedBy = u.deptDecidedBy || '';
   pu.deptDecidedAt = u.deptDecidedAt || '';
@@ -311,66 +373,124 @@ function removeFromDept(p) {
   v3Notify(t.email, 'Removed from ' + t.department, 'You were removed from the department by ' + v3Name(r) + '. Contact admin if this is wrong.', 'dept_join', t.id);
   return { success: true, data: { removed: t.email } };
 }
-/** Admin / superadmin: role, department, assistant-HOD flag, active, department status. */
+/** Admin / superadmin: role (+ optional boat_manager for HOD / chef), department, assistant-HOD flag, active, department status.
+ *  Seat limits are enforced here. Granting or removing admin / superadmin needs a superadmin + the admin password. */
 function setUserAccess(p) {
   var r = v3Requester(p);
   if (!isAdminPerm(r)) return { success: false, error: 'Only admin or superadmin can change roles and departments' };
   var t = findUserByEmail(p.targetEmail);
   if (!t) return { success: false, error: 'User not found' };
+  var isMain = String(t.email).toLowerCase() === SUPERADMIN_EMAIL;
   var patch = {};
   var oldRole = v3Role(t);
+  var role = oldRole;
   if (p.role !== undefined && p.role !== '') {
-    var role = String(p.role);
+    role = String(p.role);
+    if (role === 'boat_captain') role = 'boat_manager';
     if (V3_ROLES.indexOf(role) < 0) return { success: false, error: 'Unknown role: ' + role };
-    var touchesTop = role === 'super_admin' || oldRole === 'super_admin' || ((role === 'admin' || oldRole === 'admin') && role !== oldRole);
-    if (touchesTop && !isSuperPerm(r)) return { success: false, error: 'Only superadmin can grant or remove admin / superadmin' };
-    if (String(t.email).toLowerCase() === SUPERADMIN_EMAIL && role !== 'super_admin') return { success: false, error: 'The main superadmin account keeps its role' };
-    patch.role = role;
-    patch.permissions = v3PermsForRole(role);
   }
+  var touchesTop = role !== oldRole && (role === 'super_admin' || oldRole === 'super_admin' || role === 'admin' || oldRole === 'admin');
+  if (touchesTop) {
+    if (!isSuperPerm(r)) return { success: false, error: 'Only superadmin can grant or remove admin / superadmin' };
+    if (!isAdminPassword(p.passcode)) return { success: false, error: 'Admin password required (wrong or missing)', needsPassword: true };
+  }
+  if (isMain && role !== 'super_admin') return { success: false, error: 'The main superadmin account keeps its role' };
+  if (isSuperPerm(t) && !isSuperPerm(r)) return { success: false, error: 'Only superadmin can change a superadmin account' };
+  var alsoBoat = p.boatManager !== undefined ? (truthy(p.boatManager) || p.boatManager === 'on') : v3HasBoatPerm(t);
+  var newPerms = v3PermsForRole(role, alsoBoat);
+  var curPerms = userPermissions(t).filter(function (x) { return x !== 'staff' || role === 'staff'; }).join(',');
+  if (role !== oldRole || String(t.role || '') !== role || curPerms !== newPerms) { patch.role = role; patch.permissions = newPerms; }
   if (p.department !== undefined && String(p.department) !== String(t.department)) {
     patch.department = v3Clean(p.department, 60);
     patch.deptStatus = 'approved'; patch.deptDecidedBy = r.email; patch.deptDecidedAt = nowIso();
   }
-  if (p.assistantHod !== undefined) patch.assistantHod = truthy(p.assistantHod) || p.assistantHod === 'on';
-  if (p.deptStatus !== undefined && ['approved', 'pending', 'declined', 'removed'].indexOf(String(p.deptStatus)) >= 0) {
+  if (p.assistantHod !== undefined) {
+    var asst = truthy(p.assistantHod) || p.assistantHod === 'on';
+    if (asst && (role === 'hod' || role === 'admin' || role === 'super_admin')) asst = false; // already has department rights
+    if (asst !== truthy(t.assistantHod) || userPermissions(t).indexOf('assistant_hod') >= 0) patch.assistantHod = asst;
+  }
+  if (p.deptStatus !== undefined && ['approved', 'pending', 'declined', 'removed'].indexOf(String(p.deptStatus)) >= 0 && String(p.deptStatus) !== deptStatusOf(t)) {
     patch.deptStatus = String(p.deptStatus); patch.deptDecidedBy = r.email; patch.deptDecidedAt = nowIso();
   }
-  if (p.active !== undefined) {
-    if (String(t.email).toLowerCase() === SUPERADMIN_EMAIL) return { success: false, error: 'Cannot deactivate the main superadmin' };
+  if (p.active !== undefined && truthy(p.active) !== truthy(t.active)) {
+    if (isMain) return { success: false, error: 'Cannot deactivate the main superadmin' };
     patch.active = truthy(p.active);
   }
-  if (!Object.keys(patch).length) return { success: false, error: 'Nothing to change' };
+  if (!Object.keys(patch).length) return { success: true, data: { user: v3UserOut(t), unchanged: true, seats: v3SeatUsage() } };
+  var users = sheetToObjects('Users');
+  var seatErr = v3SeatCheck(t, Object.assign({}, t, patch), users);
+  if (seatErr) return { success: false, error: seatErr, seatFull: true };
   updateRowById('Users', t.id, patch);
-  return { success: true, data: { user: v3UserOut(findUserByEmail(t.email)) } };
+  var after = findUserByEmail(t.email);
+  return { success: true, data: { user: v3UserOut(after), seats: v3SeatUsage(), warnings: v3UserWarnings(after) } };
 }
-/** 3.0 role migration. dryRun (default) only reports; apply=1 writes. Admin/superadmin only. */
+/** Admin: seats used per limited role. */
+function getSeatUsage(p) {
+  var r = v3Requester(p);
+  if (!isAdminPerm(r)) return { success: false, error: 'Admin or superadmin required' };
+  return { success: true, data: { seats: v3SeatUsage() } };
+}
+/** 3.0 role migration target for one user. Keeps every right the user had:
+ *  - HOD / chef who is also boat manager / captain → keeps boat_manager as a second permission (counts as a boat seat)
+ *  - assistant HOD with any role below HOD (staff, boat manager, chef) → keeps the assistant HOD flag
+ *  - captain → boat manager, kitchen → chef, basic → staff. */
 function v3MigrateTarget(u) {
   var raw = String(u.permissions || u.role || '').toLowerCase();
-  var perms = userPermissions(u);
   var role = v3Role(u);
-  var asst = isAsstHod(u) && role === 'staff';
-  return { role: role, assistantHod: asst || truthy(u.assistantHod), from: raw || 'staff' };
+  var alsoBoat = !!V3_BOAT_SECONDARY_ROLES[role] && v3HasBoatPerm(u);
+  var asst = isAsstHod(u) && role !== 'hod' && role !== 'admin' && role !== 'super_admin';
+  return { role: role, alsoBoat: alsoBoat, perms: v3PermsForRole(role, alsoBoat), assistantHod: asst, from: raw || 'staff' };
 }
+/** What someone can do (for the "nobody loses rights" check). */
+function v3Caps(u) {
+  var p = userPermissions(u), c = {};
+  var adm = p.indexOf('admin') >= 0 || p.indexOf('super_admin') >= 0;
+  if (p.indexOf('super_admin') >= 0) c.superadmin = 1;
+  if (adm) c.admin = 1;
+  if (adm || p.indexOf('hod') >= 0 || p.indexOf('assistant_hod') >= 0 || truthy(u.assistantHod)) c.department_lead = 1;
+  if (adm || p.indexOf('chef') >= 0 || p.indexOf('kitchen') >= 0) c.chef = 1;
+  if (adm || p.indexOf('boat_manager') >= 0 || p.indexOf('boat_captain') >= 0 || p.indexOf('boat') >= 0) c.boat_manager = 1;
+  return c;
+}
+/** dryRun (default) only reports; apply=1 writes and needs admin + the admin password, and is refused while any seat limit would be exceeded. */
 function migrateRoles(p) {
   var r = v3Requester(p);
   if (!isAdminPerm(r)) return { success: false, error: 'Admin or superadmin required' };
   var apply = truthy(p.apply) || p.dryRun === 'false' || p.dryRun === false;
+  if (apply && !isAdminPassword(p.passcode)) return { success: false, error: 'Admin password required (wrong or missing)', needsPassword: true };
   var users = sheetToObjects('Users');
-  var counts = {}, changes = [], byTarget = {};
+  var counts = {}, changes = [], byTarget = {}, warnings = [], lost = [], projected = [];
   users.forEach(function (u) {
     var t = v3MigrateTarget(u);
-    var key = t.from + ' → ' + t.role + (t.assistantHod ? ' + assistant HOD flag' : '');
+    var key = t.from + ' → ' + t.role + (t.alsoBoat ? ' + boat manager' : '') + (t.assistantHod ? ' + assistant HOD flag' : '');
     counts[key] = (counts[key] || 0) + 1;
     byTarget[t.role] = (byTarget[t.role] || 0) + 1;
-    var newPerms = v3PermsForRole(t.role);
-    var needs = String(u.role || '') !== t.role || String(u.permissions || '') !== newPerms || (t.assistantHod && !truthy(u.assistantHod));
-    if (needs) changes.push({ email: u.email, from: t.from, to: t.role, assistantHod: t.assistantHod });
-    if (apply && needs) updateRowById('Users', u.id, { role: t.role, permissions: newPerms, assistantHod: t.assistantHod });
+    var after = Object.assign({}, u, { role: t.role, permissions: t.perms, assistantHod: t.assistantHod });
+    projected.push(after);
+    var needs = String(u.role || '') !== t.role || String(u.permissions || '') !== t.perms || t.assistantHod !== truthy(u.assistantHod);
+    var who = { email: String(u.email || '').toLowerCase(), name: v3Name(u), department: u.department || '', active: v3IsActiveUser(u) };
+    if (needs) changes.push(Object.assign({ from: t.from, to: t.role, alsoBoat: t.alsoBoat, assistantHod: t.assistantHod }, who));
+    var bc = v3Caps(u), ac = v3Caps(after);
+    var gone = Object.keys(bc).filter(function (k) { return !ac[k]; });
+    if (gone.length) lost.push(Object.assign({ lost: gone }, who));
+    v3UserWarnings(after).forEach(function (text) { warnings.push(Object.assign({ kind: 'check', text: text }, who)); });
+    if (!v3IsActiveUser(u) && t.role !== 'staff') warnings.push(Object.assign({ kind: 'inactive', text: 'Inactive ' + t.role.replace('_', ' ') + ' — does not use a seat until re-activated' }, who));
   });
-  var asstCount = users.filter(function (u) { return v3MigrateTarget(u).assistantHod; }).length;
+  var seats = v3SeatUsage(projected);
+  var seatProblems = Object.keys(seats).filter(function (k) { return seats[k].over > 0; }).map(function (k) {
+    return seats[k].label + ': ' + seats[k].used + ' of ' + seats[k].limit + ' after migration — remove ' + seats[k].over + ' before applying';
+  });
+  if (apply && seatProblems.length) return { success: false, error: 'Migration not applied — seat limits: ' + seatProblems.join('; '), seatFull: true };
+  if (apply && lost.length) return { success: false, error: 'Migration not applied — ' + lost.length + ' user(s) would lose rights' };
+  if (apply) users.forEach(function (u, i) {
+    var a = projected[i];
+    if (String(u.role || '') !== a.role || String(u.permissions || '') !== a.permissions || truthy(a.assistantHod) !== truthy(u.assistantHod)) {
+      updateRowById('Users', u.id, { role: a.role, permissions: a.permissions, assistantHod: a.assistantHod });
+    }
+  });
+  var asstCount = projected.filter(function (u) { return truthy(u.assistantHod); }).length;
   return { success: true, data: { applied: apply, totalUsers: users.length, mapping: counts, byRole: byTarget, assistantHodFlags: asstCount,
-    changes: apply ? changes.length : changes.slice(0, 200), changeCount: changes.length } };
+    changes: changes.slice(0, 300), changeCount: changes.length, warnings: warnings, lostRights: lost, seats: seats, seatProblems: seatProblems } };
 }
 
 /* ========== LEAVE (two step: department → management) ========== */
@@ -965,8 +1085,9 @@ function v3SuperDash() {
     boat: boat.slice(0, 8),
     users: { total: users.length, active: users.filter(function (x) { return truthy(x.active); }).length,
       newThisWeek: users.filter(function (x) { return v3Date(x.createdAt) >= weekAgo; }).length, byRole: roleCounts },
-    health: { version: APP_VERSION, fijiNow: nowIso(), sheetId: SHEET_ID, verificationDelivery: getSetting('verification_delivery', 'screen') },
-    weekly: chef.weekly
+    health: { version: APP_VERSION, fijiNow: nowIso(), sheetId: SHEET_ID, verificationDelivery: 'email', mailFrom: getSetting('mail_from', '') || 'script owner' },
+    weekly: chef.weekly,
+    seats: v3SeatUsage(users)
   };
 }
 function updateReminder(p) {
@@ -987,7 +1108,7 @@ function getV3Home(u) {
   var me = String(u.email).toLowerCase();
   var role = v3Role(u);
   var out = { role: role, assistantHod: isAsstHod(u), deptStatus: deptStatusOf(u), deptApproved: deptApproved(u), department: u.department || '',
-    verificationDelivery: getSetting('verification_delivery', 'screen') };
+    verificationDelivery: 'email' };
   var today = v3Today(), yest = fijiDateString(addFijiDays(getFijiNow(), -1)), tom = v3Tomorrow();
   var myMeals = [], cancels = {};
   Object.keys(V3_MEAL_SHEETS).forEach(function (meal) {
@@ -1022,5 +1143,5 @@ function getV3Home(u) {
   return out;
 }
 
-return { routeV3: routeV3, getV3Home: getV3Home, v3Role: v3Role, isAsstHod: isAsstHod, deptStatusOf: deptStatusOf, deptApproved: deptApproved, v3MigrateTarget: v3MigrateTarget, v3Notify: v3Notify, deptLeads: deptLeads, canActForDept: canActForDept };
+return { routeV3: routeV3, getV3Home: getV3Home, v3Role: v3Role, isAsstHod: isAsstHod, deptStatusOf: deptStatusOf, deptApproved: deptApproved, v3MigrateTarget: v3MigrateTarget, v3Notify: v3Notify, deptLeads: deptLeads, canActForDept: canActForDept, v3SeatUsage: v3SeatUsage, v3SeatCheck: v3SeatCheck, v3UserOut: v3UserOut, v3UserWarnings: v3UserWarnings, V3_SEAT_LIMITS: V3_SEAT_LIMITS };
 };

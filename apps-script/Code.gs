@@ -21,8 +21,12 @@
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
 var APP_VERSION = '3.0.0';
-var SUPER_PASS = '2026';
-var ADMIN_PASS = '2025';
+// 3.0: ONE admin password. Checked on the server only (never shipped to the phone). Used as a second factor for
+// sensitive actions (settings, delete user, grant/remove admin or superadmin, role migration, archive, alert emails).
+// A password alone never grants anything: the caller must also be signed in with the right role (session token).
+var ADMIN_PASSWORD = '2026';
+// 3.0 role seat limits: V3_SEAT_LIMITS in V3.gs (super_admin 3, admin 5, boat_manager 2, chef 3).
+var SESSION_TTL_DAYS = 60;
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
 var SUPERADMIN_PASSWORD = '21slands';
 var FIJI_OFFSET_MS = 12 * 60 * 60 * 1000; // UTC+12 (no DST for business rules)
@@ -114,6 +118,9 @@ function handleRequest(e, method) {
     if (action !== 'initSheets') {
       assertSheetsReady();
     }
+    // 3.0: who is calling comes from the signed session token, never from a client-supplied email
+    var auth = bindRequestIdentity(action, payload);
+    if (auth && auth.error) return jsonOut({ success: false, error: auth.error, authRequired: true });
     var result = routeAction(action, payload);
     return jsonOut(result);
   } catch (err) {
@@ -213,7 +220,6 @@ function routeAction(action, p) {
     case 'setAppSetting': return setAppSetting(p);
     case 'getLiveRoster': return getLiveRoster(p);
     case 'getDepartmentRoster': return getDepartmentRoster(p);
-    case 'unlockSuperadminPin': return unlockSuperadminPin(p);
 
     case 'getCutoffInfo': return getCutoffInfo(p);
     case 'getMyOrdersSummary': return getMyOrdersSummary(p);
@@ -735,27 +741,6 @@ function userPermissions(u) {
   return parsePermissions(u.permissions, u.role);
 }
 
-function userHasPermission(u, key) {
-  var perms = userPermissions(u);
-  if (perms.indexOf('super_admin') >= 0) return true; // super has all
-  return perms.indexOf(key) >= 0;
-}
-
-function userHasAnyPermission(u, keys) {
-  for (var i = 0; i < keys.length; i++) {
-    if (userHasPermission(u, keys[i]) || (keys[i] !== 'super_admin' && userPermissions(u).indexOf(keys[i]) >= 0)) {
-      // careful: userHasPermission already treats super as all
-    }
-  }
-  var perms = userPermissions(u);
-  if (perms.indexOf('super_admin') >= 0) return true;
-  for (var j = 0; j < keys.length; j++) {
-    if (perms.indexOf(keys[j]) >= 0) return true;
-  }
-  // legacy role fallback already in parsePermissions
-  return false;
-}
-
 function isSuperPerm(u) {
   return userPermissions(u).indexOf('super_admin') >= 0;
 }
@@ -885,7 +870,10 @@ function getAppSettings(p) {
   Object.keys(FEATURE_DEFAULTS).forEach(function (k) {
     if (settings[k] === undefined) settings[k] = FEATURE_DEFAULTS[k];
   });
-  if (settings.verification_delivery === undefined) settings.verification_delivery = 'screen'; // 3.0 (screen | email)
+  // 3.0: codes are always emailed (the on-screen path was removed so codes cannot leak). Key kept for the UI / future senders.
+  settings.verification_delivery = 'email';
+  if (settings.mail_from === undefined) settings.mail_from = '';            // blank = script owner's account
+  if (settings.mail_sender_name === undefined) settings.mail_sender_name = 'PCR Staff App';
   return { success: true, data: { settings: settings, features: {
     feature_live_roster: isFeatureEnabled('feature_live_roster'),
     feature_leave_escalation: isFeatureEnabled('feature_leave_escalation'),
@@ -893,45 +881,25 @@ function getAppSettings(p) {
   } } };
 }
 
+var SETTABLE_KEYS = { verification_delivery: 1, mail_from: 1, mail_sender_name: 1 };
 function setAppSetting(p) {
-  // Only superadmin + passcode 2026
-  requirePasscode(p, 'super');
+  // Superadmin (signed in) + admin password 2026
+  try { requirePasscode(p, 'super'); } catch (e) { return { success: false, error: e.message }; }
   var requester = getRequester(p);
-  if (requester && !isSuperPerm(requester) && String(requester.email).toLowerCase() !== SUPERADMIN_EMAIL) {
-    // allow bootstrap super email even before permissions migrated
-    if (String(requester.role) !== 'super_admin') {
-      return { success: false, error: 'Only superadmin can change app settings / feature flags' };
-    }
-  }
   var key = String(p.key || '').trim();
   if (!key) return { success: false, error: 'key required' };
-  // Admin (2025) cannot — already blocked by requirePasscode super
   if (key.indexOf('feature_') === 0) {
     var val = String(p.value === true || p.value === 'true' || p.value === 1 || p.value === '1' ? 'true' : 'false');
-    setSetting(key, val, p.requesterEmail || '');
+    setSetting(key, val, requester.email);
     return getAppSettings(p);
   }
-  if (key === 'superadmin_pin') {
-    return { success: false, error: 'Use unlockSuperadminPin to set PIN' };
-  }
-  setSetting(key, p.value, p.requesterEmail || '');
+  if (!SETTABLE_KEYS[key]) return { success: false, error: 'Unknown setting: ' + key };
+  var value = String(p.value == null ? '' : p.value).trim();
+  if (key === 'verification_delivery') value = 'email'; // on-screen codes were removed in 3.0
+  if (key === 'mail_from' && value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return { success: false, error: 'Sender must be an email address (or blank for the script owner)' };
+  if (key === 'mail_sender_name') value = value.substring(0, 60);
+  setSetting(key, value, requester.email);
   return getAppSettings(p);
-}
-
-/** C66: Superadmin first-access PIN removed — always unlocked via role */
-function unlockSuperadminPin(p) {
-  var requester = getRequester(p);
-  if (!requester || !isSuperPerm(requester)) {
-    try { requirePasscode(p, 'super'); } catch (e) {
-      return { success: false, error: 'Superadmin permission required' };
-    }
-  }
-  return { success: true, data: { unlocked: true, deprecated: true, message: 'PIN flow removed — role gates access' } };
-}
-
-function requireSuperadminPinIfSet(p) {
-  // C66: no-op — PIN gate removed
-  return;
 }
 
 /* ========== SUPERADMIN / ALERTS ========== */
@@ -956,19 +924,12 @@ function ensureSuperAdmin() {
       verified: true
     }, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified']);
   } else {
+    // 3.0: only repair what is actually wrong (no write on every login, and never reset a changed password)
     var perms = parsePermissions(u.permissions, u.role);
-    if (perms.indexOf('super_admin') < 0) perms.unshift('super_admin');
-    if (perms.indexOf('admin') < 0) perms.push('admin');
-    updateRowById('Users', u.id, {
-      role: 'super_admin',
-      permissions: permissionsToString(perms),
-      active: true,
-      verified: true,
-      password: SUPERADMIN_PASSWORD,
-      firstName: u.firstName || 'IT',
-      lastName: u.lastName || 'Admin',
-      department: u.department || 'IT'
-    });
+    var okPerms = perms.indexOf('super_admin') >= 0 && perms.indexOf('admin') >= 0;
+    if (!okPerms || String(u.role) !== 'super_admin' || !truthy(u.active) || !truthy(u.verified)) {
+      updateRowById('Users', u.id, { role: 'super_admin', permissions: 'super_admin,admin', active: true, verified: true });
+    }
   }
 }
 
@@ -1226,9 +1187,85 @@ function login(p) {
     success: true,
     data: {
       user: publicUser(u),
-      token: Utilities.base64EncodeWebSafe(email + '|' + u.id + '|' + Date.now())
+      token: issueSessionToken(u)
     }
   };
+}
+
+/* ========== 3.0 SESSION TOKENS ==========
+ * token = base64url(email | issuedAtMs | hmac). The HMAC key is a random secret kept in Script Properties plus the
+ * user's current password, so changing / resetting a password signs that user out everywhere. Nothing is stored per
+ * session in the Sheet. Tokens expire after SESSION_TTL_DAYS. */
+function sessionSecret() {
+  var props = PropertiesService.getScriptProperties();
+  var s = props.getProperty('PCR_SESSION_SECRET');
+  if (!s) {
+    s = Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('PCR_SESSION_SECRET', s);
+  }
+  return s;
+}
+function sessionSig(email, iat, password) {
+  var raw = Utilities.computeHmacSha256Signature(String(email) + '|' + String(iat), sessionSecret() + '|' + String(password || ''));
+  return Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '');
+}
+function issueSessionToken(u) {
+  var email = String(u.email).toLowerCase();
+  var iat = Date.now();
+  return Utilities.base64EncodeWebSafe(email + '|' + iat + '|' + sessionSig(email, iat, u.password)).replace(/=+$/, '');
+}
+/** Returns the Users row for a valid token, else null. */
+function verifySessionToken(token) {
+  token = String(token || '').trim();
+  if (!token || token === 'demo') return null;
+  var txt;
+  try {
+    var pad = token + '===='.substring(0, (4 - token.length % 4) % 4);
+    txt = Utilities.newBlob(Utilities.base64DecodeWebSafe(pad)).getDataAsString();
+  } catch (e) { return null; }
+  var parts = txt.split('|');
+  if (parts.length !== 3) return null;
+  var email = parts[0], iat = Number(parts[1]);
+  if (!email || !iat || Date.now() - iat > SESSION_TTL_DAYS * 86400000 || iat > Date.now() + 300000) return null;
+  var u = findUserByEmail(email);
+  if (!u) return null;
+  if (sessionSig(email, iat, u.password) !== parts[2]) return null;
+  if (!truthy(u.active) && String(email) !== SUPERADMIN_EMAIL) return null;
+  return u;
+}
+var SELF_WRITE_ACTIONS = { placeDinnerOrder: 1, placeLunchOrder: 1, placeBreakfastOrder: 1, cancelMealOrder: 1, bookBoat: 1, cancelBoatBooking: 1,
+  requestEmergencyTravel: 1, addSuggestion: 1, voteSuggestion: 1, requestLeave: 1, submitLeave: 1, requestLateMeal: 1, deactivateAccount: 1 };
+/** Actions that work without signing in. Everything else needs a valid session token. */
+var PUBLIC_ACTIONS = { login: 1, register: 1, verifyEmail: 1, requestVerification: 1, requestPasswordReset: 1, resetPassword: 1,
+  getVersion: 1, health: 1, getCutoffInfo: 1 };
+/**
+ * Binds the caller's identity for this request. requesterEmail is ALWAYS replaced by the token's email (or removed),
+ * so no action can trust a client-supplied email. Plain staff also cannot act for another userEmail.
+ * App Setting auth_legacy_email = true is an emergency switch that accepts old (pre-3.0) clients without a token.
+ */
+function bindRequestIdentity(action, p) {
+  var claimed = String(p.requesterEmail || '').trim().toLowerCase();
+  var u = verifySessionToken(p.sessionToken || p.token);
+  delete p.requesterEmail;
+  delete p.sessionToken;
+  delete p.token;
+  if (!u && claimed && !PUBLIC_ACTIONS[action] && String(getSetting('auth_legacy_email', 'false')).toLowerCase() === 'true') {
+    u = findUserByEmail(claimed);
+  }
+  if (!u) {
+    if (PUBLIC_ACTIONS[action]) { delete p.userEmail; return null; }
+    return { error: 'Please sign in again (session expired or missing).' };
+  }
+  var me = String(u.email).toLowerCase();
+  p.requesterEmail = me;
+  var privileged = isAdminPerm(u) || isHodPerm(u) || isChefPerm(u) || isBoatCaptainPerm(u) || isAsstHod(u);
+  // own-account writes: only an admin may act for someone else (chef / HOD use placeMealOnBehalf / placeSpecialMeal)
+  if (SELF_WRITE_ACTIONS[action] && !isAdminPerm(u) && p.userEmail && String(p.userEmail).trim().toLowerCase() !== me) p.userEmail = me;
+  if (!privileged) {
+    if (p.userEmail && String(p.userEmail).trim().toLowerCase() !== me) p.userEmail = me;
+    if (p.targetEmail && String(p.targetEmail).trim().toLowerCase() !== me && /^(updateUser|updateProfile|deactivateAccount)$/.test(action)) p.targetEmail = me;
+  }
+  return { user: u };
 }
 
 
@@ -1276,18 +1313,16 @@ function register(p) {
     });
   } catch (eN) {}
 
-  var vr = requestVerification({ email: email });
-  var emailed = vr && vr.data && vr.data.emailed;
-  var out = {
+  var vr = requestVerification({ email: email, _skipThrottle: true });
+  var emailed = !!(vr && vr.success && vr.data && vr.data.emailed);
+  return { success: true, data: {
     needsVerification: true,
     email: email,
-    message: emailed ? 'Check your email for a verification code' : 'Your verification code is shown on screen',
-    emailed: !!emailed,
-    delivery: vr && vr.data ? vr.data.delivery : 'email',
+    message: emailed ? 'Check your email (' + email + ') for a 6-digit verification code' : 'Account created, but the code email could not be sent — tap "Resend code" or ask an admin',
+    emailed: emailed,
+    delivery: 'email',
     deptPending: true
-  };
-  if (vr && vr.data && vr.data.code) out.code = vr.data.code;
-  return { success: true, data: out };
+  } };
 }
 
 function normalizeStaffLocation(v) {
@@ -1299,9 +1334,56 @@ function normalizeStaffLocation(v) {
   return String(v);
 }
 
-/** 3.0: where verification / reset codes go. App Settings key verification_delivery = screen | email. */
-function verificationDelivery() {
-  return String(getSetting('verification_delivery', 'screen')).toLowerCase() === 'email' ? 'email' : 'screen';
+/** 3.0: verification / reset codes are ALWAYS emailed (never returned to the phone). */
+function verificationDelivery() { return 'email'; }
+
+/**
+ * Sends an app email from the script owner's account (MailApp), or — when App Setting mail_from is set — from that
+ * Gmail alias via GmailApp (the alias must be set up in the owner's Gmail "Send mail as", and appsscript.json needs the
+ * https://mail.google.com/ scope; if that fails we fall back to the owner's account). Returns { sent, error, via }.
+ */
+function sendAppMail(to, subject, body) {
+  var name = String(getSetting('mail_sender_name', 'PCR Staff App') || 'PCR Staff App');
+  var from = String(getSetting('mail_from', '') || '').trim();
+  var err = '';
+  if (from) {
+    try {
+      GmailApp.sendEmail(to, subject, body, { from: from, name: name });
+      return { sent: true, via: from };
+    } catch (eG) { err = 'mail_from ' + from + ' failed (' + String(eG.message || eG) + '); sent from the script owner instead'; }
+  }
+  try {
+    MailApp.sendEmail({ to: to, subject: subject, body: body, name: name });
+    return { sent: true, via: 'owner', warning: err || undefined };
+  } catch (eM) {
+    return { sent: false, error: String(eM.message || eM) };
+  }
+}
+/** At most 1 code per email per minute and 5 per hour (protects the daily MailApp quota and staff inboxes). */
+function codeThrottle(email, purpose) {
+  try {
+    var c = CacheService.getScriptCache();
+    var k1 = 'pcr_code1_' + purpose + '_' + email, kh = 'pcr_codeh_' + purpose + '_' + email;
+    if (c.get(k1)) return 'Please wait a minute before asking for another code.';
+    var n = Number(c.get(kh) || 0);
+    if (n >= 5) return 'Too many codes requested — try again in an hour or ask an admin.';
+    c.put(k1, '1', 60);
+    c.put(kh, String(n + 1), 3600);
+  } catch (e) {}
+  return '';
+}
+function issueEmailCode(email, purpose) {
+  var code = String(Math.floor(100000 + Math.random() * 900000));
+  var expires = new Date(Date.now() + 30 * 60 * 1000);
+  appendRow('Verification Codes', { email: email, code: code, expiresAt: expires.toISOString(), used: false, purpose: purpose },
+    ['email', 'code', 'expiresAt', 'used', 'purpose']);
+  var subject = purpose === 'reset' ? 'PCR Staff App — Password Reset Code' : 'PCR Staff App — Verification Code';
+  var body = 'Bula,\n\nYour Paradise Cove Resort staff ' + (purpose === 'reset' ? 'password reset' : 'verification') + ' code is: ' + code +
+    '\n\nIt is valid for 30 minutes. If you did not ask for this code, you can ignore this email.\n\n— PCR Staff App';
+  var m = sendAppMail(email, subject, body);
+  if (!m.sent) return { success: false, error: 'Could not send the code email. Try again later or ask an admin to help.', mailError: m.error };
+  return { success: true, data: { emailed: true, delivery: 'email', expiresInMin: 30, sentTo: email,
+    message: (purpose === 'reset' ? 'Reset code' : 'Verification code') + ' sent to ' + email + ' — check your inbox (and spam folder)' } };
 }
 
 function requestVerification(p) {
@@ -1309,44 +1391,9 @@ function requestVerification(p) {
   if (!email) return { success: false, error: 'Email required' };
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User not found' };
-
-  var code = String(Math.floor(100000 + Math.random() * 900000));
-  var expires = new Date(Date.now() + 30 * 60 * 1000);
-  appendRow('Verification Codes', {
-    email: email,
-    code: code,
-    expiresAt: expires.toISOString(),
-    used: false,
-    purpose: 'verify'
-  }, ['email', 'code', 'expiresAt', 'used', 'purpose']);
-  var delivery = verificationDelivery(); // 3.0: 'screen' (default) shows the code in the app; 'email' mails it
-
-  var mailed = false;
-  var mailError = '';
-  if (delivery === 'screen') {
-    return { success: true, data: { emailed: false, delivery: 'screen', code: code, expiresInMin: 30, message: 'Code shown on screen' } };
-  }
-  try {
-    MailApp.sendEmail({
-      to: email,
-      subject: 'PCR Staff App — Verification Code',
-      body: 'Your Paradise Cove Resort staff verification code is: ' + code + '\n\nValid for 30 minutes.\n\n— PCR Staff App'
-    });
-    mailed = true;
-  } catch (err) {
-    mailError = String(err.message || err);
-  }
-  return {
-    success: true,
-    data: {
-      emailed: mailed,
-      mailError: mailError || undefined,
-      // code only returned when mail failed (test/dev) — still have API
-      code: mailed ? undefined : code,
-      delivery: mailed ? 'email' : 'screen',
-      message: mailed ? 'Verification code sent' : 'Mail failed; code returned for testing'
-    }
-  };
+  if (truthy(u.verified)) return { success: true, data: { emailed: false, alreadyVerified: true, message: 'This email is already verified — sign in' } };
+  if (!p._skipThrottle) { var t = codeThrottle(email, 'verify'); if (t) return { success: false, error: t }; }
+  return issueEmailCode(email, 'verify');
 }
 
 function verifyEmail(p) {
@@ -1354,23 +1401,14 @@ function verifyEmail(p) {
   var code = String(p.code || '').trim();
   if (!email || !code) return { success: false, error: 'Email and code required' };
 
-  var rows = sheetToObjects('Verification Codes');
-  var match = null;
-  for (var i = rows.length - 1; i >= 0; i--) {
-    if (String(rows[i].email).toLowerCase() === email && String(rows[i].code) === code && !truthy(rows[i].used)) {
-      match = rows[i];
-      break;
-    }
-  }
-  if (!match) return { success: false, error: 'Invalid or expired code' };
+  // 3.0: only a 'verify' code can verify an account (a password-reset code cannot)
+  if (codeAttemptBlocked(email, 'verify', false)) return { success: false, error: 'Too many wrong codes — ask for a new code in 30 minutes' };
+  var match = findUnusedCode(email, code, 'verify');
+  if (!match) { codeAttemptBlocked(email, 'verify', true); return { success: false, error: 'Invalid or expired code' }; }
   if (match.expiresAt && new Date(match.expiresAt).getTime() < Date.now()) {
     return { success: false, error: 'Code expired' };
   }
-
-  var sh = getSS().getSheetByName('Verification Codes');
-  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
-  var usedCol = headers.indexOf('used');
-  if (usedCol >= 0) sh.getRange(match._row, usedCol + 1).setValue('TRUE');
+  markCodeUsed(match);
 
   var u = findUserByEmail(email);
   if (u) updateRowById('Users', u.id, { verified: true, active: true });
@@ -1378,6 +1416,15 @@ function verifyEmail(p) {
   return { success: true, data: { verified: true, user: publicUser(findUserByEmail(email)) } };
 }
 
+/** 3.0: max 5 wrong codes per email per 30 min (a 6-digit code could otherwise be guessed). */
+function codeAttemptBlocked(email, purpose, wrong) {
+  try {
+    var c = CacheService.getScriptCache(), k = 'pcr_codebad_' + purpose + '_' + email;
+    var n = Number(c.get(k) || 0);
+    if (wrong) { n++; c.put(k, String(n), 1800); }
+    return n >= 5;
+  } catch (e) { return false; }
+}
 function findUnusedCode(email, code, purpose) {
   var rows = sheetToObjects('Verification Codes');
   var match = null;
@@ -1410,41 +1457,8 @@ function requestPasswordReset(p) {
   if (!truthy(u.active) && !truthy(u.verified)) {
     return { success: false, error: 'Account not active. Verify email or contact admin.' };
   }
-  var code = String(Math.floor(100000 + Math.random() * 900000));
-  var expires = new Date(Date.now() + 30 * 60 * 1000);
-  appendRow('Verification Codes', {
-    email: email,
-    code: code,
-    expiresAt: expires.toISOString(),
-    used: false,
-    purpose: 'reset'
-  }, ['email', 'code', 'expiresAt', 'used', 'purpose']);
-  var delivery = verificationDelivery(); // 3.0: 'screen' (default) shows the code in the app; 'email' mails it
-  var mailed = false;
-  var mailError = '';
-  if (delivery === 'screen') {
-    return { success: true, data: { emailed: false, delivery: 'screen', code: code, expiresInMin: 30, message: 'Code shown on screen' } };
-  }
-  try {
-    MailApp.sendEmail({
-      to: email,
-      subject: 'PCR Staff App — Password Reset Code',
-      body: 'Your Paradise Cove Resort password reset code is: ' + code + '\n\nValid for 30 minutes.\n\n— PCR Staff App'
-    });
-    mailed = true;
-  } catch (err) {
-    mailError = String(err.message || err);
-  }
-  return {
-    success: true,
-    data: {
-      emailed: mailed,
-      mailError: mailError || undefined,
-      code: mailed ? undefined : code,
-      delivery: mailed ? 'email' : 'screen',
-      message: mailed ? 'Reset code sent' : 'Mail failed; code returned for testing'
-    }
-  };
+  var t = codeThrottle(email, 'reset'); if (t) return { success: false, error: t };
+  return issueEmailCode(email, 'reset');
 }
 
 function resetPassword(p) {
@@ -1455,13 +1469,14 @@ function resetPassword(p) {
   if (newPassword.length < 4) return { success: false, error: 'Password too short' };
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'No account found for that email' };
+  if (codeAttemptBlocked(email, 'reset', false)) return { success: false, error: 'Too many wrong codes — ask for a new code in 30 minutes' };
   var match = findUnusedCode(email, code, 'reset');
-  if (!match) return { success: false, error: 'Invalid or expired code' };
+  if (!match) { codeAttemptBlocked(email, 'reset', true); return { success: false, error: 'Invalid or expired code' }; }
   if (match.expiresAt && new Date(match.expiresAt).getTime() < Date.now()) {
     return { success: false, error: 'Code expired' };
   }
   markCodeUsed(match);
-  updateRowById('Users', u.id, { password: newPassword });
+  updateRowById('Users', u.id, { password: newPassword }); // also signs out old sessions (token HMAC uses the password)
   return { success: true, data: { message: 'Password updated — sign in with your new password', email: email } };
 }
 
@@ -1480,38 +1495,29 @@ function deactivateAccount(p) {
   return { success: true, data: { deactivated: email, active: false } };
 }
 
+/** true when `code` is the admin password (server-side check only). */
+function isAdminPassword(code) { return String(code == null ? '' : code) === ADMIN_PASSWORD; }
 /**
- * C66: Role permissions gate admin actions (no 2025/2026 unlock UI).
- * Passcodes still accepted if sent (legacy), but not required when requester has role.
- * level: 'admin' (default) or 'super'
- * Returns 'super' | 'admin'
+ * 3.0 gate for admin actions. The caller must be signed in (session token, bound in handleRequest).
+ *  level 'admin' (default): admin / superadmin / chef / HOD / assistant HOD role. No password needed.
+ *  level 'super': superadmin role AND the admin password (2026) in p.passcode.
+ * The password alone never grants access (the old 2025 / 2026 "passcode only" back door is gone).
+ * Returns 'super' | 'admin', throws otherwise.
  */
 function requirePasscode(p, level) {
   level = level || 'admin';
   var requester = getRequester(p);
-  if (requester) {
-    if (level === 'super') {
-      if (isSuperPerm(requester)) return 'super';
-    } else {
-      if (isAdminPerm(requester) || isChefPerm(requester) || isHodPerm(requester) || isSuperPerm(requester)) {
-        return isSuperPerm(requester) ? 'super' : 'admin';
-      }
-    }
-  }
-  // Legacy optional passcodes (not shown in UI)
-  var code = String(p.passcode || '');
-  var isSuper = code === SUPER_PASS;
-  var isAdmin = code === ADMIN_PASS;
+  if (!requester) throw new Error('Please sign in again');
   if (level === 'super') {
-    if (!isSuper) throw new Error('Superadmin permission required');
+    if (!isSuperPerm(requester)) throw new Error('Superadmin permission required');
+    if (!isAdminPassword(p.passcode)) throw new Error('Admin password required (wrong or missing)');
     return 'super';
   }
-  if (!isSuper && !isAdmin) {
-    throw new Error('Admin / chef / HOD permission required');
+  if (isAdminPerm(requester) || isChefPerm(requester) || isHodPerm(requester) || isAsstHod(requester)) {
+    return isSuperPerm(requester) ? 'super' : 'admin';
   }
-  return isSuper ? 'super' : 'admin';
+  throw new Error('Admin / chef / HOD permission required');
 }
-
 function canManageUsers(requester) {
   if (!requester) return false;
   return isAdminPerm(requester) || isHodPerm(requester);
@@ -1519,10 +1525,6 @@ function canManageUsers(requester) {
 
 function canAssignPermissions(requester) {
   return requester && isAdminPerm(requester);
-}
-
-function isPrivilegedRole(role) {
-  return role === 'super_admin' || role === 'admin' || role === 'hod' || role === 'assistant_hod' || role === 'kitchen' || role === 'chef';
 }
 
 function requireKitchenOrAdmin(p) {
@@ -1534,15 +1536,10 @@ function requireKitchenOrAdmin(p) {
   }
 }
 
-function canAccessAdminTab(u) {
-  if (!u) return false;
-  var p = userPermissions(u);
-  return p.indexOf('super_admin') >= 0 || p.indexOf('admin') >= 0 ||
-    p.indexOf('boat_manager') >= 0 || p.indexOf('chef') >= 0;
-}
-
+/** The signed-in caller. p.requesterEmail is set ONLY by bindRequestIdentity() from the session token
+ *  (or by server code calling a helper for a user it already verified). p.email is never used as identity. */
 function getRequester(p) {
-  var email = String(p.requesterEmail || p.email || '').trim().toLowerCase();
+  var email = String((p && p.requesterEmail) || '').trim().toLowerCase();
   if (!email) return null;
   return findUserByEmail(email);
 }
@@ -1557,7 +1554,7 @@ function getUsers(p) {
     return { success: false, error: 'Admin or department HOD required' };
   }
   if (!isAdminPerm(requester)) p.department = requester.department;
-  var users = sheetToObjects('Users').map(function (u) { var o = publicUser(u); o.createdAt = u.createdAt || ''; return o; });
+  var users = sheetToObjects('Users').map(function (u) { var o = v3UserOut(u); return o; });
   // HOD: limit to their department for edit context (still return all active for directory unless filtered)
   var filterDept = p.department || '';
   var filterRole = p.role || '';
@@ -1580,6 +1577,7 @@ function getUsers(p) {
     data: {
       users: list,
       total: list.length,
+      seats: isAdminPerm(requester) ? v3SeatUsage() : undefined, // 3.0: "x of N used" in Users & roles
       fijiNow: formatFiji(getFijiNow()),
       version: APP_VERSION
     }
@@ -1588,16 +1586,7 @@ function getUsers(p) {
 
 function addUser(p) {
   var requester = getRequester(p);
-  if (!canManageUsers(requester) && String(p.passcode || '') !== SUPER_PASS && String(p.passcode || '') !== ADMIN_PASS) {
-    // allow self-register style add with passcode OR admin
-  }
-  if (requester && (requester.role === 'admin' || requester.role === 'super_admin' || requester.role === 'hod')) {
-    requirePasscode(p);
-  } else if (!requester) {
-    requirePasscode(p);
-  } else {
-    requirePasscode(p);
-  }
+  if (!canManageUsers(requester)) return { success: false, error: 'Admin or department HOD required' };
 
   var email = String(p.email || '').trim().toLowerCase();
   if (!email || !p.password) return { success: false, error: 'Email and password required' };
@@ -1618,16 +1607,13 @@ function addUser(p) {
   if (role === 'assistant_hod') role = 'staff';
   if (role === 'boat_captain' || role === 'boat') role = 'boat_manager';
   if (role === 'kitchen') role = 'chef';
-  var perms = p.permissions ? parsePermissions(p.permissions, role) : parsePermissions(v3PermsForRole(role), role);
-  if (requester && !isSuperPerm(requester) && perms.indexOf('super_admin') >= 0) {
-    return { success: false, error: 'Only super_admin can create super_admin' };
+  if (V3_ROLES.indexOf(role) < 0) role = 'staff';
+  // Only admin/super can assign non-staff roles; admin / superadmin accounts need a superadmin + the admin password
+  if (!isAdminPerm(requester)) role = 'staff';
+  if ((role === 'admin' || role === 'super_admin') && !(isSuperPerm(requester) && isAdminPassword(p.passcode))) {
+    return { success: false, error: 'Only a superadmin with the admin password can create admin / superadmin accounts' };
   }
-  // Only admin/super can assign non-staff permissions
-  if (requester && !isAdminPerm(requester)) {
-    perms = ['staff'];
-    role = 'staff';
-  }
-  role = primaryRoleFromPermissions(perms);
+  var perms = parsePermissions(v3PermsForRole(role, truthy(p.boatManager)), role);
 
   var active = p.active === true || p.active === 'true' || p.active === 'TRUE';
   var verified = true;
@@ -1655,6 +1641,8 @@ function addUser(p) {
     deptStatus: 'approved', // added by admin / HOD = already in the department
     assistantHod: !!(addAsst && requester && isAdminPerm(requester))
   };
+  var seatErr = v3SeatCheck(null, row);
+  if (seatErr) return { success: false, error: seatErr, seatFull: true };
   appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified', 'deptStatus', 'assistantHod']);
   return { success: true, data: { user: publicUser(row) } };
 }
@@ -1673,7 +1661,6 @@ function updateUser(p) {
   }
 
   if (adminUpdate && !selfUpdate) {
-    requirePasscode(p);
     if (isHodPerm(requester) && !isAdminPerm(requester)) {
       if (String(u.department) !== String(requester.department)) {
         return { success: false, error: 'HOD can only edit users in their department' };
@@ -1722,8 +1709,9 @@ function updateUser(p) {
       if ((grantingSuper || revokingSuper) && !isSuperPerm(requester)) {
         return { success: false, error: 'Only superadmin can grant/revoke super_admin' };
       }
-      if (grantingSuper || revokingSuper || newPerms.indexOf('admin') >= 0) {
-        requirePasscode(p, 'super');
+      var adminChange = (newPerms.indexOf('admin') >= 0) !== (oldPerms.indexOf('admin') >= 0);
+      if (grantingSuper || revokingSuper || adminChange) {
+        try { requirePasscode(p, 'super'); } catch (eS) { return { success: false, error: eS.message }; }
       }
       patch.permissions = permissionsToString(newPerms);
       patch.role = primaryRoleFromPermissions(newPerms);
@@ -1734,8 +1722,8 @@ function updateUser(p) {
       if (!isSuperPerm(requester) && p.role === 'super_admin') {
         return { success: false, error: 'Only super_admin can assign super_admin' };
       }
-      if (['super_admin', 'admin', 'hod'].indexOf(String(p.role)) >= 0 && String(u.role) !== String(p.role)) {
-        requirePasscode(p, 'super');
+      if (['super_admin', 'admin'].indexOf(String(p.role)) >= 0 && String(u.role) !== String(p.role)) {
+        try { requirePasscode(p, 'super'); } catch (eS2) { return { success: false, error: eS2.message }; }
       }
       patch.role = p.role;
       // keep permissions in sync with primary role when only role sent
@@ -1753,16 +1741,21 @@ function updateUser(p) {
     patch.password = p.password;
   }
 
-  var updated = updateRowById('Users', u.id, patch);
-  return { success: true, data: { user: publicUser(findUserByEmail(targetEmail)) } };
+  if (patch.permissions !== undefined || patch.active !== undefined) {
+    var seatErr = v3SeatCheck(u, Object.assign({}, u, patch));
+    if (seatErr) return { success: false, error: seatErr, seatFull: true };
+  }
+  updateRowById('Users', u.id, patch);
+  var fresh = findUserByEmail(targetEmail);
+  var out = { user: publicUser(fresh) };
+  // changing your own password signs out other devices; this device gets a fresh session
+  if (selfUpdate && patch.password) out.token = issueSessionToken(fresh);
+  return { success: true, data: out };
 }
 
 function importUsersCSV(p) {
-  requirePasscode(p);
   var requester = getRequester(p);
-  if (requester && !canManageUsers(requester) && requester.role !== 'super_admin') {
-    // passcode alone ok for bootstrap
-  }
+  if (!requester || !isAdminPerm(requester)) return { success: false, error: 'Admin or superadmin required' };
   var csv = String(p.csv || p.text || '');
   if (!csv.trim()) return { success: false, error: 'CSV empty' };
 
@@ -1798,9 +1791,11 @@ function importUsersCSV(p) {
       village: '',
       active: true, // CSV import: can login immediately
       createdAt: nowIso(),
-      verified: true
+      verified: true,
+      permissions: 'staff',
+      deptStatus: 'approved'
     };
-    appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'roster', 'village', 'active', 'createdAt', 'verified']);
+    appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'roster', 'village', 'active', 'createdAt', 'verified', 'permissions', 'deptStatus']);
     imported.push(publicUser(row));
   });
 
@@ -1822,7 +1817,8 @@ function parseCsvLine(line) {
 }
 
 function getPendingApprovals(p) {
-  requirePasscode(p);
+  var rq = getRequester(p);
+  if (!canManageUsers(rq)) return { success: false, error: 'Admin or department HOD required' };
   var users = sheetToObjects('Users').filter(function (u) {
     var email = String(u.email).toLowerCase();
     return email.indexOf('@pcr.com') !== -1 && !truthy(u.active);
@@ -1831,24 +1827,25 @@ function getPendingApprovals(p) {
 }
 
 function approveUser(p) {
-  requirePasscode(p);
   var requester = getRequester(p);
-  if (requester && !(requester.role === 'super_admin' || requester.role === 'admin' || requester.role === 'hod')) {
-    return { success: false, error: 'Not authorized' };
-  }
+  if (!canManageUsers(requester)) return { success: false, error: 'Admin or department HOD required' };
   var email = String(p.targetEmail || p.email || '').trim().toLowerCase();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User not found' };
+  if (!isAdminPerm(requester) && normDept(u.department) !== normDept(requester.department)) return { success: false, error: 'HOD can only approve users in their department' };
+  var seatErrA = v3SeatCheck(u, Object.assign({}, u, { active: true }));
+  if (seatErrA) return { success: false, error: seatErrA, seatFull: true };
   updateRowById('Users', u.id, { active: true, verified: true });
   return { success: true, data: { user: publicUser(findUserByEmail(email)) } };
 }
 
 function deleteUser(p) {
   var requester = getRequester(p);
-  // 3.0: admin can delete staff-level users; only superadmin can delete admins / superadmins
+  // 3.0: admin can delete staff-level users; only superadmin can delete admins / superadmins. Always needs the admin password.
   if (!requester || !isAdminPerm(requester)) {
     return { success: false, error: 'Only admin or superadmin can delete users' };
   }
+  if (!isAdminPassword(p.passcode)) return { success: false, error: 'Admin password required (wrong or missing)', needsPassword: true };
   var email = String(p.targetEmail || '').trim().toLowerCase();
   if (email === SUPERADMIN_EMAIL) return { success: false, error: 'Cannot delete superadmin' };
   if (email === String(requester.email).toLowerCase()) return { success: false, error: 'You cannot delete your own account here' };
@@ -1866,11 +1863,7 @@ function getAlertEmails(p) {
 }
 
 function saveAlertEmails(p) {
-  requirePasscode(p, 'super');
-  var requester = getRequester(p);
-  if (!requester || requester.role !== 'super_admin') {
-    return { success: false, error: 'super_admin only' };
-  }
+  try { requirePasscode(p, 'super'); } catch (e) { return { success: false, error: e.message }; }
   var emails = p.emails;
   if (typeof emails === 'string') {
     try { emails = JSON.parse(emails); } catch (e) { emails = emails.split(/[\n,]+/); }
@@ -3821,120 +3814,6 @@ function getLeaveRequests(p) {
       escalation: isFeatureEnabled('feature_leave_escalation')
     }
   };
-}
-
-function requestLeave(p) {
-  var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
-  var u = findUserByEmail(email);
-  if (!u) return { success: false, error: 'User required' };
-  var escalation = isFeatureEnabled('feature_leave_escalation');
-  var status = escalation ? 'pending_hod' : 'pending';
-  var row = {
-    id: uid('lv'),
-    userEmail: email,
-    userName: displayUserName(u),
-    department: u.department || '',
-    startDate: p.startDate || '',
-    endDate: p.endDate || '',
-    reason: p.reason || '',
-    status: status,
-    reviewedBy: '',
-    hodNote: '',
-    managerNote: '',
-    notifyNote: '',
-    createdAt: nowIso()
-  };
-  appendRow('Leave Requests', row, ['id', 'userEmail', 'userName', 'department', 'startDate', 'endDate', 'reason', 'status', 'reviewedBy', 'hodNote', 'managerNote', 'notifyNote', 'createdAt']);
-  return { success: true, data: { request: row, escalation: escalation } };
-}
-
-/**
- * C40: with feature_leave_escalation:
- *   HOD/assistant_hod: pending_hod → pending_manager (approve/forward) or rejected (+ notifyNote)
- *   admin/super_admin: pending_manager → approved|rejected
- * Without feature: admin passcode simple approve/reject (legacy pending)
- */
-function reviewLeave(p) {
-  var escalation = isFeatureEnabled('feature_leave_escalation');
-  var requester = getRequester(p);
-  var rows = sheetToObjects('Leave Requests').filter(function (r) { return r.id === p.id; });
-  if (!rows.length) return { success: false, error: 'Leave request not found' };
-  var cur = rows[0];
-  var action = String(p.status || p.action || '').toLowerCase();
-  var note = String(p.note || p.notifyNote || p.hodNote || p.managerNote || '');
-
-  if (!escalation) {
-    requirePasscode(p);
-    var status = (action === 'approved' || action === 'approve') ? 'approved' : 'rejected';
-    var r = updateRowById('Leave Requests', p.id, {
-      status: status,
-      reviewedBy: p.requesterEmail || (requester && requester.email) || '',
-      managerNote: note
-    });
-    return { success: !!r, data: { request: r, escalation: false } };
-  }
-
-  if (!requester) return { success: false, error: 'Login required' };
-
-  // HOD step
-  if (cur.status === 'pending_hod') {
-    if (!(isHodPerm(requester) || isAdminPerm(requester))) {
-      return { success: false, error: 'Department HOD / assistant_hod required' };
-    }
-    if (!isAdminPerm(requester) && String(cur.department) !== String(requester.department)) {
-      return { success: false, error: 'Can only review leave in your department' };
-    }
-    if (action === 'approved' || action === 'approve' || action === 'forward') {
-      var fwd = updateRowById('Leave Requests', p.id, {
-        status: 'pending_manager',
-        reviewedBy: requester.email,
-        hodNote: note
-      });
-      return { success: !!fwd, data: { request: fwd, escalation: true, message: 'Forwarded to managers' } };
-    }
-    var rej = updateRowById('Leave Requests', p.id, {
-      status: 'rejected',
-      reviewedBy: requester.email,
-      hodNote: note,
-      notifyNote: note || 'Leave disapproved by HOD'
-    });
-    // best-effort notify staff
-    try {
-      MailApp.sendEmail({
-        to: cur.userEmail,
-        subject: 'PCR Leave request update',
-        body: 'Your leave request (' + cur.startDate + ' → ' + cur.endDate + ') was rejected by HOD.\n\nNote: ' + (note || '—') + '\n\n— PCR Staff App'
-      });
-    } catch (e) {}
-    return { success: !!rej, data: { request: rej, escalation: true, notified: true } };
-  }
-
-  // Manager step
-  if (cur.status === 'pending_manager' || cur.status === 'pending') {
-    if (!isAdminPerm(requester)) {
-      return { success: false, error: 'Manager (admin/super_admin) required for final decision' };
-    }
-    requirePasscode(p, 'admin');
-    var finalSt = (action === 'approved' || action === 'approve') ? 'approved' : 'rejected';
-    var fin = updateRowById('Leave Requests', p.id, {
-      status: finalSt,
-      reviewedBy: requester.email,
-      managerNote: note,
-      notifyNote: finalSt === 'rejected' ? (note || 'Leave rejected by management') : note
-    });
-    if (finalSt === 'rejected') {
-      try {
-        MailApp.sendEmail({
-          to: cur.userEmail,
-          subject: 'PCR Leave request update',
-          body: 'Your leave request (' + cur.startDate + ' → ' + cur.endDate + ') was rejected.\n\nNote: ' + (note || '—') + '\n\n— PCR Staff App'
-        });
-      } catch (e2) {}
-    }
-    return { success: !!fin, data: { request: fin, escalation: true } };
-  }
-
-  return { success: false, error: 'Leave request is already ' + cur.status };
 }
 
 function getMySchedule(p) {

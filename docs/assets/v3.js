@@ -38,7 +38,24 @@ function v3DeptStatus(){
   return s || 'approved';
 }
 function v3DeptOk(){ return v3IsAdmin() || v3DeptStatus() === 'approved'; }
-function v3RoleLabel(u){ const r = v3RoleOf(u); return (V3_ROLE_LABEL[r] || 'Staff') + (r === 'staff' && v3IsAsst(u) ? ' · Assistant HOD' : ''); }
+/** Holds the boat manager permission (a primary boat manager, or an HOD / chef with boat manager as a second permission). */
+function v3HasBoat(u){ u = u || state.user; if (!u) return false; const p = userPerms(u); return p.includes('boat_manager') || p.includes('boat_captain') || p.includes('boat'); }
+function v3RoleLabel(u){
+  const r = v3RoleOf(u);
+  return (V3_ROLE_LABEL[r] || 'Staff') + ((r === 'hod' || r === 'chef') && v3HasBoat(u) ? ' · Boat manager' : '') +
+    (r !== 'hod' && r !== 'admin' && r !== 'super_admin' && v3IsAsst(u) ? ' · Assistant HOD' : '');
+}
+/** "Admin 2 of 5 used" chips (3.0 seat limits: admin 5, superadmin 3, boat manager 2, chef 3). */
+const V3_SEAT_ORDER = ['super_admin','admin','boat_manager','chef'];
+function v3SeatChips(seats){
+  if (!seats) return '';
+  return '<div class="grid grid-cols-2 gap-2" id="seat-usage">'+V3_SEAT_ORDER.filter(function(k){ return seats[k]; }).map(function(k){
+    const x = seats[k], full = x.used >= x.limit, over = x.used > x.limit;
+    return '<div class="rounded-xl border p-2 min-w-0 '+(over?'border-rose-500/60 bg-rose-900/20':full?'border-amber-500/50 bg-amber-900/10':'border-slate-700/60 bg-slate-900/50')+'" data-seat="'+k+'">'+
+      '<p class="text-[10px] text-slate-400 truncate">'+esc(x.label)+'</p><p class="text-sm font-semibold text-slate-100">'+x.used+' of '+x.limit+' used</p>'+
+      '<p class="text-[10px] '+(over?'text-rose-300':full?'text-amber-200':'text-slate-500')+'">'+(over ? (x.used-x.limit)+' over the limit' : full ? 'Full' : (x.limit-x.used)+' free')+'</p></div>';
+  }).join('')+'</div>';
+}
 
 /* overrides of 2.x permission helpers (same names, 3.0 meaning) */
 canHod = function(){ return v3CanDept(); };
@@ -141,7 +158,7 @@ function v3Form(title, fields, submitLabel, onSubmit, intro){
     fields.map(function(f){
       const lab = '<label for="v3f-'+f.id+'" class="text-[11px] text-slate-400">'+esc(f.label)+(f.required?' *':'')+'</label>';
       let inp;
-      if (f.type === 'select') inp = '<select id="v3f-'+f.id+'" class="ui-input w-full">'+f.options.map(function(o){ const v = typeof o === 'object' ? o.value : o, l = typeof o === 'object' ? o.label : o; return '<option value="'+esc(v)+'"'+(String(v)===String(f.value||'')?' selected':'')+'>'+esc(l)+'</option>'; }).join('')+'</select>';
+      if (f.type === 'select') inp = '<select id="v3f-'+f.id+'" class="ui-input w-full">'+f.options.map(function(o){ const v = typeof o === 'object' ? o.value : o, l = typeof o === 'object' ? o.label : o; return '<option value="'+esc(v)+'"'+(String(v)===String(f.value||'')?' selected':'')+(typeof o === 'object' && o.disabled ? ' disabled' : '')+'>'+esc(l)+'</option>'; }).join('')+'</select>';
       else if (f.type === 'textarea') inp = '<textarea id="v3f-'+f.id+'" rows="3" maxlength="'+(f.max||500)+'" class="ui-input w-full" placeholder="'+esc(f.placeholder||'')+'">'+esc(f.value||'')+'</textarea>';
       else if (f.type === 'checkbox') return '<label class="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" id="v3f-'+f.id+'"'+(f.value?' checked':'')+'/> '+esc(f.label)+'</label>';
       else inp = '<input id="v3f-'+f.id+'" type="'+(f.type||'text')+'" maxlength="'+(f.max||200)+'" class="ui-input w-full" placeholder="'+esc(f.placeholder||'')+'" value="'+esc(f.value||'')+'"'+(f.min?' min="'+f.min+'"':'')+'/>';
@@ -196,7 +213,8 @@ function v3DemoShim(){
     updateRowById: function(n, id, patch){ const r = v3DemoRows(n).find(function(x){ return String(x.id) === String(id); }); if (!r) return null; Object.assign(r, patch); return copy(r); },
     findOrder: function(n, id){ return copy(v3DemoRows(n).find(function(x){ return String(x.id) === String(id); }) || null); },
     findUserByEmail: function(e){ e = String(e||'').trim().toLowerCase(); return copy(v3DemoRows('Users').find(function(u){ return String(u.email).toLowerCase() === e; }) || null); },
-    getRequester: function(p){ const e = String(p.requesterEmail || p.email || '').trim().toLowerCase(); return e ? S.findUserByEmail(e) : null; },
+    getRequester: function(p){ const e = String(p.requesterEmail || '').trim().toLowerCase(); return e ? S.findUserByEmail(e) : null; },
+    isAdminPassword: function(c){ return typeof demoPassOk === 'function' && demoPassOk(String(c == null ? '' : c).trim()); },
     getSetting: function(k, fb){ const v = (V3DB.db.appSettings||{})[k]; return v === undefined || v === '' ? (fb === undefined ? '' : String(fb)) : String(v); },
     getDinnerMenus: function(p){
       const parts = String(p.serviceDate).split('-'); const wd = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2])).getUTCDay();
@@ -308,6 +326,15 @@ demoApiCore = async function(action, p){
       if (!isAdm && !isLead) return { success:false, error:'Admin or department HOD only' };
       const r = await _v2DemoApiCore(action, p);
       if (r && r.success && !isAdm) { r.data.users = r.data.users.filter(function(u){ return String(u.department).toLowerCase() === String(meU.department).toLowerCase(); }); r.data.total = r.data.users.length; }
+      if (r && r.success) {
+        // same extra fields as the live server (v3UserOut + seat usage for admins)
+        const extra = await v3DemoRun(function(srv, d){
+          const by = {}; d.users.forEach(function(u){ const o = srv.v3UserOut(Object.assign({}, u)); by[u.email] = { boatManager: o.boatManager, boatSecondary: o.boatSecondary, warnings: o.warnings }; });
+          return { by: by, seats: srv.v3SeatUsage(d.users.map(function(u){ return Object.assign({}, u); })) };
+        });
+        r.data.users = r.data.users.map(function(u){ return Object.assign({}, u, extra.by[u.email] || {}); });
+        if (isAdm) r.data.seats = extra.seats;
+      }
       return r;
     }
     case 'updateUser': case 'updateProfile': {
@@ -319,6 +346,7 @@ demoApiCore = async function(action, p){
     }
     case 'deleteUser': {
       if (!isAdm) return { success:false, error:'Admin only' };
+      if (!demoPassOk(p.passcode)) return { success:false, error:'Admin password required (wrong or missing)', needsPassword:true };
       const t = db.users.find(function(u){ return u.email === String(p.targetEmail||'').toLowerCase(); });
       if (!t) return { success:false, error:'User not found' };
       if (t.email === me) return { success:false, error:'You cannot delete yourself' };
@@ -338,7 +366,7 @@ demoApiCore = async function(action, p){
           if (u) { u.deptStatus = 'pending'; u.assistantHod = false; }
           srv.deptLeads(p.department).forEach(function(l){ srv.v3Notify(l.email, 'Join request: '+(p.firstName||'')+' '+(p.lastName||''), 'Wants to join '+p.department+'. Open More → Department staff to accept or decline.', 'dept_join', u && u.id); });
         });
-        r.data = Object.assign({}, r.data, { deptPending: true, delivery: String((loadDemo().appSettings||{}).verification_delivery || 'screen') });
+        r.data = Object.assign({}, r.data, { deptPending: true, delivery: 'email' });
       }
       return r;
     }
@@ -386,9 +414,19 @@ demoBootstrap = async function(p){
 };
 
 /* demo seed for every 3.0 role (runs once per demo database) */
-const V3_DEMO_SEED = 'v3seed-1';
+const V3_DEMO_SEED = 'v3seed-2';
+/** seed-2: 3.0 review cases — HOD who is also captain, assistant HOD who is also captain, HOD in department "Other"; codes by email. */
+function v3SeedDemo2(db){
+  const addU = function(u){ if (!db.users.some(function(x){ return x.email === u.email; })) db.users.push(Object.assign({ id: uid('usr'), password:'staff123', contact:'', roster:'', village:'Resort', active:true, verified:true, createdAt: formatFiji() }, u)); };
+  addU({ email:'hod.grounds@paradisecoveresortfiji.com', firstName:'Akuila', lastName:'Tavo', department:'Grounds', role:'hod', permissions:'staff,hod,boat_manager,boat_captain' });
+  addU({ email:'asst.other@paradisecoveresortfiji.com', firstName:'Nani', lastName:'Tavu', department:'Other', role:'assistant_hod', permissions:'staff,assistant_hod,boat_manager,boat_captain' });
+  addU({ email:'hod.other@paradisecoveresortfiji.com', firstName:'Pranil', lastName:'Rama', department:'Other', role:'hod', permissions:'staff,hod' });
+  db.appSettings = db.appSettings || {};
+  db.appSettings.verification_delivery = 'email';
+}
 function v3SeedDemo(db){
   if (db.v3Seed === V3_DEMO_SEED) return false;
+  if (db.v3Seed === 'v3seed-1') { v3SeedDemo2(db); db.v3Seed = V3_DEMO_SEED; return true; }
   const now = formatFiji(), today = fijiDateString(), tom = fijiDateString(addFijiDays(getFijiNow(),1));
   const inDays = function(n){ return fijiDateString(addFijiDays(getFijiNow(), n)); };
   const ago = function(h){ return formatFiji(new Date(getFijiNow().getTime() - h*3600000)); };
@@ -441,8 +479,7 @@ function v3SeedDemo(db){
     { id: uid('ntf'), userEmail:'hod.hk@paradisecoveresortfiji.com', title:'Join request: Tomasi Vula', body:'Wants to join Housekeeping. Open More → Department staff.', kind:'dept_join', relatedId:'', read:false, createdAt: ago(5) },
     { id: uid('ntf'), userEmail:'asst.hk@paradisecoveresortfiji.com', title:'Join request: Tomasi Vula', body:'Wants to join Housekeeping. Open More → Department staff.', kind:'dept_join', relatedId:'', read:false, createdAt: ago(5) }
   ]);
-  db.appSettings = db.appSettings || {};
-  if (db.appSettings.verification_delivery === undefined) db.appSettings.verification_delivery = 'screen';
+  v3SeedDemo2(db);
   db.v3Seed = V3_DEMO_SEED;
   return true;
 }
@@ -1414,7 +1451,7 @@ function renderMore(){
     if (v3IsAdmin()) html += group('Admin', v3Row(v3Nav('manage'),'fa-sliders','Manage','All admin tools') + v3Row(v3Nav('usersv3'),'fa-users-gear','Users & roles','') +
       v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('admin'),'fa-ship','Boat admin','Runs, bookings, emergency travel') +
       v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Admin status & reports','Download everything'));
-    else if (r === 'boat_manager') html += group('Boat', v3Row(v3Nav('admin'),'fa-ship','Boat tools','Runs, manifests, emergency travel'));
+    else if (v3HasBoat()) html += group('Boat', v3Row(v3Nav('admin'),'fa-ship','Boat tools','Runs, manifests, emergency travel'));
   }
   html += '<section class="glass rounded-2xl overflow-hidden">'+v3Row('doLogout()','fa-right-from-bracket','Sign out','')+'</section>'+
     '<p class="text-center text-[10px] text-slate-500">PCR Staff App '+esc(APP_VERSION)+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>';
@@ -1676,7 +1713,7 @@ function v3ManageGroups(){
   html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject') +
     v3Row(v3Nav('deptupdates'),'fa-bullhorn','Department updates',''));
   html += g('Reports & system', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Admin status & reports','Download all app data') +
-    (v3IsSuper() ? v3Row(v3Nav('settings'),'fa-gear','App settings','Code delivery, features, alert emails') : ''));
+    (v3IsSuper() ? v3Row(v3Nav('settings'),'fa-gear','App settings','Email sender, features, alert emails') : ''));
   return html;
 }
 function v3RenderManage(){ $('#main-content').innerHTML = v3Page(v3ManageGroups(), 'manage-root'); }
@@ -1691,6 +1728,9 @@ async function v3RenderUsers(){
   if (state.tab !== 'usersv3') return;
   if (!r || !r.success) { $('#uf-list').innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load users')+'</p>'); return; }
   const all = r.data.users || [];
+  state._v3Seats = r.data.seats || null;
+  const seatBox = r.data.seats ? '<section class="glass rounded-2xl p-3 space-y-2 min-w-0">'+v3Title('fa-chair','Role seats')+v3SeatChips(r.data.seats)+
+    '<p class="text-[10px] text-slate-500">Active accounts only. HOD / chef with “also boat manager” use a boat seat.</p></section>' : '';
   const paint = function(){
     const q = f.q.toLowerCase();
     const list = all.filter(function(u){
@@ -1701,10 +1741,12 @@ async function v3RenderUsers(){
       if (f.role && v3RoleOf(u) !== f.role) return false;
       return true;
     });
-    $('#uf-list').innerHTML = '<p class="text-[11px] text-slate-400 px-1">'+list.length+' of '+all.length+' users</p>'+list.slice(0, 200).map(function(u){
+    $('#uf-list').innerHTML = seatBox + '<p class="text-[11px] text-slate-400 px-1">'+list.length+' of '+all.length+' users</p>'+list.slice(0, 200).map(function(u){
+      const ro = v3RoleOf(u), warn = (u.warnings||[]);
       return '<button type="button" class="v3-user w-full text-left glass rounded-xl p-3 min-w-0" data-email="'+esc(u.email)+'"><div class="v3-row"><p class="text-sm text-slate-100 truncate min-w-0">'+esc(fullDisplayName(u))+'</p>'+
-        '<span class="flex gap-1 shrink-0">'+v3Chip(esc(V3_ROLE_LABEL[v3RoleOf(u)]), v3RoleOf(u)==='staff'?'mute':'ok')+(u.assistantHod||userPerms(u).includes('assistant_hod')?v3Chip('Asst HOD','info'):'')+(!u.active?v3Chip('inactive','bad'):'')+'</span></div>'+
-        '<p class="text-[11px] text-slate-400 truncate">'+esc(u.email)+' · '+esc(u.department||'—')+(u.deptStatus && u.deptStatus!=='approved'?' · <span class="text-amber-300">'+esc(u.deptStatus)+'</span>':'')+'</p></button>';
+        '<span class="flex gap-1 shrink-0">'+v3Chip(esc(V3_ROLE_LABEL[ro]), ro==='staff'?'mute':'ok')+((ro==='hod'||ro==='chef')&&v3HasBoat(u)?v3Chip('+ Boat','info'):'')+(ro!=='hod'&&ro!=='admin'&&ro!=='super_admin'&&(u.assistantHod||userPerms(u).includes('assistant_hod'))?v3Chip('Asst HOD','info'):'')+(!u.active?v3Chip('inactive','bad'):'')+'</span></div>'+
+        '<p class="text-[11px] text-slate-400 truncate">'+esc(u.email)+' · '+esc(u.department||'—')+(u.deptStatus && u.deptStatus!=='approved'?' · <span class="text-amber-300">'+esc(u.deptStatus)+'</span>':'')+'</p>'+
+        (warn.length ? '<p class="text-[10px] text-amber-200 mt-1 break-words"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+esc(warn.join(' · '))+'</p>' : '')+'</button>';
     }).join('');
     $$('.v3-user').forEach(function(b){ b.onclick = function(){ v3EditUser(all.find(function(u){ return u.email === b.dataset.email; })); }; });
   };
@@ -1715,26 +1757,40 @@ async function v3RenderUsers(){
 }
 function v3EditUser(u){
   if (!u) return;
-  const roles = Object.keys(V3_ROLE_LABEL).filter(function(r){ return v3IsSuper() || (r !== 'admin' && r !== 'super_admin') || r === v3RoleOf(u); });
+  const cur = v3RoleOf(u), seats = state._v3Seats || {};
+  const roles = Object.keys(V3_ROLE_LABEL).filter(function(r){ return v3IsSuper() || (r !== 'admin' && r !== 'super_admin') || r === cur; });
+  const seatFull = function(r){ const x = seats[r]; return !!x && r !== cur && x.used >= x.limit; };
+  const roleOpt = function(r){ const x = seats[r]; return { value:r, label: V3_ROLE_LABEL[r] + (x ? ' ('+x.used+' of '+x.limit+(seatFull(r)?' — full':'')+')' : ''), disabled: seatFull(r) }; };
+  const warn = (u.warnings||[]).length ? '<br><span class="text-amber-200 text-[11px]"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+esc(u.warnings.join(' · '))+'</span>' : '';
   v3Form('Edit '+fullDisplayName(u), [
-    { id:'role', label:'Role', type:'select', options: roles.map(function(r){ return { value:r, label:V3_ROLE_LABEL[r] }; }), value: v3RoleOf(u) },
+    { id:'role', label:'Role', type:'select', options: roles.map(roleOpt), value: cur },
+    { id:'boatManager', label:'Also boat manager (HOD or chef only · uses a boat seat'+(seats.boat_manager ? ', '+seats.boat_manager.used+' of '+seats.boat_manager.limit+' used' : '')+')', type:'checkbox', value: (cur === 'hod' || cur === 'chef') && v3HasBoat(u) },
     { id:'department', label:'Department', type:'select', options: PCR_DEPARTMENTS.indexOf(u.department) >= 0 || !u.department ? PCR_DEPARTMENTS : [u.department].concat(PCR_DEPARTMENTS), value: u.department },
     { id:'deptStatus', label:'Department status', type:'select', options:[{value:'approved',label:'Accepted'},{value:'pending',label:'Waiting for HOD'},{value:'declined',label:'Declined'},{value:'removed',label:'Removed'}], value: u.deptStatus || 'approved' },
-    { id:'assistantHod', label:'Assistant HOD of this department (HOD approval rights for leave & late meals)', type:'checkbox', value: !!u.assistantHod || userPerms(u).includes('assistant_hod') },
+    { id:'assistantHod', label:'Assistant HOD of this department (HOD approval rights for leave & late meals; not needed for HOD / admin)', type:'checkbox', value: !!u.assistantHod || userPerms(u).includes('assistant_hod') },
     { id:'active', label:'Account active', type:'checkbox', value: !!u.active }
   ], 'Save changes', async function(v){
     const p = { targetEmail: u.email, assistantHod: v.assistantHod ? 'true' : 'false', active: v.active ? 'true' : 'false' };
-    if (v.role !== v3RoleOf(u)) p.role = v.role;
+    if (v.role !== cur) p.role = v.role;
+    if (v.role === 'hod' || v.role === 'chef') p.boatManager = v.boatManager ? 'true' : 'false';
+    else if (v.boatManager && v.role !== 'boat_manager') { toast('Only an HOD or chef can also be boat manager — or pick the Boat manager role','error'); return false; }
     if (v.department !== u.department) p.department = v.department;
     else if (v.deptStatus !== (u.deptStatus || 'approved')) p.deptStatus = v.deptStatus;
+    const top = ['admin','super_admin'];
+    if (v.role !== cur && (top.indexOf(v.role) >= 0 || top.indexOf(cur) >= 0)) {
+      const pass = await askPasscode('super', 'Granting or removing admin / superadmin needs the admin password.'); if (!pass) return false;
+      p.passcode = pass;
+    }
     const r = await v3Call('setUserAccess', p, 'Saved');
+    if (r && r.warnings && r.warnings.length) toast(r.warnings[0], 'info');
     if (r) { v3RenderUsers(); }
     return !!r;
-  }, esc(u.email)+'<br><button type="button" id="v3-del-user" class="mt-2 text-rose-300 text-xs"><i class="fa-solid fa-trash mr-1"></i>Delete this user</button>');
+  }, esc(u.email)+warn+'<br><button type="button" id="v3-del-user" class="mt-2 text-rose-300 text-xs"><i class="fa-solid fa-trash mr-1"></i>Delete this user</button>');
   const del = $('#v3-del-user');
   if (del) del.onclick = async function(){
     if (!confirm('Delete '+u.email+' permanently? Their past orders stay in the sheets.')) return;
-    const r = await v3Call('deleteUser', { targetEmail: u.email }, 'User deleted');
+    const pass = await askPasscode('password', 'Deleting a user needs the admin password.'); if (!pass) return;
+    const r = await v3Call('deleteUser', { targetEmail: u.email, passcode: pass }, 'User deleted');
     if (r) { closeModal(); v3RenderUsers(); }
   };
 }
@@ -1796,31 +1852,55 @@ async function v3RenderAdminStatus(){
 }
 async function v3RenderMigrate(){
   $('#main-content').innerHTML = v3Page(v3Back('manage','Manage') + v3Card(v3Title('fa-shuffle','3.0 role migration')+
-    '<p class="text-xs text-slate-300">Roles become: superadmin, admin, chef, boat manager, HOD, staff. Captain → boat manager; assistant HOD → staff + assistant HOD flag (same department); basic → staff. Run the preview first — nothing changes until you press Apply.</p>'+
-    '<div class="grid grid-cols-2 gap-2"><button type="button" id="mg-dry" class="rounded-xl py-2.5 text-sm border border-teal-500/40 text-teal-200">Preview</button><button type="button" id="mg-apply" class="rounded-xl py-2.5 text-sm border border-rose-500/40 text-rose-200">Apply</button></div>')+'<div id="mg-out"></div>', 'migrate-root');
+    '<p class="text-xs text-slate-300">Roles become: superadmin, admin, chef, boat manager, HOD, staff. Captain → boat manager; assistant HOD → staff + assistant HOD flag (same department); basic → staff. '+
+    'An HOD or chef who is also a captain keeps boat manager as a second permission; an assistant HOD who is also a captain becomes boat manager and keeps the assistant HOD flag. Nobody loses rights.</p>'+
+    '<p class="text-[11px] text-slate-400">Seat limits: admin 5 · superadmin 3 · boat manager 2 · chef 3. Apply is refused while a limit would be exceeded or anyone would lose rights, and needs the admin password.</p>'+
+    '<div class="grid grid-cols-2 gap-2"><button type="button" id="mg-dry" class="rounded-xl py-2.5 text-sm border border-teal-500/40 text-teal-200">Preview</button><button type="button" id="mg-apply" class="rounded-xl py-2.5 text-sm border border-rose-500/40 text-rose-200">Apply…</button></div>')+'<div id="mg-out" class="space-y-3"></div>', 'migrate-root');
+  const row = function(l, r2){ return '<div class="v3-row text-xs py-1 border-b border-slate-700/40 last:border-0"><span class="min-w-0 break-words text-slate-200">'+l+'</span><span class="text-slate-100 font-semibold shrink-0">'+r2+'</span></div>'; };
+  const who = function(x){ return '<span class="text-slate-100">'+esc(x.name||x.email)+'</span> <span class="text-slate-400">· '+esc(x.department||'—')+(x.active===false?' · inactive':'')+'</span>'; };
   const show = function(d){
-    $('#mg-out').innerHTML = v3Card(v3Title('fa-table', d.applied ? 'Applied' : 'Preview (nothing changed)')+'<p class="text-xs text-slate-300">'+d.totalUsers+' users · '+d.changeCount+' need a change · '+d.assistantHodFlags+' assistant HOD flag(s)</p>'+
-      Object.keys(d.mapping).sort().map(function(k){ return '<div class="v3-row text-xs py-1 border-b border-slate-700/40 last:border-0"><span class="min-w-0 break-words text-slate-200">'+esc(k)+'</span><span class="text-slate-100 font-semibold">'+d.mapping[k]+'</span></div>'; }).join('')+
-      '<p class="v3-section-title pt-2">After migration</p>'+Object.keys(d.byRole).map(function(r){ return '<div class="v3-row text-xs"><span>'+esc(V3_ROLE_LABEL[r]||r)+'</span><span>'+d.byRole[r]+'</span></div>'; }).join(''));
+    const probs = d.seatProblems || [], lost = d.lostRights || [], warns = d.warnings || [], ch = d.changes || [];
+    let html = v3Card(v3Title('fa-table', d.applied ? 'Applied' : 'Preview (nothing changed)')+'<p class="text-xs text-slate-300">'+d.totalUsers+' users · '+d.changeCount+' need a change · '+d.assistantHodFlags+' assistant HOD flag(s)</p>'+
+      Object.keys(d.mapping).sort().map(function(k){ return row(esc(k), d.mapping[k]); }).join('')+
+      '<p class="v3-section-title pt-2">After migration</p>'+Object.keys(d.byRole).map(function(r){ return row(esc(V3_ROLE_LABEL[r]||r), d.byRole[r]); }).join(''), 'mg-summary');
+    html += v3Card(v3Title('fa-chair','Seats after migration')+v3SeatChips(d.seats)+
+      (probs.length ? probs.map(function(t){ return '<p class="text-xs text-rose-300"><i class="fa-solid fa-circle-exclamation mr-1"></i>'+esc(t)+'</p>'; }).join('') : '<p class="text-xs text-emerald-300"><i class="fa-solid fa-check mr-1"></i>All roles fit their seat limits</p>')+
+      (lost.length ? lost.map(function(x){ return '<p class="text-xs text-rose-300">'+who(x)+' would lose: '+esc(x.lost.join(', '))+'</p>'; }).join('') : '<p class="text-xs text-emerald-300"><i class="fa-solid fa-check mr-1"></i>Nobody loses rights</p>'), 'mg-seats');
+    if (warns.length) html += v3Card(v3Title('fa-triangle-exclamation','Check before applying', v3Chip(String(warns.length),'warn'))+
+      warns.map(function(w){ return '<div class="text-xs py-1 border-b border-slate-700/40 last:border-0">'+who(w)+'<br><span class="text-amber-200">'+esc(w.text)+'</span></div>'; }).join(''), 'mg-warn');
+    if (ch.length) html += v3Card(v3Title('fa-list','Changes per user', v3Chip(String(d.changeCount),'info'))+
+      ch.map(function(x){ return '<div class="text-xs py-1 border-b border-slate-700/40 last:border-0">'+who(x)+'<br><span class="text-slate-300">'+esc(x.from)+' → '+esc(V3_ROLE_LABEL[x.to]||x.to)+(x.alsoBoat?' + boat manager':'')+(x.assistantHod?' + assistant HOD':'')+'</span></div>'; }).join(''), 'mg-changes');
+    $('#mg-out').innerHTML = html;
   };
   $('#mg-dry').onclick = async function(){ const d = await v3Call('migrateRoles', { dryRun: 'true' }); if (d) show(d); };
-  $('#mg-apply').onclick = async function(){ if (!confirm('Apply the role migration to all users now?')) return; const d = await v3Call('migrateRoles', { apply: 1 }, 'Migration applied'); if (d) show(d); };
+  $('#mg-apply').onclick = async function(){
+    const pv = await v3Call('migrateRoles', { dryRun: 'true' }); if (!pv) return; show(pv);
+    if ((pv.seatProblems||[]).length || (pv.lostRights||[]).length) { toast('Fix the seat / rights problems shown below first','error'); return; }
+    if (!confirm('Apply the role migration to '+pv.changeCount+' user(s) now?')) return;
+    const pass = await askPasscode('password', 'Applying the migration changes every user row — enter the admin password.'); if (!pass) return;
+    const d = await v3Call('migrateRoles', { apply: 1, passcode: pass }, 'Migration applied'); if (d) show(d);
+  };
 }
 async function v3RenderSettings(){
   const s = state.appSettings || {};
-  const cur = String(s.verification_delivery || v3Home().verificationDelivery || 'screen');
   $('#main-content').innerHTML = v3Page(v3Back('manage','Manage') +
-    v3Card(v3Title('fa-key','Verification & reset codes')+'<p class="text-xs text-slate-300">Where sign-up and forgot-password codes are delivered.</p>'+
-      '<div class="grid grid-cols-2 gap-1 rounded-xl bg-slate-900/60 p-1">'+['screen','email'].map(function(v){ return '<button type="button" class="v3-vd rounded-lg py-2 text-xs '+(cur===v?'bg-teal-600 text-white font-semibold':'text-slate-300')+'" data-v="'+v+'">'+(v==='screen'?'Show on screen':'Send by email')+'</button>'; }).join('')+'</div>'+
-      '<p class="text-[10px] text-amber-200/80">On screen: anyone who knows a staff email can reset that password. Email is safer once staff emails are reliable.</p>')+
+    v3Card(v3Title('fa-key','Verification & reset codes')+
+      '<p class="text-xs text-slate-300"><i class="fa-solid fa-envelope text-teal-300 mr-1"></i>Sign-up and forgot-password codes are <strong>sent by email</strong> only — they are never shown on screen.</p>'+
+      '<div class="space-y-1"><label for="st-from" class="text-[11px] text-slate-400">Send from (Gmail “send as” alias · blank = the script owner account)</label><input id="st-from" type="email" class="ui-input w-full" placeholder="blank = script owner" value="'+esc(s.mail_from||'')+'"/></div>'+
+      '<div class="space-y-1"><label for="st-name" class="text-[11px] text-slate-400">Sender name</label><input id="st-name" class="ui-input w-full" maxlength="60" value="'+esc(s.mail_sender_name||'PCR Staff App')+'"/></div>'+
+      '<button type="button" id="st-save" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white font-semibold">Save sender</button>'+
+      '<p class="text-[10px] text-slate-500">A “send as” address must first be added to the script owner’s Gmail (Settings → Accounts). If it fails, mail goes from the owner account.</p>', '', )+
     v3Card(v3Title('fa-toggle-on','Feature flags')+'<div id="admin-body"></div>')+
     v3Card(v3Title('fa-envelope','Alert emails & other tools')+'<button type="button" onclick="openAlertEmails()" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Manage alert emails</button>'+
-      '<button type="button" onclick="navigate(\'admin\')" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Classic admin tools (boat, import, alerts)</button>'), 'settings-root');
-  $$('.v3-vd').forEach(function(b){ b.onclick = async function(){
-    const passcode = await askPasscode('super'); if (!passcode) return;
-    const d = await v3Call('setAppSetting', { key:'verification_delivery', value: b.dataset.v, passcode: passcode }, 'Codes will be '+(b.dataset.v === 'screen' ? 'shown on screen' : 'sent by email'));
-    if (d) { state.appSettings = Object.assign({}, state.appSettings, { verification_delivery: b.dataset.v }); cacheInvalidate(['featureFlags','v3home']); v3RenderSettings(); }
-  }; });
+      '<button type="button" onclick="navigate(\'admin\')" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Classic admin tools (boat, kitchen, archive)</button>'), 'settings-root');
+  $('#st-save').onclick = async function(){
+    const from = String($('#st-from').value||'').trim(), name = String($('#st-name').value||'').trim() || 'PCR Staff App';
+    if (from && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(from)) { toast('Enter a valid email or leave it blank','error'); return; }
+    const passcode = await askPasscode('super', 'Changing the email sender needs the admin password.'); if (!passcode) return;
+    const a1 = await v3Call('setAppSetting', { key:'mail_from', value: from, passcode: passcode }); if (!a1) return;
+    const a2 = await v3Call('setAppSetting', { key:'mail_sender_name', value: name, passcode: passcode }, 'Sender saved'); if (!a2) return;
+    state.appSettings = Object.assign({}, state.appSettings, { mail_from: from, mail_sender_name: name }); cacheInvalidate(['featureFlags','v3home']);
+  };
   try { await renderAdminFeaturesTab(); } catch (e) {}
 }
 async function v3RenderSuperHome(){
@@ -1844,7 +1924,7 @@ async function v3RenderSuperHome(){
     const people = '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="sa-users">'+v3Title('fa-users','People & app health')+
       '<div class="grid grid-cols-3 gap-2">'+stat('Users', users.total||0, (users.active||0)+' active', 'usersv3')+stat('New this week', users.newThisWeek||0, '', 'usersv3')+stat('Version', esc(String(hl.version||APP_VERSION).replace('-demo','')), state.demo?'demo':'live', 'settings')+'</div>'+
       '<p class="text-[11px] text-slate-400">'+Object.keys(users.byRole||{}).map(function(r){ return esc(V3_ROLE_LABEL[r]||r)+' '+users.byRole[r]; }).join(' · ')+'</p>'+
-      '<p class="text-[11px] text-slate-400">Codes: '+(hl.verificationDelivery==='email'?'sent by email':'shown on screen')+' · server time '+esc(v3Ts(hl.fijiNow))+'</p></section>';
+      '<p class="text-[11px] text-slate-400">Codes: sent by email'+(hl.mailFrom?' from '+esc(hl.mailFrom):'')+' · server time '+esc(v3Ts(hl.fijiNow))+'</p></section>';
     $('#main-content').innerHTML = v3Page(head + pend + meals + boat + people + '<p class="text-center text-[10px] text-slate-500" id="home-ver">UI '+APP_VERSION+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>', 'home');
     v3StartTicker();
   };

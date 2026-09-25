@@ -400,7 +400,11 @@ function archivePlan(ss, cutoffDate) {
 
 function archiveOldRows(p) {
   p = p || {};
-  try { requirePasscode(p, 'super'); } catch (e) { return { success: false, error: 'Superadmin permission required' }; }
+  // 3.0: dry run = superadmin role; the real move also needs the admin password
+  var archDry = p.dryRun === true || p.dryRun === 1 || p.dryRun === '1' || p.dryRun === 'true';
+  var archR = getRequester(p);
+  if (!archR || !isSuperPerm(archR)) return { success: false, error: 'Superadmin permission required' };
+  if (!archDry && !isAdminPassword(p.passcode)) return { success: false, error: 'Admin password required (wrong or missing)', needsPassword: true };
   var dry = p.dryRun === true || p.dryRun === 'true' || p.dryRun === '1' || p.dryRun === 1;
   var ss = getSS();
   var cutoffDate = fijiDateString(addFijiDays(getFijiNow(), -ARCHIVE_DAYS));

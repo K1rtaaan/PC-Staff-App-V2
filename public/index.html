@@ -217,8 +217,10 @@ function deptSelectOptions(selected){
   }).join('');
 }
 
-const SUPER_PASS = '2026';
-const ADMIN_PASS = '2025';
+// 3.0: the admin password is checked on the SERVER (Code.gs ADMIN_PASSWORD). Only demo mode checks it on the phone,
+// against a hash, so the password itself is never shipped in the app.
+const DEMO_ADMIN_PASS_SHA256 = '158a323a7ba44870f23d96f1516dd70aa48e9a72db4ebb026b0a89e212a208ab';
+const TOKEN_KEY = 'pcr_v2_token';
 const CACHE_USERS_KEY = 'pcr_v2_users_cache';
 const SESSION_KEY = 'pcr_v2_session';
 const DEMO_KEY = 'pcr_v2_demo_db';
@@ -261,7 +263,7 @@ const LS_COACH_DONE = 'pcr_v2_coach_done';
       </form>
 
       <div id="forgot-panel" class="hidden space-y-3">
-        <p class="text-sm text-slate-300">Reset password — enter your registered email to receive a code.</p>
+        <p class="text-sm text-slate-300">Reset password — enter your registered email. We email you a 6-digit code (it is never shown in the app).</p>
         <div>
           <label class="text-xs text-slate-400 mb-1 block">Email</label>
           <input type="email" id="forgot-email" class="ui-input" placeholder="you@example.com"/>
@@ -362,7 +364,7 @@ const LS_COACH_DONE = 'pcr_v2_coach_done';
       <p id="login-error" class="text-red-400 text-sm hidden mt-3"></p>
 
       <div id="verify-panel" class="hidden mt-4 pt-4 border-t border-slate-700 space-y-2">
-        <p class="text-sm text-slate-300">Enter your 6-digit verification code.</p>
+        <p class="text-sm text-slate-300">We emailed you a 6-digit verification code. Check your inbox (and spam), then enter it here.</p>
         <input id="verify-code" class="ui-input" placeholder="6-digit code"/>
         <button type="button" id="btn-verify" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Verify</button>
         <button type="button" id="btn-resend-code" class="w-full text-xs text-teal-400 py-1">Resend code</button>
@@ -402,18 +404,18 @@ const LS_COACH_DONE = 'pcr_v2_coach_done';
 <div id="modal" class="fixed inset-0 z-[100] hidden items-center justify-center p-4 modal-bg">
   <div class="glass-strong rounded-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto p-5 fade-in" id="modal-body"></div>
 </div>
-<!-- 3.0: verification / reset code shown in the middle of the screen (verification_delivery = screen) -->
-<div id="code-overlay" class="fixed inset-0 z-[210] hidden items-center justify-center p-5 modal-bg" role="dialog" aria-modal="true" aria-labelledby="code-ov-title">
-  <div class="glass-strong rounded-2xl w-full max-w-sm p-5 text-center fade-in border border-teal-500/40">
-    <p id="code-ov-title" class="code-ov-text font-semibold text-teal-200">Your code</p>
-    <p id="code-ov-code" class="code-ov-digits my-3 font-mono font-bold text-white select-all"></p>
-    <p id="code-ov-hint" class="text-sm text-slate-300 mb-4"></p>
+<!-- 3.0: admin password prompt (password is checked by the server) -->
+<div id="pass-overlay" class="fixed inset-0 z-[210] hidden items-center justify-center p-5 modal-bg" role="dialog" aria-modal="true" aria-labelledby="pass-ov-title">
+  <form id="pass-ov-form" class="glass-strong rounded-2xl w-full max-w-sm p-5 fade-in border border-teal-500/40 space-y-3" autocomplete="off">
+    <p id="pass-ov-title" class="font-semibold text-slate-100"><i class="fa-solid fa-lock text-teal-400 mr-2"></i>Admin password</p>
+    <p id="pass-ov-why" class="text-xs text-slate-300"></p>
+    <input id="pass-ov-input" type="password" inputmode="numeric" class="ui-input w-full text-center text-lg tracking-widest" placeholder="••••" autocomplete="off"/>
+    <p id="pass-ov-err" class="hidden text-xs text-rose-300"></p>
     <div class="grid grid-cols-2 gap-2">
-      <button type="button" id="code-ov-copy" class="btn-primary rounded-xl py-3 text-base font-semibold text-white min-h-[48px]"><i class="fa-solid fa-copy mr-1.5"></i>Copy</button>
-      <button type="button" id="code-ov-close" class="rounded-xl py-3 text-base font-semibold text-slate-200 border border-slate-600 min-h-[48px]"><i class="fa-solid fa-xmark mr-1.5"></i>Close</button>
+      <button type="button" id="pass-ov-cancel" class="rounded-xl py-2.5 text-sm border border-slate-600 text-slate-300">Cancel</button>
+      <button type="submit" id="pass-ov-ok" class="btn-primary rounded-xl py-2.5 text-sm font-semibold text-white">Continue</button>
     </div>
-    <p id="code-ov-timer" class="text-[11px] text-slate-500 mt-3"></p>
-  </div>
+  </form>
 </div>
 <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-[200] hidden px-4 py-2 rounded-xl text-sm font-medium shadow-lg"></div>
 <div id="print-area" class="hidden"></div>
@@ -425,10 +427,8 @@ const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 
 let state = {
   user: null, tab: 'home', mealPill: 'breakfast', demo: false, backendVersion: null,
-  usersCache: [], usersError: null, usersLoading: false,
-  adminUnlock: null, // 'admin' | 'super' after passcode
-  featureFlags: { feature_live_roster:false, feature_leave_escalation:false, feature_my_schedule:false },
-  superadminPinUnlocked: false
+  token: '', // 3.0: signed session token from login (sent with every request; the server takes identity from it)
+  featureFlags: { feature_live_roster:false, feature_leave_escalation:false, feature_my_schedule:false }
 };
 
 /* Fiji time UTC+12 — never use device local for cutoffs/dates */
@@ -631,12 +631,7 @@ function statusBadge(st){
   const map={pending:'bg-amber-500/20 text-amber-300',pending_approval:'bg-amber-500/20 text-amber-300',pending_hod:'bg-amber-500/20 text-amber-300',pending_manager:'bg-orange-500/20 text-orange-300',approved:'bg-teal-500/20 text-teal-300',confirmed:'bg-teal-500/20 text-teal-300',late_pending:'bg-orange-500/20 text-orange-300',late_approved:'bg-teal-600/30 text-teal-200',rejected:'bg-red-500/20 text-red-300',declined:'bg-red-500/20 text-red-300',cancelled:'bg-slate-600/30 text-slate-400',prepared:'bg-sky-500/20 text-sky-300',served:'bg-emerald-500/20 text-emerald-300',ordered:'bg-teal-500/20 text-teal-300'};
   return '<span class="badge '+(map[s]||'bg-slate-600/30 text-slate-300')+'">'+esc(humanStatus(s))+'</span>';
 }
-function lateStateChip(st){
-  const s=String(st||'');
-  if (s==='late_pending') return '<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-200 text-[10px] font-medium px-2 py-0.5"><i class="fa-solid fa-hourglass-half"></i> Needs chef OK</span>';
-  if (s==='pending' || s==='pending_approval') return '<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-200 text-[10px] font-medium px-2 py-0.5">Waiting approval</span>';
-  return '';
-}
+
 /* ===== C102: special notes / allergies for the kitchen ===== */
 const NOTE_ALLERGY_RE = /\b(allerg\w*|nuts?|peanuts?|gluten|dairy|lactose|shellfish|seafood|eggs?|prawns?|crabs?|lobsters?|fish|soy|soya|sesame|coconuts?)\b/i;
 const NOTE_DIET_RE = /\b(vegetarian|vegan|halal|no\s*pork|no\s*beef|pescatarian)\b/i;
@@ -770,28 +765,8 @@ function fijiWeekdayName(dateStr){
     return WEEKDAY_NAMES[d.getUTCDay()] || '';
   } catch(e){ return ''; }
 }
-function mealCutoffOneLiner(meal, info){
-  info = info || {};
-  const day = fijiWeekdayName(info.serviceDate) || 'tomorrow';
-  const svc = info.serviceDate || '';
-  if (meal==='dinner') {
-    return diOpenLine(info, day, svc);
-  }
-  if (meal==='breakfast') {
-    if (info.open) return 'Breakfast for '+day+(svc?' ('+svc+')':'')+' · open until 1:00pm today';
-    if (info.lateOpen) return 'Breakfast for '+day+' · late until 6:00pm today (needs chef OK)';
-    return 'Breakfast for '+day+' · closed after 6:00pm Fiji';
-  }
-  if (meal==='lunch') {
-    if (info.open) return 'Lunch for '+day+(svc?' ('+svc+')':'')+' · open until 1:00pm today';
-    return 'Lunch for '+day+' · closed at 1:00pm Fiji';
-  }
-  return '';
-}
-function diOpenLine(info, day, svc){
-  if (info.open) return 'Dinner for '+day+(svc?' ('+svc+')':'')+' · open until 8:00pm today';
-  return 'Dinner for '+day+' · closed — late requests need chef OK';
-}
+
+
 function capacityBarHtml(used, cap){
   used = Number(used)||0; cap = Math.max(1, Number(cap)||1);
   const pct = Math.min(100, Math.round(used/cap*100));
@@ -800,7 +775,7 @@ function capacityBarHtml(used, cap){
   return '<div class="mt-1.5"><div class="flex justify-between text-[10px] mb-0.5"><span class="'+(full?'text-rose-300 font-medium':'text-slate-400')+'">'+used+' / '+cap+(full?' · Full':'')+'</span></div>'+
     '<div class="h-1.5 rounded-full bg-slate-800 overflow-hidden"><div class="h-full '+barColor+'" style="width:'+pct+'%"></div></div></div>';
 }
-function loadLastDinner(){ try { return JSON.parse(localStorage.getItem(LS_LAST_DINNER)||'null'); } catch(e){ return null; } }
+
 function saveLastDinner(choice, notes){ try { localStorage.setItem(LS_LAST_DINNER, JSON.stringify({ mealChoice:choice, notes:notes||'', at:Date.now() })); } catch(e){} }
 function loadLastBoat(){ try { return JSON.parse(localStorage.getItem(LS_LAST_BOAT)||'null'); } catch(e){ return null; } }
 function saveLastBoat(seats, direction){ try { localStorage.setItem(LS_LAST_BOAT, JSON.stringify({ seats:Number(seats)||1, direction:direction||'', at:Date.now() })); } catch(e){} }
@@ -1172,15 +1147,7 @@ function paintHomeMyOrdersCard(data){
     '</button>';
   const b = $('#home-myorders-btn'); if (b) b.onclick = function(){ navigate('myorders'); };
 }
-function loadHomeMyOrdersCard(){
-  paintHomeMyOrdersCard(cachePeek('myOrders'));
-  noteSavedPaint('myOrders');
-  bootWait().then(function(){
-    if (state.tab !== 'home') return;
-    if (cacheGet('myOrders')) { paintHomeMyOrdersCard(cachePeek('myOrders')); return; }
-    fetchMyOrdersSummary().then(function(d){ if (state.tab==='home') paintHomeMyOrdersCard(d); }).catch(function(){});
-  });
-}
+
 function maybeShowFirstLoginCoach(){
   try { if (localStorage.getItem(LS_COACH_DONE)==='1') return; } catch(e){ return; }
   if (!state.user || state._coachShown) return;
@@ -1363,9 +1330,10 @@ async function api(action, payload={}) {
   params.set('action', action);
   const body = Object.assign({}, payload);
   if (state.user) {
-    body.requesterEmail = state.user.email;
+    body.requesterEmail = state.user.email; // informational only — the server uses the session token
     body.userEmail = body.userEmail || state.user.email;
   }
+  if (state.token) body.sessionToken = state.token;
   Object.keys(body).forEach(function(key) {
     var v = body[key];
     if (v === undefined || v === null) return;
@@ -1391,6 +1359,8 @@ async function api(action, payload={}) {
   try {
     const json = JSON.parse(text);
     if (!QUEUEABLE[action] && action !== 'login') setDataStatus('fresh');
+    if (json && json.authRequired && state.user) { sessionExpired(); }
+    if (json && json.success === false && /admin password/i.test(String(json.error||''))) forgetAdminPassword();
     return json;
   }
   catch(e) {
@@ -1528,7 +1498,9 @@ async function demoBootstrap(p){
     dailyOps, mealStats, kitchenLite, doThisNow: [], sheetsRead: ['demo'], ms: 0 } };
 }
 function demoArchiveOldRows(p){
-  if (!hasPerm('super_admin') && !passOk(p.passcode, 'super')) return Promise.resolve({ success:false, error:'Superadmin permission required' });
+  const archDry = p.dryRun === true || p.dryRun === 1 || p.dryRun === '1' || p.dryRun === 'true';
+  if (!hasPerm('super_admin')) return Promise.resolve({ success:false, error:'Superadmin permission required' });
+  if (!archDry && !demoPassOk(p.passcode)) return Promise.resolve({ success:false, error:'Admin password required (wrong or missing)' });
   const db = loadDemo();
   const cutoffDate = fijiDateString(addFijiDays(getFijiNow(), -60));
   const runDate = {}; (db.boatRuns||[]).forEach(r => { runDate[r.id] = String(r.date||'').slice(0,10); });
@@ -1555,6 +1527,15 @@ function demoArchiveOldRows(p){
   if (!dry) saveDemo(db);
   return Promise.resolve({ success:true, data: { dryRun: dry, cutoffDate, days: 60, sheets, fijiNow: formatFiji() } });
 }
+/** 3.0 demo: codes are "emailed" into the demo outbox (db.demoMail), never returned to the screen — same as the server. */
+function demoEmailCode(db, email, purpose){
+  const code = String(Math.floor(100000+Math.random()*900000));
+  if (!db.verificationCodes) db.verificationCodes = [];
+  db.verificationCodes.push({ email, code, expiresAt: new Date(Date.now()+30*60*1000).toISOString(), used:false, purpose });
+  (db.demoMail = db.demoMail || []).push({ to: email, subject: purpose === 'reset' ? 'PCR Staff App — Password Reset Code' : 'PCR Staff App — Verification Code',
+    body: 'Your code is: '+code, code, purpose, at: formatFiji() });
+  return code;
+}
 function demoApiCore(action, p) {
   const db = loadDemo();
   const ok = (data) => ({ success:true, data });
@@ -1569,7 +1550,7 @@ function demoApiCore(action, p) {
       const isSuper = email === 'it@paradisecoveresortfiji.com';
       if (!isSuper && !u.verified && !u.active) return Promise.resolve({ success:false, error:'Email not verified', needsVerification:true, email });
       if (!isSuper && !u.active) return Promise.resolve(fail('Account inactive'));
-      return Promise.resolve(ok({ user: publicUser(u), token:'demo' }));
+      return Promise.resolve(ok({ user: publicUser(u), token:'demo-session' }));
     }
     case 'register': {
       const email = String(p.email||'').toLowerCase().trim();
@@ -1594,23 +1575,22 @@ function demoApiCore(action, p) {
       };
       db.users.push(row); saveDemo(db);
       if (photoUrl) saveLocalPhoto(email, photoUrl);
-      const code = String(Math.floor(100000+Math.random()*900000));
-      db.verificationCodes.push({ email, code, expiresAt: Date.now()+1.8e6, used:false, purpose:'verify' });
+      demoEmailCode(db, email, 'verify');
       saveDemo(db);
       return Promise.resolve(ok({
-        needsVerification:true, email,
-        message:'Check your email for a verification code',
-        emailed:false, code
+        needsVerification:true, email, delivery:'email', emailed:true,
+        message:'Check your email ('+email+') for a 6-digit verification code'
       }));
     }
     case 'requestVerification': {
-      const code = String(Math.floor(100000+Math.random()*900000));
-      db.verificationCodes.push({ email:p.email, code, expiresAt: Date.now()+1.8e6, used:false });
+      const em = String(p.email||'').toLowerCase().trim();
+      if (!db.users.find(x => x.email === em)) return Promise.resolve(fail('User not found'));
+      demoEmailCode(db, em, 'verify');
       saveDemo(db);
-      return Promise.resolve(ok({ emailed:false, code, message:'Demo: code returned' }));
+      return Promise.resolve(ok({ emailed:true, delivery:'email', message:'Verification code sent to '+em+' — check your inbox (and spam folder)' }));
     }
     case 'verifyEmail': {
-      const c = db.verificationCodes.find(x => x.email===p.email && x.code===p.code && !x.used);
+      const c = db.verificationCodes.find(x => x.email===p.email && x.code===p.code && !x.used && (x.purpose||'verify')==='verify');
       if (!c) return Promise.resolve(fail('Invalid code'));
       c.used = true;
       const u = db.users.find(x => x.email === p.email);
@@ -1655,7 +1635,7 @@ function demoApiCore(action, p) {
       return Promise.resolve(ok({ user: publicUser(u) }));
     }
     case 'addUser': {
-      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin permission required'));
       const email = String(p.email||'').toLowerCase();
       if (db.users.find(x=>x.email===email)) return Promise.resolve(fail('User already exists'));
       const isPcr = email.includes('@pcr.com');
@@ -1669,7 +1649,7 @@ function demoApiCore(action, p) {
       return Promise.resolve(ok({ user: publicUser(row) }));
     }
     case 'importUsersCSV': {
-      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin permission required'));
       const lines = String(p.csv||'').split(/\r?\n/).filter(l=>l.trim());
       let imported=0, skipped=[];
       lines.forEach((line,idx)=>{
@@ -1702,7 +1682,7 @@ function demoApiCore(action, p) {
     case 'getAlertEmails':
       return Promise.resolve(ok({ emails: db.alertEmails }));
     case 'saveAlertEmails': {
-      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('passcode'));
+      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('Admin password required (wrong or missing)'));
       let emails = p.emails;
       if (typeof emails === 'string') emails = emails.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
       db.alertEmails = emails.map((e,i)=>({ email: typeof e==='string'?e:e.email, label:'Alert '+(i+1), active:true }));
@@ -1863,11 +1843,9 @@ function demoApiCore(action, p) {
       const email = String(p.email||'').trim().toLowerCase();
       const u = db.users.find(x=>x.email===email);
       if (!u) return Promise.resolve(fail('No account found for that email'));
-      const code = String(Math.floor(100000+Math.random()*900000));
-      if (!db.verificationCodes) db.verificationCodes = [];
-      db.verificationCodes.push({ email, code, expiresAt: new Date(Date.now()+30*60*1000).toISOString(), used:false, purpose:'reset' });
+      demoEmailCode(db, email, 'reset');
       saveDemo(db);
-      return Promise.resolve(ok({ emailed:false, code, message:'Demo reset code returned' }));
+      return Promise.resolve(ok({ emailed:true, delivery:'email', message:'Reset code sent to '+email+' — check your inbox (and spam folder)' }));
     }
     case 'resetPassword': {
       const email = String(p.email||'').trim().toLowerCase();
@@ -2117,7 +2095,7 @@ function demoApiCore(action, p) {
       return Promise.resolve(ok({ reminders: rows }));
     }
     case 'addReminder': {
-      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required (2025 or 2026)'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin permission required'));
       const row = { id:uid('rem'), userEmail:'', title:p.title, body:p.body||'', dueDate:p.dueDate||'', done:false,
         priority: (String(p.priority||'normal').toLowerCase()==='high'?'high':'normal'),
         important: !!(p.important===true||p.important==='true'||p.important===1||String(p.priority).toLowerCase()==='high'),
@@ -2125,11 +2103,11 @@ function demoApiCore(action, p) {
       db.reminders.push(row); saveDemo(db); return Promise.resolve(ok({ reminder:row }));
     }
     case 'completeReminder': {
-      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin permission required'));
       const r = db.reminders.find(x=>x.id===p.id); if(r) r.done=true; saveDemo(db); return Promise.resolve(ok({ reminder:r }));
     }
     case 'deleteReminder': {
-      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required (2025 or 2026)'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin permission required'));
       db.reminders = db.reminders.filter(x=>x.id!==p.id); saveDemo(db); return Promise.resolve(ok({}));
     }
     case 'getSuggestions': {
@@ -2154,12 +2132,12 @@ function demoApiCore(action, p) {
       db.suggestions.push(row); saveDemo(db); return Promise.resolve(ok({ suggestion:{ id:row.id, title:row.title, body:row.body, status:row.status, votes:0, likes:0, dislikes:0 } }));
     }
     case 'approveSuggestion': {
-      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin permission required'));
       const s = db.suggestions.find(x=>x.id===p.id); if(!s) return Promise.resolve(fail('not found'));
       s.status='approved'; saveDemo(db); return Promise.resolve(ok({ suggestion:s }));
     }
     case 'rejectSuggestion': {
-      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      if (!passOk(p.passcode)) return Promise.resolve(fail('Admin permission required'));
       const s = db.suggestions.find(x=>x.id===p.id); if(!s) return Promise.resolve(fail('not found'));
       s.status='rejected'; saveDemo(db); return Promise.resolve(ok({ suggestion:s }));
     }
@@ -2297,7 +2275,7 @@ function demoApiCore(action, p) {
       if (period!=='week' && period!=='month') return Promise.resolve(fail('period must be week or month'));
       let department = String(p.department||'').trim() || 'ALL';
       if (!canFullAdmin()) department = state.user.department || department;
-      if (canFullAdmin() && !passOk(p.passcode)) return Promise.resolve(fail('Admin passcode required'));
+      if (canFullAdmin() && !passOk(p.passcode)) return Promise.resolve(fail('Admin permission required'));
       if (!canHod()) return Promise.resolve(fail('HOD/admin required'));
       const chunkIndex = Number(p.chunkIndex||0);
       const totalChunks = Number(p.totalChunks||1);
@@ -2463,10 +2441,11 @@ function demoApiCore(action, p) {
       }));
     }
     case 'setAppSetting': {
-      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('Superadmin passcode 2026 required'));
+      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('Superadmin + admin password required'));
       if (!db.appSettings) db.appSettings = {};
       const key = String(p.key||'');
       let val = p.value;
+      if (key === 'verification_delivery') val = 'email'; // 3.0: codes are always emailed
       if (key.indexOf('feature_')===0) val = (val===true||val==='true'||val===1||val==='1')?'true':'false';
       db.appSettings[key] = String(val);
       state.featureFlags = {
@@ -2480,9 +2459,6 @@ function demoApiCore(action, p) {
     case 'getLiveRoster':
     case 'getDepartmentRoster':
       return Promise.resolve(fail('Live roster unavailable in demo — enable against production sheet'));
-    case 'unlockSuperadminPin': {
-      return Promise.resolve(ok({ unlocked:true, deprecated:true, message:'PIN flow removed' }));
-    }
     case 'getMyOrdersSummary': {
       // C100: read-only, requester's own data only (no workflow processing)
       const email = String((state.user && state.user.email) || p.requesterEmail || '').toLowerCase();
@@ -2492,7 +2468,7 @@ function demoApiCore(action, p) {
     case 'getCutoffInfo':
       return Promise.resolve(ok({ fijiNow:formatFiji(), breakfast:breakfastCutoffInfo(), dinner:dinnerCutoffInfo(), lunch:lunchCutoffInfo() }));
     case 'deleteUser': {
-      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('passcode'));
+      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('Admin password required (wrong or missing)'));
       db.users = db.users.filter(u => u.email !== (p.targetEmail||'').toLowerCase());
       saveDemo(db); return Promise.resolve(ok({ deleted: p.targetEmail }));
     }
@@ -2522,34 +2498,62 @@ function closeModal() {
 }
 $('#modal').addEventListener('click', e => { if (e.target.id==='modal') closeModal(); });
 
-function passLevel(code){
-  if (String(code) === SUPER_PASS) return 'super';
-  if (String(code) === ADMIN_PASS) return 'admin';
-  return null;
-}
+/** Demo only: the phone checks the admin password against a hash (live mode: the server checks it). */
+function demoPassOk(code){ return !!code && code !== 'role' && code === state._demoPass; }
 function passOk(code, level){
-  // C66: role gate — demo accepts role sentinel or legacy codes
-  if (code === 'role' || code === true) {
-    if (level === 'super') return hasPerm('super_admin');
-    return canAdmin() || canHod() || canKitchen();
-  }
-  const lv = passLevel(code);
-  if (!lv) {
-    // no code: allow if current user has role (API calls omit passcode)
-    if (level === 'super') return hasPerm('super_admin');
-    return canAdmin() || canHod() || canKitchen();
-  }
-  if (level === 'super') return lv === 'super';
-  return true;
+  // Demo-mode gate (mirrors Code.gs requirePasscode): role for admin-level actions; superadmin + admin password for super-level.
+  if (level === 'super') return hasPerm('super_admin') && demoPassOk(code);
+  return canAdmin() || canHod() || canKitchen();
 }
-/** C66: no unlock modal — role permissions alone gate Admin. Returns truthy sentinel for legacy call sites. */
-function askPasscode(level){
+function forgetAdminPassword(){ state._adminPass = null; state._demoPass = null; }
+async function sha256Hex(text){
+  try {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text)));
+    return Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+  } catch (e) { return ''; }
+}
+/** 3.0: centred password prompt → resolves the typed password or null. Remembered for 10 minutes (cleared if the server says it is wrong). */
+function askAdminPassword(why){
+  if (state._adminPass && Date.now() - state._adminPass.at < 10*60000) return Promise.resolve(state._adminPass.code);
+  const ov = $('#pass-overlay');
+  if (!ov) return Promise.resolve(null);
+  return new Promise(function(resolve){
+    const inp = $('#pass-ov-input'), err = $('#pass-ov-err');
+    $('#pass-ov-why').textContent = why || 'This action needs the admin password.';
+    inp.value = ''; err.classList.add('hidden');
+    ov.classList.remove('hidden'); ov.classList.add('flex');
+    setTimeout(function(){ try { inp.focus(); } catch(e){} }, 50);
+    const done = function(v){ ov.classList.add('hidden'); ov.classList.remove('flex'); $('#pass-ov-form').onsubmit = null; $('#pass-ov-cancel').onclick = null; resolve(v); };
+    $('#pass-ov-cancel').onclick = function(){ done(null); };
+    $('#pass-ov-form').onsubmit = async function(e){
+      e.preventDefault();
+      const v = String(inp.value || '').trim();
+      if (!v) { err.textContent = 'Enter the admin password'; err.classList.remove('hidden'); return; }
+      if (state.demo) {
+        if ((await sha256Hex(v)) !== DEMO_ADMIN_PASS_SHA256) { err.textContent = 'Wrong admin password'; err.classList.remove('hidden'); inp.select(); return; }
+        state._demoPass = v;
+      }
+      state._adminPass = { code: v, at: Date.now() };
+      done(v);
+    };
+  });
+}
+/**
+ * Role gate for admin screens. level 'admin' → role only (returns the 'role' sentinel);
+ * level 'super' → superadmin role + the admin password (returned so the server can check it).
+ */
+function askPasscode(level, why){
   level = level || 'admin';
   if (level === 'super' && !hasPerm('super_admin')) {
     toast('Superadmin permission required','error');
     return Promise.resolve(null);
   }
-  if (level !== 'super' && !canAdmin() && !canHod() && !canKitchen()) {
+  if (level === 'password') {
+    if (!canFullAdmin()) { toast('Admin permission required','error'); return Promise.resolve(null); }
+    return askAdminPassword(why);
+  }
+  if (level === 'super') return askAdminPassword(why);
+  if (!canAdmin() && !canHod() && !canKitchen()) {
     toast('Admin permission required','error');
     return Promise.resolve(null);
   }
@@ -2558,9 +2562,7 @@ function askPasscode(level){
 function roleLabel(r){
   return ({ super_admin:'Super Admin', admin:'Admin', hod:'HOD', assistant_hod:'Assistant HOD', chef:'Chef', kitchen:'Kitchen', boat_manager:'Boat Manager', boat_captain:'Boat Captain', boat:'Boat', staff:'Staff' })[r]||r;
 }
-function permLabel(p){
-  return roleLabel(p === 'kitchen' ? 'chef' : p === 'boat' ? 'boat_manager' : p);
-}
+
 function userPerms(u){
   u = u || state.user;
   if (!u) return ['staff'];
@@ -2619,9 +2621,20 @@ async function refreshFeatureFlags(){
 }
 
 function saveSession(){ localStorage.setItem(SESSION_KEY, JSON.stringify(state.user)); }
+function saveToken(t){ state.token = t || ''; try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); } catch(e){} }
+function loadToken(){ try { return localStorage.getItem(TOKEN_KEY) || ''; } catch(e){ return ''; } }
+/** 3.0: the server refused our session (expired, password changed, or a pre-3.0 sign-in) → back to the login screen. */
+function sessionExpired(){
+  if (!state.user || state._expiring) return;
+  state._expiring = true;
+  const email = state.user.email;
+  try { doLogout(); } finally { state._expiring = false; }
+  showLoginError('Please sign in again — your session expired or the app was updated.', 'info');
+  const le = $('#login-email'); if (le) le.value = email || '';
+}
 function loadSession(){ try { return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); } catch(e){ return null; } }
-function cacheUsers(users){ try { localStorage.setItem(CACHE_USERS_KEY, JSON.stringify({ at:Date.now(), users })); } catch(e){} }
-function readUsersCache(){ try { const o = JSON.parse(localStorage.getItem(CACHE_USERS_KEY)||'null'); return (o && o.users) || []; } catch(e){ return []; } }
+
+
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
 /* C58 / 2.10.0 — screen data cache.
@@ -2926,7 +2939,7 @@ function doLogout(){
   clearUserDataCache(leaving);
   try { [LS_LAST_DINNER, LS_LAST_BOAT, CACHE_USERS_KEY].forEach(function(k){ localStorage.removeItem(k); }); } catch(e){}
   state.dataStatus = null; state.bootPending = null;
-  state.user = null; state.adminUnlock = null; localStorage.removeItem(SESSION_KEY);
+  state.user = null; forgetAdminPassword(); saveToken(''); localStorage.removeItem(SESSION_KEY);
   if (state._loginHeroTimer) { clearInterval(state._loginHeroTimer); state._loginHeroTimer = null; }
   $('#view-main').classList.add('hidden');
   $('#view-login').classList.remove('hidden');
@@ -2942,25 +2955,7 @@ function openSuggestModal(onDone){
     if (typeof onDone === 'function') onDone();
   };
 }
-function openLeaveRequestModal(){
-  const schLink = featureOn('feature_my_schedule')
-    ? '<button type="button" id="lv-modal-sch" class="w-full text-xs text-teal-400 py-1">Open My Schedule →</button>'
-    : '';
-  openModal('<h3 class="font-semibold mb-3"><i class="fa-solid fa-plane-departure text-teal-400 mr-2"></i>Request leave</h3>'+
-    '<div class="space-y-2">'+
-    '<input id="lv-start" type="date" class="w-full rounded-xl px-3 py-2 text-sm"/>'+
-    '<input id="lv-end" type="date" class="w-full rounded-xl px-3 py-2 text-sm"/>'+
-    '<input id="lv-reason" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Reason"/>'+
-    '<button id="lv-modal-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Submit request</button>'+
-    schLink+'</div>');
-  $('#lv-modal-save').onclick = async () => {
-    const res = await api('requestLeave',{ startDate:$('#lv-start').value, endDate:$('#lv-end').value, reason:$('#lv-reason').value });
-    if (!res.success) toast(res.error,'error');
-    else { closeModal(); toast('Leave submitted','ok'); }
-  };
-  const schBtn = $('#lv-modal-sch');
-  if (schBtn) schBtn.onclick = () => { closeModal(); navigate('schedule'); };
-}
+
 
 function navItems(){
   return [
@@ -3003,7 +2998,8 @@ function navigate(tab){
   if (sticky) sticky.classList.remove('hidden');
   const map = {
     home: renderHome, dinner: renderDinner, lunch: renderLunch, breakfast: renderBreakfast, meals: renderMeals, boat: renderBoat, schedule: renderSchedule,
-    more: renderMore, users: renderUsers, kitchen: renderKitchen, reminders: renderReminders,
+    more: renderMore, users: function(){ navigate('usersv3'); }, // 3.0: Users & roles (v3.js) replaced the 2.x directory
+    kitchen: renderKitchen, reminders: renderReminders,
     suggestions: renderSuggestions, bookings: renderMyBookings, admin: renderAdmin, profile: renderMyProfile,
     myorders: renderMyOrders
   };
@@ -3014,124 +3010,11 @@ function navigate(tab){
   renderDataStatus();
   if (tab === 'home') setTimeout(prefetchNextTabByRole, 400);
 }
-function quickBtn(tab, icon, label, accent){
-  accent = accent || 'from-teal-500/20 to-emerald-600/5';
-  return '<button onclick="navigate(\''+tab+'\')" class="quick-tile ui-card glass rounded-xl p-3 text-left border border-slate-700/80 bg-gradient-to-br '+accent+'">'+
-    '<i class="fa-solid '+icon+' text-teal-400 mb-1.5 text-base"></i><p class="text-xs font-medium text-slate-100">'+label+'</p></button>';
-}
-function renderHome(){
-  const u = state.user;
-  const di = dinnerCutoffInfo(), li = lunchCutoffInfo(), bi = breakfastCutoffInfo();
-  if (state._homeRemTimer) { clearInterval(state._homeRemTimer); state._homeRemTimer = null; }
-  let tiles =
-      quickBtn('boat','fa-ship','Book a Boat','from-sky-500/20 to-cyan-600/5')+
-      quickBtn('bookings','fa-ticket','My Bookings','from-indigo-500/20 to-blue-600/5')+
-      '<button type="button" id="home-btn-leave" class="quick-tile ui-card glass rounded-xl p-3 text-left border border-slate-700/80 bg-gradient-to-br from-amber-500/20 to-orange-600/5">'+
-        '<i class="fa-solid fa-plane-departure text-teal-400 mb-1.5 text-base"></i><p class="text-xs font-medium text-slate-100">Request leave</p></button>'+
-      (featureOn('feature_my_schedule') ? quickBtn('schedule','fa-calendar-check','My Schedule','from-violet-500/20 to-purple-600/5') : '');
-  if (canKitchen()) tiles += quickBtn('kitchen','fa-fire-burner','Kitchen','from-red-500/20 to-orange-700/5');
-  if (canFullAdmin() || canHod()) tiles += quickBtn('users','fa-users','Directory','from-teal-500/20 to-emerald-600/5');
-  if (canAdmin()) tiles += quickBtn('admin','fa-gear','Admin','from-slate-500/20 to-slate-700/5');
 
-  $('#main-content').innerHTML =
-  '<div class="animate-fade-in">'+
-    '<div class="space-y-4 max-w-lg mx-auto">'+
-      '<div class="ui-card glass rounded-xl p-3 flex items-center gap-3">'+
-        homeAvatarHtml(u)+
-        '<div class="min-w-0 flex-1">'+
-          '<h2 class="text-base font-semibold text-slate-100">Bula, '+esc(displayName(u))+'!</h2>'+
-          '<p class="truncate text-[11px] text-slate-400">'+esc(roleLabel(u.role))+' · '+esc(u.department||'—')+(u.village?' · '+esc(u.village):'')+(state.demo?' · demo':'')+'</p>'+
-          '<p class="mt-0.5 text-[10px] text-teal-400/90"><i class="fa-regular fa-clock mr-1"></i>'+formatFiji()+'</p>'+
-        '</div></div>'+
-      '<div id="home-dothisnow" class="hidden"></div>'+
-      '<div id="home-myorders"></div>'+
-      queueHostHtml('*')+
-      '<div class="grid grid-cols-3 gap-2" id="home-meal-grid">'+
-        '<button type="button" onclick="navigate(\'breakfast\')" class="meal-card-btn ui-card glass rounded-xl p-2.5 text-left '+(bi.open||bi.lateOpen?'meal-open-glow border-teal-600/40':'')+'">'+
-          '<p class="text-[9px] uppercase tracking-wide text-slate-400">Breakfast</p>'+
-          '<p class="text-sm font-medium mt-1">'+(bi.open?'<span class="text-teal-400">Open</span>':(bi.lateOpen?'<span class="text-orange-300">Late</span>':'<span class="text-amber-400">Closed</span>'))+'</p>'+
-          '<p class="text-[9px] text-slate-500">'+bi.serviceDate+'</p>'+
-          '<p class="text-[9px] text-slate-500">'+(bi.lateOpen?'until 6pm':'1pm Fiji')+'</p></button>'+
-        '<button type="button" onclick="navigate(\'lunch\')" class="meal-card-btn ui-card glass rounded-xl p-2.5 text-left '+(li.open?'meal-open-glow border-teal-600/40':'')+'">'+
-          '<p class="text-[9px] uppercase tracking-wide text-slate-400">Lunch</p>'+
-          '<p class="text-sm font-medium mt-1">'+(li.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
-          '<p class="text-[9px] text-slate-500">'+li.serviceDate+'</p>'+
-          '<p class="text-[9px] text-slate-500">1pm Fiji</p></button>'+
-        '<button type="button" onclick="navigate(\'dinner\')" class="meal-card-btn ui-card glass rounded-xl p-2.5 text-left '+(di.open?'meal-open-glow border-teal-600/40':'')+'">'+
-          '<p class="text-[9px] uppercase tracking-wide text-slate-400">Dinner</p>'+
-          '<p class="text-sm font-medium mt-1">'+(di.open?'<span class="text-teal-400">Open</span>':'<span class="text-amber-400">Closed</span>')+'</p>'+
-          '<p class="text-[9px] text-slate-500">'+di.serviceDate+'</p>'+
-          '<p class="text-[9px] text-slate-500">8pm Fiji</p></button></div>'+
-      '<div class="grid grid-cols-2 gap-2" id="home-quick-tiles">'+tiles+'</div>'+
-      '<div class="ui-card glass rounded-xl p-3" id="home-reminders-card">'+
-        '<div class="flex items-center justify-between mb-1.5">'+
-          '<p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-bell text-teal-400 mr-1"></i>Reminders</p>'+
-          '<button type="button" onclick="navigate(\'reminders\')" class="text-[10px] text-teal-400">All</button></div>'+
-        '<div id="home-rem-box" class="min-h-[3.25rem]"></div></div>'+
-      '<div class="ui-card glass rounded-xl p-3" id="home-suggestions-card">'+
-        '<div class="flex items-center justify-between mb-1.5">'+
-          '<p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-lightbulb text-amber-300 mr-1"></i>Suggestions</p>'+
-          '<div class="flex items-center gap-2">'+
-            '<button type="button" id="home-share-idea" class="text-[10px] text-amber-300/90"><i class="fa-solid fa-plus mr-0.5"></i>Share idea</button>'+
-            '<button type="button" onclick="navigate(\'suggestions\')" class="text-[10px] text-teal-400">Box</button></div></div>'+
-        '<div id="home-sug-list" class="space-y-2"></div></div>'+
-      '<p class="text-[10px] text-center text-slate-500" id="home-ver">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p>'+
-      '<p class="text-[9px] text-center text-teal-700/70">Paradise Cove Resort · Yasawa Islands Fiji</p></div></div>';
-  bindQueueButtons();
-  const leaveBtn = $('#home-btn-leave');
-  if (leaveBtn) leaveBtn.onclick = () => openLeaveRequestModal();
-  const shareBtn = $('#home-share-idea');
-  if (shareBtn) shareBtn.onclick = () => openSuggestModal(() => loadHomeRemindersAndSuggestions());
-  setTimeout(function(){
-    $$('#home-quick-tiles .quick-tile').forEach(function(el,i){
-      el.style.animation = 'fade-in 0.14s ease-out both';
-      el.style.animationDelay = (i*0.015)+'s';
-    });
-  }, 0);
-  loadHomeRemindersAndSuggestions();
-  paintDoThisNowStrip();
-  loadHomeMyOrdersCard();
-  // refresh strip after meal caches warm
-  setTimeout(paintDoThisNowStrip, 800);
-  setTimeout(paintDoThisNowStrip, 2500);
-  if (hasPerm('super_admin')) loadSuperadminHomeStats();
-  else if (canFullAdmin() || canHod()) loadDailyOpsDashboard();
-  maybeShowFirstLoginCoach();
-}
+/* renderHome(): 2.x version removed in 3.0 — see assets/v3.js */
 
-function paintSuperadminStats(data){
-  const host = document.getElementById('home-meal-grid');
-  if (!host || !data) return false;
-  const r = { data: data };
-    const w = (r.data.weekly && r.data.weekly.totals) || {};
-    const m = (r.data.monthly && r.data.monthly.totals) || {};
-    host.innerHTML =
-      '<div class="col-span-3 glass rounded-xl p-3 space-y-2 border border-teal-600/30">'+
-      '<p class="text-xs font-semibold text-teal-200"><i class="fa-solid fa-chart-column mr-1"></i>Superadmin — meal statistics</p>'+
-      '<div class="grid grid-cols-3 gap-2 text-center">'+
-      '<div><p class="text-[9px] text-slate-400">Week B/L/D</p><p class="text-sm text-teal-300">'+(w.breakfast||0)+'/'+(w.lunch||0)+'/'+(w.dinner||0)+'</p></div>'+
-      '<div><p class="text-[9px] text-slate-400">Month B/L/D</p><p class="text-sm text-teal-300">'+(m.breakfast||0)+'/'+(m.lunch||0)+'/'+(m.dinner||0)+'</p></div>'+
-      '<div><button type="button" onclick="navigate(\'more\')" class="text-[10px] text-teal-400">Admin tools →</button></div></div>'+
-      '<p class="text-[9px] text-slate-500">Staff meal tiles hidden on superadmin home — use More for full tools.</p></div>';
-  return true;
-}
-async function loadSuperadminHomeStats(){
-  const host = document.getElementById('home-meal-grid');
-  if (!host) return;
-  if (!paintSuperadminStats(cachePeek('mealStats')))
-    host.innerHTML = '<div class="col-span-3 glass rounded-xl p-3 text-xs text-slate-400">Loading weekly / monthly meal stats…</div>';
-  await bootWait();
-  if (cacheGet('mealStats')) { paintSuperadminStats(cachePeek('mealStats')); return; }
-  try {
-    const r = await api('getMealStatistics');
-    if (!r || !r.success || !r.data) { if (!cachePeek('mealStats') && document.getElementById('home-meal-grid')) document.getElementById('home-meal-grid').innerHTML = '<div class="col-span-3 text-xs text-rose-300">Stats unavailable'+(r&&r.error?': '+esc(r.error):'')+'</div>'; return; }
-    cacheSet('mealStats', r.data);
-    paintSuperadminStats(r.data);
-  } catch(e){
-    const h = document.getElementById('home-meal-grid');
-    if (h && !cachePeek('mealStats')) h.innerHTML = '<div class="col-span-3 text-xs text-rose-300">'+esc(e.message)+'</div>';
-  }
-}
+
+
 function reminderPriorityScore(r){
   const high = r.important===true||r.important==='TRUE'||r.important===1||String(r.priority||'').toLowerCase()==='high';
   return high ? 1 : 0;
@@ -3143,75 +3026,8 @@ function sortRemindersHome(list){
     return String(b.dueDate||b.createdAt||'').localeCompare(String(a.dueDate||a.createdAt||''));
   });
 }
-async function loadDailyOpsDashboard(){
-  const host = document.querySelector('#home-ops-dashboard');
-  // Insert card after meal status grid if missing
-  let box = host;
-  if (!box) {
-    const mealGrid = document.getElementById('home-meal-grid');
-    if (!mealGrid || !mealGrid.parentElement) return;
-    box = document.createElement('div');
-    box.id = 'home-ops-dashboard';
-    box.className = 'space-y-2';
-    mealGrid.parentElement.insertBefore(box, mealGrid.nextSibling);
-  }
-  const savedOps = cachePeek('dailyOps');
-  if (savedOps && !savedOps.partial) paintDailyOps(savedOps, box);
-  else box.innerHTML = '<div class="glass rounded-xl p-3 space-y-2" data-skeleton="1"><div class="skel-line" style="width:40%"></div><div class="grid grid-cols-3 gap-2"><div class="skel-card h-16"></div><div class="skel-card h-16"></div><div class="skel-card h-16"></div></div></div>';
-  await bootWait();
-  const fresh = cacheGet('dailyOps');
-  if (fresh && !fresh.partial) { if (box.isConnected) paintDailyOps(fresh, box); return; }
-  try {
-    const r = await api('getDailyOpsSummary');
-    if (!r || !r.success || !r.data) {
-      if (!savedOps) box.innerHTML = '<div class="glass rounded-xl p-3 text-xs text-rose-300">Ops summary unavailable'+(r&&r.error?': '+esc(r.error):'')+'</div>';
-      return;
-    }
-    cacheSet('dailyOps', r.data);
-    if (box.isConnected) paintDailyOps(r.data, box);
-  } catch(e){
-    if (!savedOps) box.innerHTML = '<div class="glass rounded-xl p-3 text-xs text-rose-300">'+esc(e.message)+'</div>';
-  }
-}
-function paintDailyOps(d, box){
-  box = box || document.getElementById('home-ops-dashboard');
-  if (!box || !d) return;
-  {
-    function card(label, val, tab, icon, kitMeal){
-      let go = '';
-      if (tab === 'hod-leave') go = 'onclick="renderHodLeaveSummary()"';
-      else if (tab === 'kitchen' && kitMeal) go = 'onclick="state.kitFocus=\''+kitMeal+'\';navigate(\''+tab+'\')"';
-      else if (tab === 'breakfast' || tab === 'lunch' || tab === 'dinner') go = 'onclick="state.mealPill=\''+tab+'\';navigate(\''+tab+'\')"';
-      else if (tab) go = 'onclick="navigate(\''+tab+'\')"';
-      return '<button type="button" '+go+' class="ui-card glass rounded-xl p-2.5 text-left border border-slate-700/80 min-h-[64px]">'+
-        '<p class="text-[9px] uppercase tracking-wide text-slate-400"><i class="fa-solid '+icon+' text-teal-400/80 mr-0.5"></i>'+label+'</p>'+
-        '<p class="text-xl font-semibold text-teal-300 mt-0.5">'+esc(String(val!=null?val:0))+'</p></button>';
-    }
-    box.innerHTML =
-      '<div class="glass rounded-xl p-3 border border-teal-600/30 space-y-2">'+
-      '<p class="text-xs font-semibold text-teal-200"><i class="fa-solid fa-gauge-high mr-1"></i>Today\'s Summary <span class="text-[10px] text-slate-500 font-normal">'+esc(d.date||'')+' Fiji</span></p>'+
-      '<div class="grid grid-cols-3 gap-2">'+
-      card('Breakfast', d.breakfast, canKitchen()?'kitchen':'breakfast', 'fa-mug-saucer', 'breakfast')+
-      card('Lunch', d.lunch, canKitchen()?'kitchen':'lunch', 'fa-sun', 'lunch')+
-      card('Dinner', d.dinner, canKitchen()?'kitchen':'dinner', 'fa-moon', 'dinner')+
-      '</div><div class="grid grid-cols-3 gap-2">'+
-      card('Boat pax', d.boatPax, 'boat', 'fa-ship')+
-      card('Dive', d.divePax, 'boat', 'fa-water')+
-      card('On leave', d.staffOnLeave, 'hod-leave', 'fa-plane-departure')+
-      '</div>'+
-      '<div class="flex flex-wrap gap-2 pt-1">'+
-      '<button type="button" id="ops-copy-boat" class="text-[10px] px-2 py-1 rounded-lg border border-slate-600 text-slate-300"><i class="fa-solid fa-copy mr-1"></i>Copy today\'s boat pax</button>'+
-      '<button type="button" id="ops-copy-dinner" class="text-[10px] px-2 py-1 rounded-lg border border-slate-600 text-slate-300"><i class="fa-solid fa-copy mr-1"></i>Copy dinner totals</button></div>'+
-      (d.emergencyPending?('<p class="text-[10px] text-amber-300"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+d.emergencyPending+' emergency travel pending — see Boat</p>'):'')+
-      '</div>';
-    const cBoat = $('#ops-copy-boat'); if (cBoat) cBoat.onclick = function(){
-      copyPlainText('PCR boat pax today ('+(d.date||'')+' Fiji): '+(d.boatPax!=null?d.boatPax:0)+(d.divePax!=null?' · Dive pax: '+d.divePax:''), 'Boat pax copied');
-    };
-    const cDin = $('#ops-copy-dinner'); if (cDin) cDin.onclick = function(){
-      copyPlainText('PCR dinner totals ('+(d.date||'')+' Fiji): '+(d.dinner!=null?d.dinner:0)+' · Breakfast: '+(d.breakfast!=null?d.breakfast:0)+' · Lunch: '+(d.lunch!=null?d.lunch:0), 'Dinner totals copied');
-    };
-  }
-}
+
+
 
 async function loadHomeRemindersAndSuggestions(){
   const remBox = $('#home-rem-box'), sugList = $('#home-sug-list');
@@ -3313,344 +3129,15 @@ function myNoteLine(o){
   const n = kitchenNoteOf(o);
   return n ? '<div class="text-[11px] text-slate-300 min-w-0">Your note to kitchen: '+noteChipHtml(n)+'</div>' : '';
 }
-async function renderDinner(){
-  const di = dinnerCutoffInfo();
-  state.mealPill = 'dinner';
-  const orderKey = 'dinnerOrders:'+di.serviceDate;
-  const menuKey = 'dinnerMenus:'+di.serviceDate;
-  const cachedOrders = cachePeek(orderKey);
-  const cachedMenus = cachePeek(menuKey);
+/* renderDinner(): 2.x version removed in 3.0 — see assets/v3.js */
 
-  function paintDinner(myDinner, menuPack){
-    myDinner = myDinner || [];
-    menuPack = menuPack || {};
-    // C67: tomorrow / service weekday only — no previous-day optgroups
-    const menuItems = Array.isArray(menuPack)
-      ? menuPack
-      : (menuPack.serviceItems || menuPack.items || []);
-    const wd = (menuPack.serviceWeekday != null) ? Number(menuPack.serviceWeekday) : fijiWeekday(addFijiDays(getFijiNow(),1));
-    let dinnerOpts = '';
-    if (menuItems.length) {
-      dinnerOpts = menuItems.map(it => '<option value="'+esc(it.itemName)+'">'+esc(it.itemName)+'</option>').join('');
-    }
-    if (!dinnerOpts) dinnerOpts = '<option value="Standard">Standard</option><option value="Vegetarian">Vegetarian</option><option value="No meal">No meal</option>';
-    const cur = pickActiveOrder(myDinner); // C100: prefer active row over an older cancelled one
-    const lateChip = cur ? lateStateChip(cur.status) : '';
-    const statusHtml = cur ? ('<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(cur.mealChoice)+'</strong> '+statusBadge(cur.status)+(cur.late?' <span class="text-amber-400">LATE</span>':'')+(lateChip?' '+lateChip:'')+'</p>') : '';
-    const last = loadLastDinner();
-    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="dinner-root">'+
-      mealPillsHtml('dinner')+queueHostHtml('dinner')+
-      '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-moon text-teal-400 mr-2"></i>Dinner</h3>'+
-      '<p class="text-[11px] text-teal-300/90 font-medium">'+esc(mealCutoffOneLiner('dinner', di))+'</p>'+
-      '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+di.serviceDate+'</strong> · '+WEEKDAY_NAMES[wd]+'</p></div>'+
-      statusHtml+
-      (cur && !isInactiveMealStatus(cur.status) ? myNoteLine(cur) : '')+
-      '<label class="text-[10px] text-slate-400">Meal choice (tomorrow\'s menu)</label>'+
-      '<select id="dinner-choice" class="w-full rounded-xl px-3 py-2 text-sm">'+dinnerOpts+'</select>'+
-      mealNoteInputHtml('dinner-notes', (cur && !isInactiveMealStatus(cur.status)) ? kitchenNoteOf(cur) : '')+
-      (last && last.mealChoice?'<button type="button" id="btn-dinner-same" class="w-full rounded-xl py-2 text-xs text-teal-300 border border-teal-500/35">Same as last time ('+esc(last.mealChoice)+')</button>':'')+
-      '<button id="btn-dinner" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">'+(di.open?'Book dinner':'Submit late dinner request')+'</button>'+
-      (cur && cur.status!=='cancelled' && cur.status!=='rejected'?'<button id="btn-dinner-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel dinner</button>':'')+
-      (!di.open?'<p class="text-[10px] text-amber-300/80">For staff who missed the 8pm Fiji cutoff for tomorrow\'s dinner. Late requests need chef/admin approval.</p>':'')+
-      '</div></div>';
-    if (cur && cur.mealChoice) {
-      const sel = $('#dinner-choice');
-      if (sel) {
-        let found=false;
-        [...sel.options].forEach(o=>{ if(o.value===cur.mealChoice){ o.selected=true; found=true; }});
-        if (!found) { const o=document.createElement('option'); o.value=cur.mealChoice; o.textContent=cur.mealChoice; o.selected=true; sel.appendChild(o); }
-      }
-    }
-    bindMealPills('#dinner-root'); bindQueueButtons();
-    if (cur && cur.mealChoice) { /* already set above */ }
-    else if (last && last.mealChoice) {
-      const sel = $('#dinner-choice');
-      if (sel) {
-        let found=false;
-        [...sel.options].forEach(o=>{ if(o.value===last.mealChoice){ o.selected=true; found=true; }});
-        if (!found) { const o=document.createElement('option'); o.value=last.mealChoice; o.textContent=last.mealChoice; o.selected=true; sel.appendChild(o); }
-      }
-      if ($('#dinner-notes') && last.notes) $('#dinner-notes').value = last.notes;
-    }
-    const sameBtn = $('#btn-dinner-same');
-    if (sameBtn) sameBtn.onclick = function(){
-      if (!last) return;
-      const sel = $('#dinner-choice');
-      if (sel) {
-        let found=false;
-        [...sel.options].forEach(o=>{ if(o.value===last.mealChoice){ o.selected=true; found=true; }});
-        if (!found) { const o=document.createElement('option'); o.value=last.mealChoice; o.textContent=last.mealChoice; o.selected=true; sel.appendChild(o); }
-      }
-      if ($('#dinner-notes')) $('#dinner-notes').value = last.notes||'';
-      toast('Loaded last dinner choice','ok');
-    };
-    $('#btn-dinner').onclick = async () => {
-      const choice = $('#dinner-choice').value, notes = mealNoteValue('dinner-notes') || '';
-      const r = await sendOrQueue('placeDinnerOrder',{ mealChoice:choice, notes:notes, specialNote:notes, allowLate: !di.open },
-        { label: 'Dinner — '+choice+' ('+di.serviceDate+')', serviceDate: di.serviceDate });
-      if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
-      saveLastDinner(choice, notes);
-      if (r.queued) { toast('No connection — dinner saved on this phone, will send automatically','info'); renderDinner(); return; }
-      cacheInvalidate([orderKey, 'kitchenDashboard']);
-      toast((r.data&&r.data.late)?'Late dinner submitted — waiting chef':'Dinner booked','ok'); renderDinner();
-    };
-    const cancelDin = $('#btn-dinner-cancel');
-    if (cancelDin) cancelDin.onclick = () => softConfirmCancel('Cancel your dinner order?', async () => {
-      const prev = cur;
-      const r = await sendOrQueue('cancelMealOrder',{ meal:'dinner' }, { label: 'Cancel dinner ('+di.serviceDate+')', serviceDate: di.serviceDate });
-      if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
-      if (r.queued) { toast('No connection — cancel saved, will send automatically','info'); renderDinner(); return; }
-      cacheInvalidate([orderKey, 'kitchenDashboard']);
-      toastWithUndo('Dinner cancelled', async () => {
-        if (!prev) return;
-        const pn = kitchenNoteOf(prev);
-        await api('placeDinnerOrder',{ mealChoice:prev.mealChoice, notes:pn, specialNote:pn, allowLate: !di.open });
-        cacheInvalidate([orderKey, 'kitchenDashboard']);
-        renderDinner();
-      });
-      renderDinner();
-    });
-  }
 
-  if (cachedOrders || cachedMenus) { paintDinner(cachedOrders || [], cachedMenus || []); noteSavedPaint(orderKey); }
-  // else skeleton from navigate remains
-  await bootWait();
-  if (state.tab !== 'meals' || state.mealPill !== 'dinner') return;
-  if (cacheGet(orderKey) && cacheGet(menuKey)) { paintDinner(cachePeek(orderKey), cachePeek(menuKey)); return; }
-  try {
-    const [d,m] = await Promise.all([
-      api('getDinnerOrders',{ userEmail: state.user.email, serviceDate: di.serviceDate }),
-      api('getDinnerMenus',{ serviceDate: di.serviceDate, includePreviousDay:false })
-    ]);
-    const myDinner = (d.data && d.data.orders) || [];
-    const menuPack = (m && m.data) ? m.data : { items: (d.data && d.data.menus) || [] };
-    if (!menuPack.items && d.data && d.data.menus) menuPack.items = d.data.menus;
-    cacheSet(orderKey, myDinner);
-    cacheSet(menuKey, menuPack);
-    paintDinner(myDinner, menuPack);
-  } catch(e){
-    if (!(cachedOrders || cachedMenus)) {
-      $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto"><div class="glass rounded-xl p-4 text-sm text-red-300">Couldn\'t reach kitchen / server — try again<button type="button" id="din-retry" class="block mt-2 text-teal-400 text-xs">Retry</button></div></div>';
-      const rb = $('#din-retry'); if (rb) rb.onclick = () => renderDinner();
-      toastNetworkError(() => renderDinner());
-    }
-  }
-}
 
-function mealPillsHtml(active){
-  const pills = [
-    { id:'breakfast', label:'Breakfast', icon:'fa-mug-saucer' },
-    { id:'lunch', label:'Lunch', icon:'fa-sun' },
-    { id:'dinner', label:'Dinner', icon:'fa-moon' }
-  ];
-  return '<div class="flex gap-1.5 mb-3">'+pills.map(p =>
-    '<button type="button" class="meal-pill flex-1 rounded-xl px-2 py-2 text-[11px] font-medium border '+(active===p.id?'bg-teal-600/30 border-teal-500/50 text-teal-200':'bg-slate-900/40 border-slate-700/60 text-slate-400')+'" data-pill="'+p.id+'">'+
-    '<i class="fa-solid '+p.icon+' mr-1"></i>'+p.label+'</button>'
-  ).join('')+'</div>'+
-  '<div class="flex justify-end -mt-2 mb-2"><button type="button" onclick="navigate(\'myorders\')" class="text-[11px] text-teal-400 px-1 min-h-[32px]"><i class="fa-solid fa-list-check mr-1"></i>My Orders →</button></div>';
-}
-function bindMealPills(rootSel){
-  $$((rootSel||'')+' .meal-pill').forEach(b => b.onclick = () => {
-    state.mealPill = b.dataset.pill;
-    renderMeals();
-  });
-}
-function renderMeals(){
-  const pill = state.mealPill || 'breakfast';
-  if (pill === 'dinner') return renderDinner();
-  if (pill === 'lunch') return renderLunch();
-  return renderBreakfast();
-}
+/* renderMeals(): 2.x version removed in 3.0 — see assets/v3.js */
 
-async function renderBreakfast(){
-  state.mealPill = 'breakfast';
-  const bi = breakfastCutoffInfo();
-  const cacheKey = 'breakfastOrders:'+bi.serviceDate;
-  const cached = cachePeek(cacheKey);
+/* renderBreakfast(): 2.x version removed in 3.0 — see assets/v3.js */
 
-  function paintBreakfast(myOrders){
-    myOrders = (myOrders || []).filter(o => o.status !== 'cancelled');
-    const cur = myOrders[0];
-    let formHtml = '';
-    const st = cur && cur.status;
-    const waitingLate = st === 'late_pending';
-    const declined = st === 'rejected' || st === 'declined';
-    const counted = cur && (st === 'ordered' || st === 'late_approved' || st === 'approved');
-    const bfNote = (cur && !declined) ? kitchenNoteOf(cur) : '';
-    if (bi.open) {
-      formHtml =
-        '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
-        mealNoteInputHtml('bf-note', bfNote)+
-        '<button id="btn-breakfast" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">'+(counted?'Update / already counted':'Count me in')+'</button>'+
-        (cur && !declined?'<button id="btn-breakfast-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
-    } else if (bi.lateOpen) {
-      if (waitingLate) {
-        formHtml =
-          '<div class="rounded-xl border border-orange-500/35 bg-orange-500/10 p-3 space-y-1">'+
-          '<p class="text-sm font-medium text-orange-300"><i class="fa-solid fa-hourglass-half mr-1"></i>Waiting approval from chef</p>'+
-          '<p class="text-[10px] text-orange-200/80">Late breakfast request submitted. Chef/admin will approve before 6pm Fiji.</p></div>'+
-          '<button id="btn-breakfast-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel late request</button>';
-      } else if (counted) {
-        formHtml = '<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for breakfast'+(st==='late_approved'?' (late approved)':'')+'</p>';
-      } else if (declined) {
-        formHtml =
-          '<div class="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3">'+
-          '<p class="text-sm text-rose-300">order declined please see hod or chef</p></div>'+
-          mealNoteInputHtml('bf-note', '')+
-          '<button id="btn-breakfast-late" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white mt-2 min-h-[48px]">Request late breakfast again</button>';
-      } else {
-        formHtml =
-          '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">'+
-          '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-clock mr-1"></i>Normal breakfast closed (1pm)</p>'+
-          '<p class="text-[10px] text-amber-200/80">Late requests open until 6:00 PM Fiji — needs chef approval.</p>'+
-          mealNoteInputHtml('bf-note', '')+
-          '<button id="btn-breakfast-late" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">Request late breakfast</button></div>';
-      }
-    } else {
-      formHtml =
-        '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1">'+
-        '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-lock mr-1"></i>Breakfast fully closed after 6pm Fiji</p>'+
-        (declined?'<p class="text-xs text-rose-300 mt-1">order declined please see hod or chef</p>':'')+
-        '<p class="text-[10px] text-amber-200/80">No new late requests. See HOD or chef if needed.</p></div>';
-    }
-    const statusLine = bi.open ? 'Open — count in before 1:00 PM Fiji'
-      : (bi.lateOpen ? 'Late window — until 6:00 PM Fiji' : 'Fully closed');
-    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="breakfast-root">'+
-      mealPillsHtml('breakfast')+queueHostHtml('breakfast')+
-      '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-mug-saucer text-teal-400 mr-2"></i>Breakfast</h3>'+
-      '<p class="text-[11px] text-teal-300/90 font-medium">'+esc(mealCutoffOneLiner('breakfast', bi))+'</p>'+
-      '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+bi.serviceDate+'</strong> (tomorrow)</p></div>'+
-      (counted?'<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for breakfast '+statusBadge(st)+'</p>':'')+
-      (waitingLate?('<div class="mb-1">'+lateStateChip('late_pending')+'</div>'):'')+
-      (bfNote ? myNoteLine(cur) : '')+
-      formHtml+
-      '</div></div>';
-    bindMealPills('#breakfast-root'); bindQueueButtons();
-    async function placeBf(allowLate){
-      const payload = allowLate ? { allowLate:true } : {};
-      const nv = mealNoteValue('bf-note');
-      if (nv !== undefined) { payload.specialNote = nv; payload.notes = nv; }
-      const r = await sendOrQueue('placeBreakfastOrder', payload, { label: (allowLate?'Late breakfast':'Breakfast')+' ('+bi.serviceDate+')', serviceDate: bi.serviceDate });
-      if (!r.success) { toast(r.error,'error'); return; }
-      if (r.queued) { toast('No connection — breakfast saved on this phone, will send automatically','info'); renderBreakfast(); return; }
-      cacheInvalidate([cacheKey, 'kitchenDashboard']);
-      toast(allowLate?'Late breakfast submitted — waiting chef':'Counted in for breakfast','ok');
-      renderBreakfast();
-    }
-    const btn = $('#btn-breakfast');
-    if (btn) btn.onclick = () => placeBf(false);
-    const lateBtn = $('#btn-breakfast-late');
-    if (lateBtn) lateBtn.onclick = () => placeBf(true);
-    const cancel = $('#btn-breakfast-cancel');
-    if (cancel) cancel.onclick = () => softConfirmCancel('Cancel breakfast count?', async () => {
-      const r = await sendOrQueue('cancelMealOrder',{ meal:'breakfast' }, { label: 'Cancel breakfast ('+bi.serviceDate+')', serviceDate: bi.serviceDate });
-      if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
-      if (r.queued) { toast('No connection — cancel saved, will send automatically','info'); renderBreakfast(); return; }
-      cacheInvalidate([cacheKey, 'kitchenDashboard']);
-      toastWithUndo('Breakfast cancelled', async () => {
-        const up = waitingLate?{allowLate:true}:{};
-        if (bfNote) { up.specialNote = bfNote; up.notes = bfNote; }
-        await api('placeBreakfastOrder', up);
-        cacheInvalidate([cacheKey, 'kitchenDashboard']);
-        renderBreakfast();
-      });
-      renderBreakfast();
-    });
-  }
-
-  if (cached) { paintBreakfast(cached); noteSavedPaint(cacheKey); }
-  await bootWait();
-  if (state.tab !== 'meals' || state.mealPill !== 'breakfast') return;
-  if (cacheGet(cacheKey)) { paintBreakfast(cachePeek(cacheKey)); return; }
-  try {
-    const r = await api('getBreakfastOrders',{ userEmail: state.user.email, serviceDate: bi.serviceDate });
-    const myOrders = ((r.data && r.data.orders) || []);
-    cacheSet(cacheKey, myOrders);
-    paintBreakfast(myOrders);
-  } catch(e){
-    if (!cached) {
-      $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto"><div class="glass rounded-xl p-4 text-sm text-red-300">Couldn\'t reach kitchen / server — try again<button type="button" id="bf-retry" class="block mt-2 text-teal-400 text-xs">Retry</button></div></div>';
-      const rb=$('#bf-retry'); if(rb) rb.onclick=()=>renderBreakfast();
-      toastNetworkError(()=>renderBreakfast());
-    }
-  }
-}
-
-async function renderLunch(){
-  state.mealPill = 'lunch';
-  const li = lunchCutoffInfo();
-  const cacheKey = 'lunchOrders:'+li.serviceDate;
-  const cached = cachePeek(cacheKey);
-
-  function paintLunch(myLunch){
-    myLunch = (myLunch || []).filter(o => o.status !== 'cancelled');
-    const cur = myLunch[0];
-    const luNote = cur ? kitchenNoteOf(cur) : '';
-    let formHtml = '';
-    if (li.open) {
-      formHtml =
-        '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
-        mealNoteInputHtml('lu-note', luNote)+
-        '<button id="btn-lunch" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">'+(cur?'Update / already counted':'Count me in')+'</button>'+
-        (cur?'<button id="btn-lunch-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
-    } else {
-      formHtml =
-        '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1">'+
-        '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-lock mr-1"></i>Lunch closed at 1pm Fiji</p>'+
-        '<p class="text-[10px] text-amber-200/80">Closed at 1:00 PM Fiji today for tomorrow\'s lunch. No staff late path.</p>'+
-        '</div>';
-    }
-    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="lunch-root">'+
-      mealPillsHtml('lunch')+queueHostHtml('lunch')+
-      '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-sun text-teal-400 mr-2"></i>Lunch</h3>'+
-      '<p class="text-[11px] text-teal-300/90 font-medium">'+esc(mealCutoffOneLiner('lunch', li))+'</p>'+
-      '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+li.serviceDate+'</strong> (tomorrow)</p></div>'+
-      (cur?'<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for lunch '+statusBadge(cur.status)+'</p>':'')+
-      (cur ? myNoteLine(cur) : '')+
-      formHtml+
-      '</div></div>';
-    bindMealPills('#lunch-root'); bindQueueButtons();
-    const btn = $('#btn-lunch');
-    if (btn) btn.onclick = async () => {
-      const nv = mealNoteValue('lu-note') || '';
-      const r = await sendOrQueue('placeLunchOrder',{ specialNote:nv, notes:nv }, { label: 'Lunch ('+li.serviceDate+')', serviceDate: li.serviceDate });
-      if (!r.success) { toast(r.error,'error'); return; }
-      if (r.queued) { toast('No connection — lunch saved on this phone, will send automatically','info'); renderLunch(); return; }
-      cacheInvalidate([cacheKey, 'kitchenDashboard']);
-      toast(cur?'Lunch updated':'Counted in for lunch','ok'); renderLunch();
-    };
-    const cancel = $('#btn-lunch-cancel');
-    if (cancel) cancel.onclick = () => softConfirmCancel('Cancel lunch count?', async () => {
-      const r = await sendOrQueue('cancelMealOrder',{ meal:'lunch' }, { label: 'Cancel lunch ('+li.serviceDate+')', serviceDate: li.serviceDate });
-      if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
-      if (r.queued) { toast('No connection — cancel saved, will send automatically','info'); renderLunch(); return; }
-      cacheInvalidate([cacheKey, 'kitchenDashboard']);
-      toastWithUndo('Lunch cancelled', async () => {
-        await api('placeLunchOrder', luNote ? { specialNote:luNote, notes:luNote } : {});
-        cacheInvalidate([cacheKey, 'kitchenDashboard']);
-        renderLunch();
-      });
-      renderLunch();
-    });
-  }
-
-  if (cached) { paintLunch(cached); noteSavedPaint(cacheKey); }
-  await bootWait();
-  if (state.tab !== 'meals' || state.mealPill !== 'lunch') return;
-  if (cacheGet(cacheKey)) { paintLunch(cachePeek(cacheKey)); return; }
-  try {
-    const l = await api('getLunchOrders',{ userEmail: state.user.email, serviceDate: li.serviceDate });
-    const myLunch = ((l.data && l.data.orders) || []);
-    cacheSet(cacheKey, myLunch);
-    paintLunch(myLunch);
-  } catch(e){
-    if (!cached) {
-      $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto"><div class="glass rounded-xl p-4 text-sm text-red-300">Couldn\'t reach kitchen / server — try again<button type="button" id="lu-retry" class="block mt-2 text-teal-400 text-xs">Retry</button></div></div>';
-      const rb=$('#lu-retry'); if(rb) rb.onclick=()=>renderLunch();
-      toastNetworkError(()=>renderLunch());
-    }
-  }
-}
+/* renderLunch(): 2.x version removed in 3.0 — see assets/v3.js */
 
 async function renderBoat(){
   const cachedRuns = cachePeek('boatRuns');
@@ -4058,7 +3545,7 @@ async function renderSchedule(){
         (l.notifyNote?'<p class="text-[10px] text-amber-200/80 mt-1">'+esc(l.notifyNote)+'</p>':'')+'</div>';
     });
     html += '</div>';
-    if (canHod() || canFullAdmin()) html += '<button id="btn-lv-admin" class="w-full text-xs text-teal-400 py-2">Leave inbox →</button>';
+    if (canHod() || canFullAdmin()) html += '<button id="btn-lv-admin" class="w-full text-xs text-teal-400 py-2">Approvals inbox →</button>';
     $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="sch-root">'+html+'</div>';
 
     $('#btn-leave').onclick = async () => {
@@ -4199,7 +3686,7 @@ function ensureSheetJS(){
   if (_xlsxReady) return _xlsxReady;
   _xlsxReady = new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+    s.src = './assets/vendor/xlsx.full.min.js';
     s.async = true;
     s.onload = () => resolve();
     s.onerror = () => { _xlsxReady = null; reject(new Error('Failed to load SheetJS')); };
@@ -4214,11 +3701,11 @@ function ensurePdfJs(){
   if (_pdfjsReady) return _pdfjsReady;
   _pdfjsReady = new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.src = './assets/vendor/pdf.min.js';
     s.async = true;
     s.onload = () => {
       try {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        pdfjsLib.GlobalWorkerOptions.workerSrc = './assets/vendor/pdf.worker.min.js';
       } catch(_){}
       resolve();
     };
@@ -4407,184 +3894,17 @@ async function renderDepartmentRoster(){
   openModal(html);
 }
 
-async function renderHodLeaveSummary(){
-  paintSkeleton({ cards:3, title:'Leave summary' });
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="hod-leave-root">'+
-    '<div class="skel-card space-y-2"><div class="skel-line" style="width:45%"></div><div class="skel-line" style="width:90%"></div></div>'+
-    '<div class="skel-card space-y-2"><div class="skel-line" style="width:55%"></div></div></div>';
-  try {
-    const r = await api('getHodLeaveSummary', canFullAdmin() ? {} : { department: state.user.department });
-    if (!r.success) { toast(r.error||'Failed','error'); return; }
-    const d = r.data || {};
-    const c = d.counts || {};
-    const reqs = d.requests || [];
-    let html = '<div class="fade-in max-w-lg mx-auto space-y-3">'+
-      '<h3 class="font-semibold text-sm"><i class="fa-solid fa-clipboard-list text-teal-400 mr-2"></i>Leave summary</h3>'+
-      '<p class="text-[10px] text-slate-400">Department: <strong>'+esc(d.department||'All')+'</strong>'+(d.escalation?' · escalation ON':'')+'</p>'+
-      '<div class="grid grid-cols-3 gap-2 text-center">'+
-      '<div class="glass rounded-xl p-2"><p class="text-[9px] text-slate-400">Pending</p><p class="text-lg text-amber-300">'+(c.pending||0)+(c.pending_hod?('+'+(c.pending_hod)):'' )+'</p></div>'+
-      '<div class="glass rounded-xl p-2"><p class="text-[9px] text-slate-400">Approved</p><p class="text-lg text-teal-300">'+(c.approved||0)+'</p></div>'+
-      '<div class="glass rounded-xl p-2"><p class="text-[9px] text-slate-400">Rejected</p><p class="text-lg text-rose-300">'+(c.rejected||0)+'</p></div></div>'+
-      '<div class="space-y-2"><h4 class="text-xs font-semibold text-slate-300">Requests</h4>';
-    if (!reqs.length) html += '<p class="text-xs text-sand-200/50">No leave requests for this department</p>';
-    reqs.slice().sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).forEach(l => {
-      html += '<div class="glass rounded-xl p-3 text-sm"><p class="font-medium">'+esc(l.userName)+'</p>'+
-        '<p class="text-xs">'+esc(l.startDate)+' → '+esc(l.endDate)+'</p>'+
-        '<p class="text-xs text-sand-200/60">'+esc(l.reason||'')+'</p>'+statusBadge(l.status)+'</div>';
-    });
-    html += '</div><button onclick="renderLeaveAdmin()" class="w-full text-center text-xs text-teal-400 py-2">Open leave inbox →</button>';
-    html += '<button onclick="navigate(\'more\')" class="w-full text-center text-xs text-slate-500 py-1">← Back to More</button></div>';
-    $('#main-content').innerHTML = html;
-  } catch(e){
-    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto"><div class="glass rounded-xl p-4 text-sm text-red-300">'+esc(e.message)+'</div></div>';
-  }
-}
 
-async function renderLeaveAdmin(){
-  await refreshFeatureFlags();
-  const escOn = featureOn('feature_leave_escalation');
-  // C77: read-only inbox open without passcode; approve/reject still role-gated (askPasscode on action)
-  let passcode = null;
-  if (!canHod() && !canFullAdmin()) {
-    toast('HOD / admin permission required','error');
-    return;
-  }
-  const r = await api('getLeaveRequests', escOn && canHod() && !canFullAdmin() ? { inbox:'hod', department: state.user.department } : {});
-  const reqs = (r.data && r.data.requests) || [];
-  let pending;
-  if (escOn) {
-    if (canFullAdmin()) pending = reqs.filter(x => x.status==='pending_manager' || x.status==='pending' || x.status==='pending_hod');
-    else pending = reqs.filter(x => x.status==='pending_hod');
-  } else {
-    pending = reqs.filter(x => x.status==='pending');
-  }
-  let html = '<h3 class="font-semibold mb-1">Leave inbox</h3><p class="text-[10px] text-slate-400 mb-3">'+(escOn?'Escalation on: HOD → managers':'Simple admin review')+'</p><div class="space-y-2">';
-  if (!pending.length) html += '<p class="text-xs text-sand-200/50">No pending requests</p>';
-  pending.forEach(l => {
-    const hodStep = escOn && l.status==='pending_hod';
-    html += '<div class="glass rounded-xl p-3 text-sm"><p class="font-medium">'+esc(l.userName)+' · '+esc(l.department)+'</p>'+
-      '<p class="text-xs">'+esc(l.startDate)+' → '+esc(l.endDate)+'</p><p class="text-xs text-sand-200/60">'+esc(l.reason)+'</p>'+statusBadge(l.status)+
-      '<input class="w-full mt-2 rounded-lg px-2 py-1 text-xs bg-slate-900 border border-slate-600 lv-note" data-id="'+l.id+'" placeholder="Note (optional)"/>'+
-      '<div class="flex gap-2 mt-2">'+
-      '<button class="flex-1 btn-primary rounded-lg py-1 text-xs text-white lv-ok" data-id="'+l.id+'" data-hod="'+(hodStep?'1':'0')+'">'+(hodStep?'Approve → managers':'Approve')+'</button>'+
-      '<button class="flex-1 bg-red-700/80 rounded-lg py-1 text-xs lv-no" data-id="'+l.id+'">Disapprove</button></div></div>';
-  });
-  html += '</div>';
-  openModal(html);
-  const noteFor = id => { const el = $$('.lv-note').find(x=>x.dataset.id===id); return el ? el.value : ''; };
-  $$('.lv-ok').forEach(b => b.onclick = async () => {
-    passcode = await askPasscode(); if (!passcode) return;
-    const payload = { id:b.dataset.id, status:'approved', note: noteFor(b.dataset.id), passcode };
-    const res = await api('reviewLeave', payload);
-    if (!res.success) toast(res.error,'error'); else { toast(b.dataset.hod==='1'?'Forwarded to managers':'Approved','ok'); closeModal(); }
-  });
-  $$('.lv-no').forEach(b => b.onclick = async () => {
-    passcode = await askPasscode(); if (!passcode) return;
-    const payload = { id:b.dataset.id, status:'rejected', note: noteFor(b.dataset.id), passcode };
-    const res = await api('reviewLeave', payload);
-    if (!res.success) toast(res.error,'error'); else { toast('Rejected — staff notified when possible','ok'); closeModal(); }
-  });
-}
 
-function moreRow(tab, icon, label){
-  return '<button onclick="navigate(\''+tab+'\')" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid '+icon+' text-teal-400 w-5"></i><span class="flex-1">'+label+'</span><i class="fa-solid fa-chevron-right text-sand-200/30 text-xs"></i></button>';
-}
-function renderMore(){
-  const isSuper = hasPerm('super_admin');
-  const isAdm = canFullAdmin();
-  const isChef = hasAnyPerm(['chef','kitchen'], state.user);
-  const isHodOnly = canHod() && !isAdm;
-  let html = '<div class="fade-in max-w-lg mx-auto space-y-2">'+
-    (featureOn('feature_my_schedule') ? moreRow('schedule','fa-calendar','My schedule / leave') : '')+
-    moreRow('myorders','fa-list-check','My Orders (yesterday · today · tomorrow)')+
-    moreRow('profile','fa-user','My profile / photo')+
-    moreRow('reminders','fa-bell','Reminders (staff-wide)')+moreRow('suggestions','fa-lightbulb','Suggestion box')+
-    moreRow('bookings','fa-ticket','My boat bookings');
+/** 3.0: the 2.x leave modal is replaced by the Approvals inbox (two-step leave: department → management). */
+function renderLeaveAdmin(){ closeModal(); navigate('approvals'); }
 
-  // Admin More (ordered) — only after role assigned
-  if (isAdm) {
-    html += '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-3">Admin</p>';
-    html += '<button onclick="renderMealStatsPage()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-chart-column text-teal-400 w-5"></i><span class="flex-1">Statistics (weekly meals + boats)</span></button>';
-    html += moreRow('bookings','fa-ship','My boat bookings');
-    if (canKitchen()) html += moreRow('kitchen','fa-fire-burner','Kitchen Admin');
-    html += moreRow('admin','fa-anchor','Boat Admin');
-    html += moreRow('users','fa-users','Staff Directory / Permissions');
-    html += moreRow('reminders','fa-bullhorn','Broadcast Reminders');
-    html += moreRow('suggestions','fa-lightbulb','Review Suggestions');
-    html += '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-inbox text-teal-400 w-5"></i><span class="flex-1">Requested Inbox (pending leave)</span></button>';
-    html += '<button onclick="renderHodLeaveSummary()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-clipboard-list text-teal-400 w-5"></i><span class="flex-1">Leave summary (all / filter)</span></button>';
-    if (isSuper) html += moreRow('admin','fa-envelope','Manage Alert Emails');
-  }
 
-  // Chef → Kitchen Admin
-  if (isChef && !isAdm) {
-    html += '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-3">Kitchen</p>';
-    html += moreRow('kitchen','fa-fire-burner','Kitchen Admin');
-  } else if (canKitchen() && !isAdm && !isChef) {
-    html += moreRow('kitchen','fa-fire-burner','Kitchen dashboard');
-  }
+/* renderMore(): 2.x version removed in 3.0 — see assets/v3.js */
 
-  // HOD section — leave summary reachable even if feature_my_schedule OFF
-  if (isHodOnly || (canHod() && !isAdm)) {
-    html += '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-3">HOD</p>';
-    html += '<button onclick="renderHodLeaveSummary()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-clipboard-list text-teal-400 w-5"></i><span class="flex-1">Department leave summary</span></button>';
-    html += '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-inbox text-teal-400 w-5"></i><span class="flex-1">Department leave requests</span></button>';
-    html += '<button onclick="openMealOnBehalfModal()" class="glass w-full rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-left"><i class="fa-solid fa-utensils text-teal-400 w-5"></i><span class="flex-1">Meal on behalf</span></button>';
-    if (featureOn('feature_my_schedule')) html += moreRow('schedule','fa-file-arrow-up','Roster upload / My Schedule');
-    if (canHod()) html += moreRow('users','fa-users','Staff directory');
-  }
 
-  if (isStaffOnly()) html += '<p class="text-[10px] text-slate-500 px-1 pt-2">Staff access: meals, boats, suggestions, leave & profile. Extra tools appear after your role is assigned.</p>';
-  html += '<div class="glass rounded-xl p-3 mt-4 text-[10px] text-sand-200/40 space-y-1">'+
-    '<p>Backend: '+(state.demo?'Demo (localStorage)':esc((API_URL||'').slice(0,48)+'…'))+'</p>'+
-    '<p>API version: '+esc(state.backendVersion||'—')+'</p><p>Fiji now: '+formatFiji()+'</p>'+
-    '<button onclick="checkHealth()" class="text-teal-400 mt-1">Check API health</button></div></div>';
-  $('#main-content').innerHTML = html;
-}
 
-async function renderMealStatsPage(){
-  $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="stats-root"><p class="text-sm text-slate-400">Loading statistics…</p></div>';
-  try {
-    const r = await api('getMealStatistics');
-    if (!r.success) { toast(r.error||'Failed','error'); return; }
-    const w = r.data.weekly || {}, m = r.data.monthly || {};
-    const wt = w.totals || {}, mt = m.totals || {};
-    let html = '<div class="fade-in max-w-lg mx-auto space-y-3">'+
-      '<h3 class="font-semibold text-sm"><i class="fa-solid fa-chart-column text-teal-400 mr-2"></i>Meal statistics</h3>'+
-      '<div class="glass rounded-xl p-4 grid grid-cols-3 gap-2 text-center">'+
-      '<div><p class="text-[10px] text-slate-400">Week B</p><p class="text-xl text-teal-300">'+(wt.breakfast||0)+'</p></div>'+
-      '<div><p class="text-[10px] text-slate-400">Week L</p><p class="text-xl text-teal-300">'+(wt.lunch||0)+'</p></div>'+
-      '<div><p class="text-[10px] text-slate-400">Week D</p><p class="text-xl text-teal-300">'+(wt.dinner||0)+'</p></div></div>'+
-      '<div class="glass rounded-xl p-4 grid grid-cols-3 gap-2 text-center">'+
-      '<div><p class="text-[10px] text-slate-400">Month B</p><p class="text-xl text-teal-300">'+(mt.breakfast||0)+'</p></div>'+
-      '<div><p class="text-[10px] text-slate-400">Month L</p><p class="text-xl text-teal-300">'+(mt.lunch||0)+'</p></div>'+
-      '<div><p class="text-[10px] text-slate-400">Month D</p><p class="text-xl text-teal-300">'+(mt.dinner||0)+'</p></div></div>'+
-      '<p class="text-[10px] text-slate-500">Boat bookings (active sample window): '+(w.boatBookings!=null?w.boatBookings:'—')+'</p>'+
-      '<button onclick="navigate(\'more\')" class="text-xs text-teal-400">← Back</button></div>';
-    $('#main-content').innerHTML = html;
-  } catch(e){ $('#stats-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
-}
 
-function openMealOnBehalfModal(){
-  openModal('<h3 class="font-semibold mb-3">Meal on behalf</h3>'+
-    '<input id="mob-name" class="ui-input mb-2" placeholder="Staff name (roster)"/>'+
-    '<select id="mob-dept" class="ui-input mb-2">'+deptSelectOptions(state.user.department||'')+'</select>'+
-    '<textarea id="mob-comment" class="ui-input mb-2" rows="2" placeholder="Comment"></textarea>'+
-    '<select id="mob-meal" class="ui-input mb-2"><option value="breakfast">Breakfast (headcount)</option><option value="lunch">Lunch (headcount)</option><option value="dinner">Dinner (menu)</option></select>'+
-    '<input id="mob-choice" class="ui-input mb-2" placeholder="Dinner meal choice (if dinner)"/>'+
-    '<button id="mob-go" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Send to Kitchen</button>');
-  $('#mob-go').onclick = async () => {
-    const res = await api('placeMealOnBehalf',{
-      staffName: $('#mob-name').value.trim(),
-      department: $('#mob-dept').value.trim(),
-      comment: $('#mob-comment').value.trim(),
-      meal: $('#mob-meal').value,
-      mealChoice: $('#mob-choice').value.trim() || 'Standard'
-    });
-    if (!res.success) { toast(res.error||'Failed','error'); return; }
-    closeModal(); toast((res.data && res.data.message) || 'Submitted','ok');
-  };
-}
 async function checkHealth(){
   try {
     const r = await api('getVersion');
@@ -4754,6 +4074,7 @@ async function renderMyProfile(){
     const res = await api('updateProfile', payload);
     if (!res.success) { toast(res.error,'error'); return; }
     state.user = res.data.user;
+    if (res.data.token) saveToken(res.data.token); // password changed → fresh session for this phone
     if (pendingPhoto) state.user.photoUrl = pendingPhoto;
     saveSession();
     toast('Profile saved','ok');
@@ -5271,80 +4592,7 @@ async function renderKitchen(){
 }
 
 /* ========== STAFF DIRECTORY (critical) ========== */
-function renderUsersTable(users){
-  if (!users || !users.length) return '<div class="p-6 text-center text-sm text-sand-200/50">No staff to show</div>';
-  const depts = [...new Set(users.map(u=>u.department).filter(Boolean))].sort();
-  setTimeout(()=>{
-    const sel = $('#u-dept');
-    if (sel && sel.options.length<=1) {
-      depts.forEach(d => { const o=document.createElement('option'); o.value=d; o.textContent=d; sel.appendChild(o); });
-    }
-  },0);
-  let rows = '';
-  users.forEach(u => {
-    rows += '<tr class="border-t border-teal-500/10 hover:bg-teal-500/5"><td class="px-3 py-2"><p class="font-medium text-sand-100">'+esc(u.firstName)+' '+esc(u.lastName)+'</p>'+
-      '<p class="text-[10px] text-sand-200/40">'+esc(u.email)+'</p></td><td class="px-2">'+esc(u.department||'—')+'</td>'+
-      '<td class="px-2"><span class="badge bg-teal-600/20 text-teal-300">'+esc(roleLabel(u.role))+'</span></td>'+
-      '<td class="px-2">'+esc(u.contact||'—')+'</td>'+
-      '<td class="px-2 whitespace-nowrap"><button class="text-teal-400 u-edit" data-email="'+esc(u.email)+'">Edit</button>'+
-      (hasPerm('super_admin')?' <button class="text-rose-300 u-del ml-1" data-email="'+esc(u.email)+'">Delete</button>':'')+'</td></tr>';
-  });
-  return '<div class="table-scroll"><table class="w-full text-xs"><thead class="bg-navy-900/80 text-sand-200/50 text-left"><tr><th class="px-3 py-2">Name</th><th class="px-2">Dept</th><th class="px-2">Role</th><th class="px-2">Contact</th><th class="px-2"></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
-}
 
-function usersErrorUI(msg){
-  return '<div class="glass rounded-2xl p-5 border border-red-500/30 space-y-3">'+
-    '<p class="text-red-300 font-semibold text-sm"><i class="fa-solid fa-triangle-exclamation mr-2"></i>Couldn’t load staff directory</p>'+
-    '<p class="text-xs text-sand-200/70">'+esc(msg)+'</p>'+
-    '<ul class="text-[11px] text-sand-200/50 list-disc pl-4 space-y-1">'+
-    '<li>Confirm <code class="text-teal-400">SCRIPT_URL</code> / <code class="text-teal-400">API_URL</code> at the top of index.html matches your Apps Script Web App URL.</li>'+
-    '<li>Redeploy Apps Script: Deploy → Manage deployments → Edit → New version. Execute as <strong>Me</strong>, Who has access: <strong>Anyone</strong>.</li>'+
-    '<li>Open the Web App URL in a browser — you should see JSON, not HTML login.</li>'+
-    '<li>For local testing without backend, open with <code>?demo=1</code> or leave API_URL empty.</li></ul>'+
-    '<button id="u-try-again" class="btn-primary rounded-xl px-4 py-2 text-sm text-white">Try again</button></div>';
-}
-
-async function renderUsers(){
-  state.tab = 'users';
-  $('#header-title').textContent = 'Staff Directory';
-  renderNav();
-  const cached = readUsersCache();
-  state.usersCache = cached.length ? cached : state.usersCache;
-  $('#main-content').innerHTML =
-  '<div class="fade-in max-w-3xl mx-auto space-y-3" id="users-root">'+
-    '<div class="flex flex-wrap gap-2 items-center">'+
-      '<input id="u-search" class="flex-1 min-w-[140px] rounded-xl px-3 py-2 text-sm" placeholder="Search name, email, dept…"/>'+
-      '<select id="u-dept" class="rounded-xl px-2 py-2 text-xs"><option value="">All depts</option></select>'+
-      '<select id="u-role" class="rounded-xl px-2 py-2 text-xs"><option value="">All roles</option>'+
-        '<option value="super_admin">Super Admin</option><option value="admin">Admin</option><option value="hod">HOD</option>'+
-        '<option value="kitchen">Kitchen</option><option value="boat">Boat</option><option value="staff">Staff</option></select>'+
-      '<button id="u-refresh" class="glass rounded-xl px-3 py-2 text-xs"><i class="fa-solid fa-rotate"></i> Refresh</button>'+
-      '<button id="u-export" class="glass rounded-xl px-3 py-2 text-xs"><i class="fa-solid fa-download"></i> CSV</button></div>'+
-    '<div class="flex flex-wrap gap-2">'+
-      '<button id="u-add" class="btn-primary rounded-xl px-3 py-1.5 text-xs text-white"><i class="fa-solid fa-plus mr-1"></i>Add user</button>'+
-      '<button id="u-import" class="glass rounded-xl px-3 py-1.5 text-xs"><i class="fa-solid fa-file-csv mr-1"></i>Quick Import CSV</button>'+
-      '<button id="u-pending" class="glass rounded-xl px-3 py-1.5 text-xs"><i class="fa-solid fa-user-clock mr-1"></i>Pending</button>'+
-      (state.user.role==='super_admin'?'<button id="u-alerts" class="glass rounded-xl px-3 py-1.5 text-xs"><i class="fa-solid fa-envelope mr-1"></i>Alert Emails</button>':'')+
-    '</div><div id="u-status" class="text-[10px] text-sand-200/40"></div><div id="u-error" class="hidden"></div>'+
-    '<div id="u-table" class="glass rounded-2xl overflow-hidden">'+renderUsersTable(state.usersCache)+'</div></div>';
-  wireUsersControls();
-  if (state.usersCache.length) {
-    $('#u-status').textContent = 'Showing cached ('+state.usersCache.length+') · refreshing…';
-    $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
-    $$('.u-del').forEach(b => b.onclick = async () => {
-      if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super'); if (!passcode) return;
-      const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
-      if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
-    });
-  } else {
-    $('#u-status').textContent = 'Loading staff…';
-    $('#u-table').innerHTML = '<div class="p-6 text-center text-sm text-sand-200/50"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</div>';
-  }
-  await refreshUsers(true);
-}
-
-function debounce(fn,ms){ let t; return function(){ const a=arguments; clearTimeout(t); t=setTimeout(()=>fn.apply(null,a),ms); }; }
 function csvEscape(v){ const s=String(v==null?'':v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
 function downloadText(name, text){
   const mime = /\.html?$/i.test(name)?'text/html':(/\.txt$/i.test(name)?'text/plain':'text/csv');
@@ -5373,10 +4621,7 @@ function isCountedMealStatus(st){
   st = String(st || '');
   return st && st !== 'cancelled' && st !== 'rejected' && st !== 'declined' && st !== 'late_pending';
 }
-function isLateWaitingStatus(st){
-  st = String(st || '');
-  return st === 'late_pending' || (st === 'late' && st !== 'late_approved');
-}
+
 /** C102: note entries for a dinner prep payload (full rows preferred, else byItem) */
 function prepNoteEntries(prep, fallbackOrders){
   prep = prep || {};
@@ -5557,200 +4802,13 @@ function ensureHtml2Pdf(){
   if (_html2pdfReady) return _html2pdfReady;
   _html2pdfReady = new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.14.0/html2pdf.bundle.min.js';
+    s.src = './assets/vendor/html2pdf.bundle.min.js';
     s.async = true;
     s.onload = () => resolve();
     s.onerror = () => { _html2pdfReady = null; reject(new Error('Failed to load PDF helper')); };
     document.head.appendChild(s);
   });
   return _html2pdfReady;
-}
-
-async function refreshUsers(silent){
-  state.usersLoading = true;
-  state.usersError = null;
-  const search = ($('#u-search') && $('#u-search').value) || '';
-  const department = ($('#u-dept') && $('#u-dept').value) || '';
-  const role = ($('#u-role') && $('#u-role').value) || '';
-  try {
-    const r = await api('getUsers', { search, department, role, activeOnly: true });
-    if (!r || r.success === false) throw new Error((r && r.error) || 'API returned failure');
-    const users = r.data && r.data.users;
-    if (!Array.isArray(users)) throw new Error('Empty or invalid users payload (non-array). Check SCRIPT_URL.');
-    state.usersCache = users;
-    cacheUsers(users);
-    if (r.data && r.data.version) state.backendVersion = r.data.version;
-    const err = $('#u-error'); if (err) { err.classList.add('hidden'); err.innerHTML=''; }
-    $('#u-table').innerHTML = renderUsersTable(users);
-    $('#u-status').textContent = users.length+' active staff · updated '+formatFiji()+(state.demo?' · demo':'');
-    $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
-    $$('.u-del').forEach(b => b.onclick = async () => {
-      if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super'); if (!passcode) return;
-      const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
-      if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
-    });
-  } catch (e) {
-    state.usersError = e.message || String(e);
-    const err = $('#u-error');
-    if (err) {
-      err.classList.remove('hidden');
-      err.innerHTML = usersErrorUI(state.usersError);
-      const tb = $('#u-try-again'); if (tb) tb.onclick = () => refreshUsers(false);
-    }
-    if (!state.usersCache.length) $('#u-table').innerHTML = '';
-    else {
-      $('#u-status').textContent = 'Cached data shown · refresh failed';
-      $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
-    $$('.u-del').forEach(b => b.onclick = async () => {
-      if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super'); if (!passcode) return;
-      const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
-      if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
-    });
-    }
-    if (!silent) toast('Staff refresh failed','error');
-  } finally { state.usersLoading = false; }
-}
-
-function wireUsersControls(){
-  $('#u-refresh').onclick = () => refreshUsers(false);
-  $('#u-search').oninput = debounce(() => refreshUsers(true), 300);
-  $('#u-dept').onchange = () => refreshUsers(true);
-  $('#u-role').onchange = () => refreshUsers(true);
-  $('#u-export').onclick = () => {
-    const users = state.usersCache;
-    const header = 'email,firstName,lastName,department,contact,role,roster,village,active';
-    const rows = users.map(u => [u.email,u.firstName,u.lastName,u.department,u.contact,u.role,u.roster,u.village,u.active].map(csvEscape).join(','));
-    downloadText('pcr-staff.csv', [header].concat(rows).join('\n'));
-  };
-  $('#u-add').onclick = () => openAddUser();
-  $('#u-import').onclick = () => openImportCsv();
-  $('#u-pending').onclick = () => openPending();
-  const al = $('#u-alerts'); if (al) al.onclick = () => openAlertEmails();
-}
-
-async function openEditUser(email){
-  let u = state.usersCache.find(x=>x.email===email);
-  if (!u) {
-    const r = await api('getUsers',{ search:email, activeOnly:false });
-    u = ((r.data && r.data.users) || []).find(x=>x.email===email);
-  }
-  if (!u) { toast('User not found','error'); return; }
-  const isHodOnly = canHod() && !canFullAdmin();
-  const perms = userPerms(u);
-  const allPerms = ['staff','hod','assistant_hod','chef','boat_manager','boat_captain','admin'];
-  if (hasPerm('super_admin')) allPerms.push('super_admin');
-  let permChecks = '';
-  if (canFullAdmin()) {
-    permChecks = '<p class="text-[10px] text-slate-400 mt-2 mb-1">Permissions (multi-select)</p><div class="grid grid-cols-2 gap-1 text-xs mb-2">'+
-      allPerms.map(p => {
-        const dis = (p==='super_admin' && !hasPerm('super_admin')) ? 'disabled' : '';
-        return '<label class="flex items-center gap-1"><input type="checkbox" class="eu-perm" value="'+p+'" '+(perms.includes(p)?'checked':'')+' '+dis+'/> '+esc(permLabel(p))+'</label>';
-      }).join('')+'</div>';
-  }
-  const roles = ['staff','chef','boat_manager','boat_captain','hod','assistant_hod','admin'];
-  if (hasPerm('super_admin')) roles.push('super_admin');
-  let roleOpts = roles.map(r => '<option value="'+r+'" '+(u.role===r?'selected':'')+'>'+roleLabel(r)+'</option>').join('');
-  openModal('<h3 class="font-semibold mb-3">Edit user</h3><div class="space-y-2 text-sm"><p class="text-xs text-sand-200/50">'+esc(u.email)+'</p>'+
-    '<div class="grid grid-cols-2 gap-2"><input id="eu-fn" class="rounded-xl px-3 py-2" placeholder="First" value="'+esc(u.firstName)+'"/>'+
-    '<input id="eu-ln" class="rounded-xl px-3 py-2" placeholder="Last" value="'+esc(u.lastName)+'"/></div>'+
-    '<input id="eu-contact" class="w-full rounded-xl px-3 py-2" placeholder="Contact" value="'+esc(u.contact)+'"/>'+
-    '<input id="eu-dept" class="w-full rounded-xl px-3 py-2" placeholder="Department" value="'+esc(u.department)+'" '+(isHodOnly?'readonly':'')+'/>'+
-    (canFullAdmin()?'<select id="eu-role" class="w-full rounded-xl px-3 py-2">'+roleOpts+'</select>':'<p class="text-xs">Role: '+esc(roleLabel(u.role))+'</p>')+
-    permChecks+
-    '<input id="eu-roster" class="w-full rounded-xl px-3 py-2" placeholder="Roster" value="'+esc(u.roster)+'"/>'+
-    '<input id="eu-village" class="w-full rounded-xl px-3 py-2" placeholder="Village" value="'+esc(u.village)+'"/>'+
-    '<label class="flex items-center gap-2 text-xs"><input type="checkbox" id="eu-active" '+(u.active?'checked':'')+'/> Active</label>'+
-    '<button id="eu-save" class="btn-primary w-full rounded-xl py-2 text-white">Save changes</button></div>');
-  $('#eu-save').onclick = async () => {
-    const patch = {
-      targetEmail: u.email,
-      firstName: $('#eu-fn').value, lastName: $('#eu-ln').value, contact: $('#eu-contact').value,
-      department: $('#eu-dept').value, roster: $('#eu-roster').value,
-      village: $('#eu-village').value, active: $('#eu-active').checked
-    };
-    if (canFullAdmin() && $('#eu-role')) patch.role = $('#eu-role').value;
-    if (canFullAdmin()) {
-      const selected = $$('.eu-perm').filter(c=>c.checked).map(c=>c.value);
-      if (!selected.length) selected.push('staff');
-      patch.permissions = selected;
-    }
-    closeModal();
-    const passcode = await askPasscode(selectedNeedsSuper(patch.permissions)?'super':'admin'); if (!passcode) return;
-    const res = await api('updateUser', Object.assign({}, patch, { passcode }));
-    if (!res.success) toast(res.error,'error');
-    else {
-      toast('User updated','ok');
-      if (res.data && res.data.user && res.data.user.email === state.user.email) { state.user = res.data.user; saveSession(); }
-      refreshUsers(false);
-    }
-  };
-}
-function selectedNeedsSuper(perms){
-  if (!perms) return false;
-  const arr = Array.isArray(perms)?perms:String(perms).split(',');
-  return arr.includes('super_admin') || arr.includes('admin');
-}
-
-async function openAddUser(){
-  openModal('<h3 class="font-semibold mb-3">Add user</h3><div class="space-y-2">'+
-    '<input id="au-email" type="email" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="email"/>'+
-    '<input id="au-pass" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="password"/>'+
-    '<div class="grid grid-cols-2 gap-2"><input id="au-fn" class="rounded-xl px-3 py-2 text-sm" placeholder="First"/>'+
-    '<input id="au-ln" class="rounded-xl px-3 py-2 text-sm" placeholder="Last"/></div>'+
-    '<select id="au-dept" class="w-full rounded-xl px-3 py-2 text-sm">'+deptSelectOptions('')+'</select>'+
-    '<input id="au-contact" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Contact"/>'+
-    '<select id="au-role" class="w-full rounded-xl px-3 py-2 text-sm"><option value="staff">Staff</option><option value="kitchen">Kitchen</option>'+
-    '<option value="boat">Boat</option><option value="hod">HOD</option><option value="admin">Admin</option>'+
-    (state.user.role==='super_admin'?'<option value="super_admin">Super Admin</option>':'')+'</select>'+
-    '<label class="flex items-center gap-2 text-xs"><input type="checkbox" id="au-active" checked/> Active (login immediately)</label>'+
-    '<button id="au-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white">Create</button></div>');
-  $('#au-save').onclick = async () => {
-    const payload = {
-      email:$('#au-email').value, password:$('#au-pass').value, firstName:$('#au-fn').value,
-      lastName:$('#au-ln').value, department:$('#au-dept').value, contact:$('#au-contact').value,
-      role:$('#au-role').value, active:$('#au-active').checked
-    };
-    closeModal();
-    const passcode = await askPasscode(); if (!passcode) return;
-    const res = await api('addUser', Object.assign({}, payload, { passcode }));
-    if (!res.success) toast(res.error,'error'); else { toast('User created','ok'); refreshUsers(false); }
-  };
-}
-
-function openImportCsv(){
-  openModal('<h3 class="font-semibold mb-2">Quick Import CSV</h3>'+
-    '<p class="text-[10px] text-sand-200/50 mb-2">Format: email,password,firstName,lastName,department,contact — sets active=true</p>'+
-    '<textarea id="csv-text" class="w-full rounded-xl px-3 py-2 text-xs font-mono h-40" placeholder="email,password,firstName,lastName,department,contact"></textarea>'+
-    '<button id="csv-go" class="btn-primary w-full rounded-xl py-2 text-sm text-white mt-3">Import</button>');
-  $('#csv-go').onclick = async () => {
-    const csv = $('#csv-text').value;
-    closeModal();
-    const passcode = await askPasscode(); if (!passcode) return;
-    const res = await api('importUsersCSV',{ csv, passcode });
-    if (!res.success) toast(res.error,'error');
-    else { toast('Imported '+res.data.imported+', skipped '+((res.data.skipped && res.data.skipped.length)||0),'ok'); refreshUsers(false); }
-  };
-}
-
-async function openPending(){
-  const passcode = await askPasscode(); if (!passcode) return;
-  const r = await api('getPendingApprovals',{ passcode });
-  const users = (r.data && r.data.users) || [];
-  let html = '<h3 class="font-semibold mb-3">Pending @pcr.com approvals</h3><div class="space-y-2">';
-  if (!users.length) html += '<p class="text-xs text-sand-200/50">No pending approvals</p>';
-  users.forEach(u => {
-    html += '<div class="glass rounded-xl p-3 flex justify-between items-center text-sm"><div><p class="font-medium">'+esc(u.firstName)+' '+esc(u.lastName)+'</p>'+
-      '<p class="text-[10px] text-sand-200/50">'+esc(u.email)+' · '+esc(u.department)+'</p></div>'+
-      '<button class="btn-primary text-xs px-3 py-1 rounded-lg text-white pend-ok" data-email="'+esc(u.email)+'">Approve</button></div>';
-  });
-  html += '</div>';
-  openModal(html);
-  $$('.pend-ok').forEach(b=>b.onclick=async()=>{
-    const res = await api('approveUser',{ targetEmail:b.dataset.email, passcode });
-    if (!res.success) toast(res.error,'error'); else { toast('Approved','ok'); closeModal(); }
-  });
 }
 
 async function openAlertEmails(){
@@ -5763,15 +4821,14 @@ async function openAlertEmails(){
   $('#al-save').onclick = async () => {
     const list = $('#al-text').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
     closeModal();
-    const res = await api('saveAlertEmails',{ emails:list });
+    const passcode = await askPasscode('super', 'Saving alert emails needs the admin password.'); if (!passcode) return;
+    const res = await api('saveAlertEmails',{ emails:list, passcode });
     if (!res.success) toast(res.error,'error'); else toast('Alert emails saved','ok');
   };
 }
 async function renderAdmin(){
   if (!canAdmin()) { navigate('more'); return; }
-  // C66: no passcode unlock / no superadmin PIN — role alone
-  state.adminUnlock = hasPerm('super_admin') ? 'super' : 'admin';
-  state.superadminPinUnlocked = true;
+  // role gates the screen; sensitive actions ask for the admin password (checked by the server)
   await refreshFeatureFlags();
   const full = hasPerm('super_admin') || hasPerm('admin');
   const isSuper = hasPerm('super_admin');
@@ -5811,15 +4868,15 @@ async function renderAdmin(){
     await renderAdminFeaturesTab();
     return;
   }
-  let body = '<button onclick="navigate(\'users\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-users text-teal-400 mr-2"></i>Staff Directory / permissions</button>'+
+  let body = '<button onclick="navigate(\'users\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-users text-teal-400 mr-2"></i>Users &amp; roles</button>'+
     '<button onclick="navigate(\'reminders\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-bullhorn text-teal-400 mr-2"></i>Broadcast reminders</button>'+
     '<button onclick="navigate(\'suggestions\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-lightbulb text-teal-400 mr-2"></i>Review suggestions</button>'+
     '<button onclick="navigate(\'kitchen\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-fire-burner text-teal-400 mr-2"></i>Kitchen ops / prep list</button>'+
     '<button onclick="navigate(\'boat\')" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-ship text-teal-400 mr-2"></i>Boat ops</button>'+
-    '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-inbox text-teal-400 mr-2"></i>Leave inbox</button>';
+    '<button onclick="renderLeaveAdmin()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-inbox text-teal-400 mr-2"></i>Approvals inbox (leave, late meals, joins)</button>';
   if (isSuper) {
     body += '<button onclick="openAlertEmails()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm mb-2"><i class="fa-solid fa-envelope text-teal-400 mr-2"></i>Manage Alert Emails</button>'+
-      '<p class="text-[10px] text-slate-500 px-1 mb-2">Super-only: alert emails, feature flags, super_admin grant, dinner menu CRUD</p>';
+      '<p class="text-[10px] text-slate-500 px-1 mb-2">Superadmin: alert emails, feature flags, archive, email sender (Manage → App settings)</p>';
   }
   body += '<button onclick="checkHealth()" class="glass w-full rounded-xl px-4 py-3 text-left text-sm"><i class="fa-solid fa-heart-pulse text-teal-400 mr-2"></i>API health / version</button>';
   $('#admin-body').innerHTML = body;
@@ -5851,10 +4908,10 @@ async function renderAdminFeaturesTab(){
         '<button type="button" id="arch-run" class="ui-btn bg-rose-700/80 text-xs px-3 py-2 rounded-lg min-h-[40px] hidden">Archive now…</button></div>'+
         '<div id="arch-out" class="text-[11px] text-slate-300"></div></div></div>';
     async function toggle(key, cur){
-      const passcode = await askPasscode('super'); if (!passcode) return;
+      const passcode = await askPasscode('super', 'Changing a feature flag needs the admin password.'); if (!passcode) return;
       const res = await api('setAppSetting',{ key, value: !cur, passcode });
       if (!res.success) toast(res.error,'error');
-      else { toast(key+' → '+(!cur?'ON':'OFF'),'ok'); state.featureFlags[key]=!cur; renderAdmin(); }
+      else { toast(key+' → '+(!cur?'ON':'OFF'),'ok'); state.featureFlags[key]=!cur; if (state.tab === 'settings' && typeof v3RenderSettings === 'function') v3RenderSettings(); else renderAdmin(); }
     }
     bindArchiveCard();
     $('#tog-mysch').onclick = () => toggle('feature_my_schedule', mySch);
@@ -5900,8 +4957,10 @@ function bindArchiveCard(){
     $('#arch-go').onclick = async function(){
       this.disabled = true; this.textContent = 'Archiving…';
       try {
-        const r = await api('archiveOldRows', {});
         closeModal();
+        const passcode = await askPasscode('super', 'Archiving moves rows out of the live sheets — enter the admin password.');
+        if (!passcode) return;
+        const r = await api('archiveOldRows', { passcode });
         if (!r.success) { out.innerHTML = '<span class="text-rose-300">'+esc(r.error||'Failed')+'</span>'; toast(r.error||'Archive failed','error'); return; }
         out.innerHTML = table(r.data, false); runBtn.classList.add('hidden');
         cacheInvalidateMealBoat();
@@ -6053,8 +5112,8 @@ async function doLogin(email, password){
     $('#verify-panel').classList.remove('hidden');
     showLoginError('Verification required — enter your 6-digit code.', 'info');
     const vr = await api('requestVerification',{ email: pendingVerifyEmail });
-    if (vr.data && vr.data.code) showCodeOverlay(vr.data.code, 'verify', 'verify-code');
-    else toast('Verification code sent to your email','info');
+    if (vr && vr.success) toast((vr.data && vr.data.message) || 'Verification code sent to your email','info');
+    else toast((vr && vr.error) || 'Could not send the code — tap Resend','error');
     return;
   }
   if (!r.success) {
@@ -6062,6 +5121,7 @@ async function doLogin(email, password){
     return;
   }
   state.user = r.data.user;
+  saveToken(r.data.token || '');
   saveSession();
   enterApp();
 }
@@ -6193,8 +5253,7 @@ if (btnSendReset) btnSendReset.onclick = async () => {
   pendingResetEmail = email;
   $('#forgot-code-step').classList.remove('hidden');
   showLoginError(r.data && r.data.message ? r.data.message : 'Check your email for a reset code', 'info');
-  if (r.data && r.data.code) showCodeOverlay(r.data.code, 'reset', 'forgot-code');
-  else toast('Reset code sent to your email','ok');
+  toast('Reset code sent to your email','ok');
 };
 const btnDoReset = $('#btn-do-reset');
 if (btnDoReset) btnDoReset.onclick = async () => {
@@ -6214,40 +5273,18 @@ if (btnDoReset) btnDoReset.onclick = async () => {
 $('#btn-verify').onclick = async () => {
   const r = await api('verifyEmail',{ email: pendingVerifyEmail, code: $('#verify-code').value.trim() });
   if (!r.success) { toast(r.error,'error'); return; }
-  toast('Verified — sign in again','ok');
+  toast('Email verified — sign in','ok');
   $('#verify-panel').classList.add('hidden');
+  showLoginError('Email verified. Sign in with your email and password.', 'ok');
+  if ($('#login-email') && pendingVerifyEmail) $('#login-email').value = pendingVerifyEmail;
 };
 $('#btn-resend-code').onclick = async () => {
   const vr = await api('requestVerification',{ email: pendingVerifyEmail });
-  if (vr.data && vr.data.code) showCodeOverlay(vr.data.code, 'verify', 'verify-code'); else toast('Code sent to your email','ok');
+  if (vr && vr.success) toast((vr.data && vr.data.message) || 'Code sent to your email','ok');
+  else toast((vr && vr.error) || 'Could not send the code','error');
 };
 $('#btn-logout').onclick = doLogout;
 
-
-/** 3.0: show a verification / reset code in the middle of the screen (big, copy + close, stays ≥15s). */
-function showCodeOverlay(code, purpose, fillInputId){
-  const ov = $('#code-overlay'); if (!ov || !code) return;
-  $('#code-ov-title').textContent = purpose === 'reset' ? 'Password reset code' : 'Verification code';
-  $('#code-ov-code').textContent = String(code);
-  $('#code-ov-hint').textContent = (fillInputId ? 'We filled it in for you. ' : '') + 'Valid for 30 minutes.';
-  if (fillInputId) { const inp = document.getElementById(fillInputId); if (inp) inp.value = String(code); }
-  ov.classList.remove('hidden'); ov.classList.add('flex');
-  const shownAt = Date.now();
-  clearInterval(ov._t);
-  const timer = $('#code-ov-timer');
-  function tick(){
-    const left = Math.max(0, 15 - Math.floor((Date.now() - shownAt) / 1000));
-    timer.textContent = left > 0 ? ('Stays on screen for at least ' + left + 's — or tap Close') : 'Tap Close when you have it';
-    if (Date.now() - shownAt > 120000) hideCodeOverlay();
-  }
-  tick(); ov._t = setInterval(tick, 1000);
-  $('#code-ov-copy').onclick = function(){ copyPlainText(String(code), 'Code copied'); };
-  $('#code-ov-close').onclick = hideCodeOverlay;
-}
-function hideCodeOverlay(){
-  const ov = $('#code-overlay'); if (!ov) return;
-  clearInterval(ov._t); ov.classList.add('hidden'); ov.classList.remove('flex');
-}
 
 function showLoginError(msg, kind){
   const el = $('#login-error');
@@ -6342,9 +5379,8 @@ $('#register-form').onsubmit = async (e) => {
     switchAuthTab('login');
     pendingVerifyEmail = d.email || email;
     $('#verify-panel').classList.remove('hidden');
-    showLoginError(d.message || 'Check your email for a verification code', 'info');
-    if (d.code) showCodeOverlay(d.code, 'verify', 'verify-code');
-    else toast(d.message || 'Verification code sent', 'ok');
+    showLoginError(d.message || 'Check your email for a verification code', d.emailed === false ? 'error' : 'info');
+    toast(d.emailed === false ? 'Account created — the code email could not be sent, tap Resend code' : 'Verification code sent to your email', d.emailed === false ? 'error' : 'ok');
     return;
   }
   switchAuthTab('login');
@@ -6425,7 +5461,13 @@ function boot(){
     }).catch(function(){});
   }
   const session = loadSession();
-  if (session && session.email) {
+  state.token = loadToken();
+  if (session && session.email && !state.demo && !state.token) {
+    // signed in with a pre-3.0 app (no session token) → one-time sign-in again
+    localStorage.removeItem(SESSION_KEY);
+    showLoginError('Please sign in again — the app was updated.', 'info');
+    const le = $('#login-email'); if (le) le.value = session.email;
+  } else if (session && session.email) {
     state.user = session;
     state.user.needsProfile = !(session.firstName && session.lastName && session.department);
     enterApp();
