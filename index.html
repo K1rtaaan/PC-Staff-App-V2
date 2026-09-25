@@ -1313,6 +1313,11 @@ function isDemoMode(){
 }
 
 const API_TIMEOUT_MS = 60000;
+const BOOTSTRAP_TIMEOUT_MS = 120000;
+// 2.10.0: reads that the bootstrap already covers — right after a bootstrap network failure these fail fast instead of
+// piling 5+ slow parallel calls onto a struggling connection / backend (screens keep their saved data; one retry is scheduled).
+const BOOT_COVERED_READS = { getMyOrdersSummary:1, getReminders:1, getSuggestions:1, getDinnerOrders:1, getBreakfastOrders:1, getLunchOrders:1,
+  getBoatRuns:1, getDinnerMenus:1, getDailyOpsSummary:1, getMealStatistics:1, getKitchenDashboard:1, getDinnerPrepList:1, getCutoffInfo:1, getAppSettings:1 };
 async function api(action, payload={}) {
   if (state.demo) {
     // 2.10.0: demo honours offline mode so the offline queue can be tried without a backend
@@ -1324,6 +1329,9 @@ async function api(action, payload={}) {
     const dr = await demoApi(action, payload);
     if (!QUEUEABLE[action] && action !== 'login') setDataStatus('fresh');
     return dr;
+  }
+  if (BOOT_COVERED_READS[action] && state.bootNetAt && Date.now() - state.bootNetAt < 10000) {
+    const err = new Error('Couldn\'t reach kitchen / server — try again'); err.network = true; throw err;
   }
   const params = new URLSearchParams();
   params.set('action', action);
@@ -1342,7 +1350,7 @@ async function api(action, payload={}) {
   var url = API_URL + sep + params.toString();
   let res, text;
   const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-  const tmo = ctl ? setTimeout(function(){ try { ctl.abort(); } catch(e){} }, API_TIMEOUT_MS) : null;
+  const tmo = ctl ? setTimeout(function(){ try { ctl.abort(); } catch(e){} }, action === 'getBootstrap' ? BOOTSTRAP_TIMEOUT_MS : API_TIMEOUT_MS) : null;
   try {
     res = await fetch(url, { method: 'GET', redirect: 'follow', signal: ctl ? ctl.signal : undefined });
     text = await res.text();
@@ -2691,7 +2699,9 @@ function renderDataStatus(){
   let html = '';
   if (navigator.onLine === false && ds.mode !== 'offline') { ds.mode = 'offline'; ds.at = cacheAt('myOrders') || ds.at; }
   if (ds.mode === 'offline') {
-    html = '<i class="fa-solid fa-plane-slash mr-1"></i>Offline — showing saved data'+(ds.at?' from '+fmtClock(ds.at):'');
+    html = navigator.onLine === false
+      ? '<i class="fa-solid fa-plane-slash mr-1"></i>Offline — showing saved data'+(ds.at?' from '+fmtClock(ds.at):'')
+      : '<i class="fa-solid fa-plane-slash mr-1"></i>No reply from server'+(ds.at?' — showing saved data from '+fmtClock(ds.at):'')+' · will retry';
     el.className = 'text-[10px] text-amber-300/90 px-4 pt-2 max-w-lg mx-auto w-full';
   } else if (ds.mode === 'saved') {
     html = '<i class="fa-solid fa-rotate fa-spin mr-1"></i>Showing saved data'+(ds.at?' from '+fmtClock(ds.at):'')+' · refreshing…';
@@ -2834,7 +2844,13 @@ function queueHostHtml(kinds){ const inner = queueBannerHtml(kinds === '*' ? nul
 function installQueueTriggers(){
   if (window.__pcrQueueTriggers) return;
   window.__pcrQueueTriggers = true;
-  window.addEventListener('online', function(){ setDataStatus('fresh'); flushQueue('online'); if (DATA_STATUS_TABS.includes(state.tab) && state.user) setTimeout(function(){ navigate(state.tab); }, 300); });
+  window.addEventListener('online', function(){
+    renderDataStatus(); flushQueue('online');
+    if (!state.user) return;
+    // one bootstrap refreshes every screen; fall back to re-rendering the current tab if the last bootstrap worked
+    if (state.bootNetAt || !cacheGet('myOrders')) { state.bootPending = loadBootstrap(true); }
+    else if (DATA_STATUS_TABS.includes(state.tab)) setTimeout(function(){ navigate(state.tab); }, 300);
+  });
   window.addEventListener('offline', function(){ setDataStatus('offline'); });
   document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') flushQueue('visible'); });
   setInterval(function(){ if (document.visibilityState === 'visible') flushQueue('timer'); }, 30000);
@@ -6057,15 +6073,26 @@ function applyFlags(d){
   state.appSettings = (d && d.settings) || {};
 }
 /** 2.10.0: one request on app open instead of ~13–19 separate calls. */
-async function loadBootstrap(){
+async function loadBootstrap(isRetry){
   let r;
-  try { r = await api('getBootstrap', {}); }
-  catch (e) { return false; } // offline — screens keep showing saved data
+  const who = state.user && state.user.email;
+  try { r = await api('getBootstrap', {}); state.bootNetAt = 0; }
+  catch (e) {
+    // offline / no reply — screens keep showing saved data; try once more a bit later (or when back online)
+    state.bootNetAt = Date.now();
+    if (!state._bootRetryTimer) state._bootRetryTimer = setTimeout(function(){
+      state._bootRetryTimer = null;
+      if (state.user && state.user.email === who && navigator.onLine !== false && document.visibilityState === 'visible') state.bootPending = loadBootstrap(true);
+    }, 30000);
+    return false;
+  }
   if (!r || !r.success || !r.data) {
     if (r && /Unknown action/i.test(String(r.error||''))) prefetchAfterLogin(); // older backend
     return false;
   }
   applyBootstrap(r.data);
+  // a late (retried) bootstrap: screens already gave up waiting — repaint read-only screens from the fresh data (never meal forms mid-typing)
+  if (isRetry && state.user && ['home','myorders','boat','bookings','kitchen'].includes(state.tab)) navigate(state.tab);
   return true;
 }
 function applyBootstrap(d){
