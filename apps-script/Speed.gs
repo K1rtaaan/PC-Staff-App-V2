@@ -185,6 +185,8 @@ function getBootstrap(p) {
     }
 
     var doThisNow = bootstrapDoThisNow(orders, boatRuns, dailyOps, kitchenLite, bi, li, di, now);
+    var v3Block = null; // 3.0 home data (roles, dept status, leave, updates, HOD/chef/super dashboards)
+    if (u) { try { v3Block = getV3Home(u); } catch (eV3) { v3Block = { error: String(eV3.message || eV3) }; } }
     reads = reads.concat(Object.keys(REQ_MEMO || {}));
     return {
       success: true,
@@ -206,6 +208,7 @@ function getBootstrap(p) {
         mealStats: mealStats,
         kitchenLite: kitchenLite,
         doThisNow: doThisNow,
+        v3: v3Block,
         sheetsRead: reads,
         ms: Date.now() - t0
       }
