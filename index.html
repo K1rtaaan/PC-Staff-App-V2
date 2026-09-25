@@ -7,31 +7,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <title>PCR Staff — Paradise Cove Resort</title>
+<script>try{if(localStorage.getItem('pcr_v2_session'))document.documentElement.classList.add('has-session')}catch(e){}</script>
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" href="assets/golden-logo.jpg"/>
 <link rel="apple-touch-icon" href="assets/golden-logo.jpg"/>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
-<script src="https://unpkg.com/lucide@0.468.0"></script>
-<script type="module">
-  // optional motion for home tiles (graceful if blocked)
-  window.__motionReady = import("https://esm.sh/framer-motion@11?bundle").then(m => { window.FM = m; }).catch(() => {});
-</script>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy: { 950: '#060d18', 900: '#0a1628', 800: '#0f2137', 700: '#16304d' },
-        teal: { 400: '#2dd4bf', 500: '#14b8a6', 600: '#0d9488', 700: '#0f766e' },
-        sand: { 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1' },
-        gold: { 400: '#e0c36a', 500: '#c9a227', 600: '#a8841a' }
-      },
-      fontFamily: { sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'] }
-    }
-  }
-}
-</script>
+<link rel="stylesheet" href="assets/fa/fa.css?v=2.10.0"/>
 <style>
 :root {
   color-scheme: dark;
@@ -94,6 +74,7 @@ body {
   background: linear-gradient(to bottom, rgba(10,22,40,0.70), rgba(10,22,40,0.88), #0a1628);
 }
 .login-hero > * { position: relative; z-index: 1; }
+html.has-session .login-hero { background-image: none; } /* 2.10.0: signed-in opens skip the 130KB login photo */
 .glass {
   background: rgba(15, 23, 42, 0.78);
   backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
@@ -197,7 +178,10 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
   #print-area { position: absolute; left: 0; top: 0; width: 100%; background: white; color: black; }
   .no-print { display: none !important; }
 }
+[data-queue-host]:empty{display:none}
 </style>
+<!-- 2.10.0: self-hosted purged Tailwind (tools/ builds it); loaded after the inline styles like the old CDN -->
+<link rel="stylesheet" href="assets/app.css?v=2.10.0"/>
 </head>
 <body class="text-slate-100 antialiased">
 
@@ -205,7 +189,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.9.4';
+const APP_VERSION = '2.10.0';
 const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
 function deptSelectOptions(selected){
   selected = selected || '';
@@ -397,10 +381,12 @@ const LS_COACH_DONE = 'pcr_v2_coach_done';
         <div class="flex justify-around max-w-lg mx-auto" id="bottom-nav"></div>
       </nav>
     </div>
+    <div id="data-status" class="hidden" aria-live="polite"></div>
     <main id="main-content" class="flex-1 overflow-y-auto p-4"></main>
   </div>
 </div>
 
+<button type="button" id="sw-update" class="hidden whitespace-nowrap fixed left-1/2 -translate-x-1/2 bottom-4 z-[90] rounded-full bg-teal-600 text-white text-xs font-semibold px-4 py-2.5 shadow-lg border border-teal-300/40 min-h-[44px]"><i class="fa-solid fa-arrows-rotate mr-1.5"></i>Update available — tap to refresh</button>
 <div id="modal" class="fixed inset-0 z-[100] hidden items-center justify-center p-4 modal-bg">
   <div class="glass-strong rounded-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto p-5 fade-in" id="modal-body"></div>
 </div>
@@ -627,8 +613,8 @@ function lateStateChip(st){
   return '';
 }
 /* ===== C102: special notes / allergies for the kitchen ===== */
-const NOTE_ALLERGY_RE = /\b(allerg\w*|nuts?|peanuts?|gluten|dairy|lactose|shellfish|seafood|eggs?)\b/i;
-const NOTE_DIET_RE = /\b(vegetarian|vegan|halal|no\s*pork)\b/i;
+const NOTE_ALLERGY_RE = /\b(allerg\w*|nuts?|peanuts?|gluten|dairy|lactose|shellfish|seafood|eggs?|prawns?|crabs?|lobsters?|fish|soy|soya|sesame|coconuts?)\b/i;
+const NOTE_DIET_RE = /\b(vegetarian|vegan|halal|no\s*pork|no\s*beef|pescatarian)\b/i;
 function cleanNoteText(v){ return String(v==null?'':v).replace(/[\r\n\t]+/g,' ').replace(/\s+/g,' ').trim().slice(0,200); }
 function noteFlagOf(text){
   text = String(text||'');
@@ -848,22 +834,25 @@ function roleLandingTab(){
 }
 function prefetchNextTabByRole(){
   if (!state.user) return;
-  try {
-    if (hasPerm('chef') || hasPerm('kitchen')) {
-      api('getKitchenDashboard').then(function(r){ if (r&&r.success) cacheSet('kitchenDashboard', { dash:r.data, prep:{} }); }).catch(function(){});
-    } else if (hasPerm('boat_captain') || hasPerm('boat_manager') || hasPerm('boat')) {
-      api('getBoatRuns', boatRunsRangeParams()).then(function(r){ if (r&&r.success) cacheSet('boatRuns', (r.data&&r.data.runs)||[]); }).catch(function(){});
-    } else if (hasPerm('hod') || hasPerm('assistant_hod') || hasPerm('admin') || hasPerm('super_admin')) {
-      api('getHodLeaveSummary', canFullAdmin()?{}:{ department: state.user.department }).then(function(){}).catch(function(){});
-      api('getDailyOpsSummary').then(function(r){ if (r&&r.success) cacheSet('dailyOps', r.data); }).catch(function(){});
-    } else {
-      const di = dinnerCutoffInfo();
-      api('getDinnerOrders',{ userEmail: state.user.email, serviceDate: di.serviceDate }).then(function(r){
-        if (r&&r.success) cacheSet('dinnerOrders:'+di.serviceDate, (r.data&&r.data.orders)||[]);
-      }).catch(function(){});
-      api('getBoatRuns', boatRunsRangeParams()).then(function(r){ if (r&&r.success) cacheSet('boatRuns', (r.data&&r.data.runs)||[]); }).catch(function(){});
-    }
-  } catch(e){}
+  // 2.10.0: after the bootstrap only fetch what is still missing / stale
+  bootWait().then(function(){
+    if (!state.user) return;
+    try {
+      if (hasPerm('chef') || hasPerm('kitchen')) {
+        if (!cacheGet('kitchenDashboard')) api('getKitchenDashboard').then(function(r){ if (r&&r.success) cacheSet('kitchenDashboard', { dash:r.data, prep:(cachePeek('kitchenDashboard')||{}).prep||{} }); }).catch(function(){});
+      } else if (hasPerm('boat_captain') || hasPerm('boat_manager') || hasPerm('boat')) {
+        if (!cacheGet('boatRuns')) api('getBoatRuns', boatRunsRangeParams()).then(function(r){ if (r&&r.success) cacheSet('boatRuns', (r.data&&r.data.runs)||[]); }).catch(function(){});
+      } else if (hasPerm('hod') || hasPerm('assistant_hod') || hasPerm('admin') || hasPerm('super_admin')) {
+        if (!cacheGet('dailyOps') || (cachePeek('dailyOps')||{}).partial) api('getDailyOpsSummary').then(function(r){ if (r&&r.success) cacheSet('dailyOps', r.data); }).catch(function(){});
+      } else {
+        const di = dinnerCutoffInfo();
+        if (!cacheGet('dinnerOrders:'+di.serviceDate)) api('getDinnerOrders',{ userEmail: state.user.email, serviceDate: di.serviceDate }).then(function(r){
+          if (r&&r.success) cacheSet('dinnerOrders:'+di.serviceDate, (r.data&&r.data.orders)||[]);
+        }).catch(function(){});
+        if (!cacheGet('boatRuns')) api('getBoatRuns', boatRunsRangeParams()).then(function(r){ if (r&&r.success) cacheSet('boatRuns', (r.data&&r.data.runs)||[]); }).catch(function(){});
+      }
+    } catch(e){}
+  });
 }
 /** C100: when a user cancelled then re-booked, several rows exist — prefer the latest active one. */
 function pickActiveOrder(list){
@@ -878,9 +867,9 @@ function buildDoThisNowActions(){
   const bfKey = 'breakfastOrders:'+bi.serviceDate;
   const luKey = 'lunchOrders:'+li.serviceDate;
   const diKey = 'dinnerOrders:'+di.serviceDate;
-  const bf = (cacheGet(bfKey)||[])[0];
-  const lu = (cacheGet(luKey)||[])[0];
-  const din = pickActiveOrder(cacheGet(diKey)||[]);
+  const bf = (cachePeek(bfKey)||[]).filter(function(o){ return o.status!=='cancelled'; })[0];
+  const lu = (cachePeek(luKey)||[]).filter(function(o){ return o.status!=='cancelled'; })[0];
+  const din = pickActiveOrder(cachePeek(diKey)||[]);
   if (di.open && !(din && din.status && din.status!=='cancelled' && din.status!=='rejected')) {
     actions.push({ id:'dtn-dinner', icon:'fa-moon', label:'Book dinner', sub:'Open until 8pm', tab:'dinner', primary:true });
   }
@@ -898,7 +887,7 @@ function buildDoThisNowActions(){
   if (din && din.status==='late_pending') {
     actions.push({ id:'dtn-din-wait', icon:'fa-hourglass-half', label:'Late dinner pending', sub:'Waiting chef', tab:'dinner' });
   }
-  const runs = cacheGet('boatRuns') || [];
+  const runs = cachePeek('boatRuns') || [];
   const today = fijiDateString();
   const upcoming = runs.filter(function(r){ return String(r.date||'') >= today; }).sort(function(a,b){ return String(a.date+a.time).localeCompare(String(b.date+b.time)); })[0];
   if (upcoming) {
@@ -908,13 +897,14 @@ function buildDoThisNowActions(){
     }
   }
   if (canBoatCaptain() || canBoatManager()) {
-    const ops = cacheGet('dailyOps');
+    const ops = cachePeek('dailyOps');
     if (ops && ops.emergencyPending > 0) {
       actions.push({ id:'dtn-em', icon:'fa-triangle-exclamation', label:'Emergency travel pending', sub:ops.emergencyPending+' awaiting review', tab:'boat', primary:true });
     }
   }
-  if ((canKitchen() || canFullAdmin()) && cacheGet('kitchenDashboard')) {
-    const dash = (cacheGet('kitchenDashboard').dash) || cacheGet('kitchenDashboard');
+  const kitSaved = cachePeek('kitchenDashboard') || (cachePeek('kitchenLite') ? { dash: cachePeek('kitchenLite') } : null);
+  if ((canKitchen() || canFullAdmin()) && kitSaved) {
+    const dash = kitSaved.dash || kitSaved;
     const lateN = (dash.breakfast && dash.breakfast.latePending && dash.breakfast.latePending.length) || 0;
     const dinPend = (dash.dinner && dash.dinner.pendingCount) || 0;
     if (lateN) actions.push({ id:'dtn-kit-late', icon:'fa-fire-burner', label:'Late breakfasts to approve', sub:lateN+' waiting', tab:'kitchen' });
@@ -1035,25 +1025,32 @@ async function fetchMyOrdersSummary(){
 }
 function renderMyOrders(){
   if (!state.myOrdersDay) state.myOrdersDay = myOrdersDefaultDay();
-  const cached = cacheGet('myOrders');
+  const cached = cachePeek('myOrders');
   const paintSkel = function(){
     $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" data-skeleton="1" id="myo-root">'+
       '<div class="skel-card"><div class="skel-line" style="width:60%"></div></div>'+
       [0,1,2,3].map(i=>'<div class="skel-card space-y-2"><div class="skel-line" style="width:'+(35+i*10)+'%"></div><div class="skel-line" style="width:80%"></div></div>').join('')+'</div>';
   };
-  if (cached) paintMyOrders(cached, true); else paintSkel();
+  if (cached) { paintMyOrders(cached, !cacheGet('myOrders')); noteSavedPaint('myOrders'); } else paintSkel();
   const token = (state._myoToken = (state._myoToken||0)+1);
-  fetchMyOrdersSummary().then(function(data){
+  bootWait().then(function(){
+    if (state.tab !== 'myorders' || token !== state._myoToken) return null;
+    if (cacheGet('myOrders')) { paintMyOrders(cachePeek('myOrders'), false); return null; }
+    return fetchMyOrdersSummary();
+  }).then(function(data){
+    if (!data) return;
     if (state.tab !== 'myorders' || token !== state._myoToken) return;
     paintMyOrders(data, false);
   }).catch(function(e){
     if (state.tab !== 'myorders' || token !== state._myoToken) return;
-    if (cached) { toast('Showing saved copy — '+(e.message||'refresh failed'),'error'); return; }
-    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3"><div class="glass rounded-xl p-4 border border-rose-500/30 space-y-2">'+
+    if (cached) { if (!e.network) toast('Showing saved copy — '+(e.message||'refresh failed'),'error'); return; }
+    const offline = navigator.onLine === false || e.network;
+    $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3">'+queueHostHtml('*')+'<div class="glass rounded-xl p-4 border border-rose-500/30 space-y-2">'+
       '<p class="text-sm text-rose-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Couldn\'t load your orders</p>'+
-      '<p class="text-[11px] text-slate-400">'+esc(e.message||'Network error')+'</p>'+
+      '<p class="text-[11px] text-slate-400">'+esc(offline ? 'No connection and no saved copy on this phone yet. Anything you order now is kept below and sends when you\'re back online.' : (e.message||'Network error'))+'</p>'+
       '<button type="button" id="myo-retry" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white min-h-[44px]">Retry</button></div></div>';
     const rb = $('#myo-retry'); if (rb) rb.onclick = function(){ cacheInvalidate(['myOrders']); renderMyOrders(); };
+    bindQueueButtons();
   });
 }
 function paintMyOrders(data, stale){
@@ -1108,6 +1105,7 @@ function paintMyOrders(data, stale){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="myo-root">'+
     '<div class="flex items-center justify-between"><p class="text-xs text-slate-400">'+esc(fullDisplayName())+' · Fiji service dates</p>'+
     '<button type="button" id="myo-refresh" class="text-[11px] text-teal-400 min-h-[36px] px-2"><i class="fa-solid fa-rotate'+(stale?' fa-spin':'')+' mr-1"></i>Refresh</button></div>'+
+    queueHostHtml('*')+
     '<div class="flex gap-1.5">'+tabs+'</div>'+
     '<p class="text-[11px] text-slate-300 px-0.5"><strong>'+esc(myOrdersDateLabel(day.date))+'</strong>'+(day.readOnly?' <span class="text-slate-500">· read-only</span>':' <span class="text-teal-400/90">· you can still change open meals</span>')+'</p>'+
     row('breakfast','fa-mug-saucer','Breakfast', day.breakfast)+
@@ -1119,7 +1117,8 @@ function paintMyOrders(data, stale){
   $$('.myo-tab').forEach(function(b){ b.onclick = function(){ state.myOrdersDay = b.dataset.day; paintMyOrders(data, false); }; });
   $$('.myo-go').forEach(function(b){ b.onclick = function(){ navigate(b.dataset.meal); }; });
   const bb = $('#myo-boat'); if (bb) bb.onclick = function(){ navigate('boat'); };
-  const rf = $('#myo-refresh'); if (rf) rf.onclick = function(){ cacheInvalidate(['myOrders']); renderMyOrders(); };
+  const rf = $('#myo-refresh'); if (rf) rf.onclick = function(){ cacheInvalidate(['myOrders']); flushQueue('manual'); renderMyOrders(); };
+  bindQueueButtons();
 }
 /** Home card next to "Do this now" — tomorrow at a glance, taps into My Orders. */
 function paintHomeMyOrdersCard(data){
@@ -1139,6 +1138,8 @@ function paintHomeMyOrdersCard(data){
   host.innerHTML = '<button type="button" id="home-myorders-btn" class="ui-card glass w-full rounded-xl p-3 text-left border border-indigo-500/30 min-h-[56px]">'+
     '<div class="flex items-center justify-between"><p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-list-check text-teal-400 mr-1"></i>My Orders</p>'+
     '<span class="text-[10px] text-teal-400">Yesterday · Today · Tomorrow →</span></div>'+
+    (queueItems().length ? '<p class="text-[11px] mt-1 text-amber-300"><i class="fa-solid fa-cloud-arrow-up mr-1"></i>'+queueItems().length+' waiting to send</p>' : '')+
+    (queueFailed().length ? '<p class="text-[11px] mt-1 text-rose-300"><i class="fa-solid fa-circle-xmark mr-1"></i>'+queueFailed().length+' didn\'t go through — tap to see</p>' : '')+
     (t ? '<p class="text-[11px] mt-1 flex flex-wrap gap-x-3 gap-y-0.5"><span class="text-slate-400">'+esc(myOrdersDateLabel(t.date))+':</span>'+mini('Breakfast',t.breakfast)+mini('Lunch',t.lunch)+mini('Dinner',t.dinner)+
       '<span class="'+((t.boats||[]).some(b=>b.status!=='cancelled')?'text-teal-300':'text-slate-500')+'"><i class="fa-solid fa-ship mr-0.5"></i>'+(t.boats||[]).filter(b=>b.status!=='cancelled').length+'</span></p>'
       : '<p class="text-[11px] mt-1 text-slate-500">See your breakfast, lunch, dinner & boat status</p>')+
@@ -1146,10 +1147,13 @@ function paintHomeMyOrdersCard(data){
   const b = $('#home-myorders-btn'); if (b) b.onclick = function(){ navigate('myorders'); };
 }
 function loadHomeMyOrdersCard(){
-  const c = cacheGet('myOrders');
-  paintHomeMyOrdersCard(c);
-  if (c) return;
-  fetchMyOrdersSummary().then(function(d){ if (state.tab==='home') paintHomeMyOrdersCard(d); }).catch(function(){});
+  paintHomeMyOrdersCard(cachePeek('myOrders'));
+  noteSavedPaint('myOrders');
+  bootWait().then(function(){
+    if (state.tab !== 'home') return;
+    if (cacheGet('myOrders')) { paintHomeMyOrdersCard(cachePeek('myOrders')); return; }
+    fetchMyOrdersSummary().then(function(d){ if (state.tab==='home') paintHomeMyOrdersCard(d); }).catch(function(){});
+  });
 }
 function maybeShowFirstLoginCoach(){
   try { if (localStorage.getItem(LS_COACH_DONE)==='1') return; } catch(e){ return; }
@@ -1308,8 +1312,19 @@ function isDemoMode(){
   return !API_URL || !API_URL.trim() || params.get('demo') === '1';
 }
 
+const API_TIMEOUT_MS = 60000;
 async function api(action, payload={}) {
-  if (state.demo) return demoApi(action, payload);
+  if (state.demo) {
+    // 2.10.0: demo honours offline mode so the offline queue can be tried without a backend
+    if (navigator.onLine === false && !['login','getVersion','health'].includes(action)) {
+      const err = new Error('Couldn\'t reach kitchen / server — try again'); err.network = true;
+      if (!QUEUEABLE[action]) setDataStatus('offline');
+      throw err;
+    }
+    const dr = await demoApi(action, payload);
+    if (!QUEUEABLE[action] && action !== 'login') setDataStatus('fresh');
+    return dr;
+  }
   const params = new URLSearchParams();
   params.set('action', action);
   const body = Object.assign({}, payload);
@@ -1326,16 +1341,26 @@ async function api(action, payload={}) {
   var sep = API_URL.indexOf('?') >= 0 ? '&' : '?';
   var url = API_URL + sep + params.toString();
   let res, text;
+  const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const tmo = ctl ? setTimeout(function(){ try { ctl.abort(); } catch(e){} }, API_TIMEOUT_MS) : null;
   try {
-    res = await fetch(url, { method: 'GET', redirect: 'follow' });
+    res = await fetch(url, { method: 'GET', redirect: 'follow', signal: ctl ? ctl.signal : undefined });
     text = await res.text();
   } catch (netErr) {
+    if (tmo) clearTimeout(tmo);
     const err = new Error('Couldn\'t reach kitchen / server — try again');
     err.network = true;
+    if (!QUEUEABLE[action]) setDataStatus('offline');
     throw err;
   }
-  try { return JSON.parse(text); }
+  if (tmo) clearTimeout(tmo);
+  try {
+    const json = JSON.parse(text);
+    if (!QUEUEABLE[action] && action !== 'login') setDataStatus('fresh');
+    return json;
+  }
   catch(e) {
+    // Apps Script sometimes answers with an HTML error page — treat like a network blip (safe to retry)
     const err = new Error('Couldn\'t reach kitchen / server — try again');
     err.network = true;
     throw err;
@@ -1417,7 +1442,86 @@ function demoProcessDinnerWorkflow(db){
   return { fijiNow:formatFiji(now), serviceDate, approved, autoPrepReady:autoReady, snapshot:snap?{id:snap.id,generatedAt:snap.generatedAt,autoGenerated:snap.autoGenerated,totalOrders:snap.totalOrders}:null, note:'Apps Script time triggers can also call processDinnerWorkflow' };
 }
 
-function demoApi(action, p) {
+/* 2.10.0 demo: getBootstrap / archiveOldRows / idempotent queued writes (mirrors Code.gs + Speed.gs) */
+async function demoApi(action, p) {
+  p = p || {};
+  if (action === 'getBootstrap') return demoBootstrap(p);
+  if (action === 'archiveOldRows') return demoArchiveOldRows(p);
+  const crid = String(p.clientRequestId || '');
+  if (crid && QUEUEABLE[action]) {
+    const db0 = loadDemo();
+    db0.requestLog = db0.requestLog || {};
+    if (db0.requestLog[crid]) return Object.assign({}, db0.requestLog[crid], { duplicate:true, clientRequestId:crid });
+    let res = null;
+    const meal = action==='placeDinnerOrder'?'dinner':action==='placeLunchOrder'?'lunch':action==='placeBreakfastOrder'?'breakfast':action==='cancelMealOrder'?String(p.meal||''):'';
+    if (meal && p.queuedFor) {
+      const info = meal==='breakfast'?breakfastCutoffInfo():meal==='lunch'?lunchCutoffInfo():dinnerCutoffInfo();
+      if (String(p.queuedFor).slice(0,10) !== info.serviceDate) res = { success:false, cutoffPassed:true, cutoff:info, error:'Didn\'t go through — the '+meal+' cutoff for '+String(p.queuedFor).slice(0,10)+' passed before it reached the server.' };
+    }
+    if (!res) res = await demoApiCore(action, p);
+    if (res && res.success === false && !res.cutoffPassed && (res.cutoff || res.needsLate) && /closed|cutoff|Cannot cancel|late breakfast/i.test(String(res.error||''))) res.cutoffPassed = true;
+    const db1 = loadDemo(); db1.requestLog = db1.requestLog || {}; db1.requestLog[crid] = JSON.parse(JSON.stringify(res)); saveDemo(db1);
+    return Object.assign({}, res, { clientRequestId:crid });
+  }
+  return demoApiCore(action, p);
+}
+async function demoBootstrap(p){
+  const email = String((state.user && state.user.email) || p.requesterEmail || '').toLowerCase();
+  const bi = breakfastCutoffInfo(), li = lunchCutoffInfo(), di = dinnerCutoffInfo();
+  const db = loadDemo();
+  const u = db.users.find(x => x.email === email) || null;
+  const get = (a, q) => demoApiCore(a, q || {}).then(r => (r && r.success) ? r.data : null);
+  const [settings, my, bo, lu, dn, runs, menus, rem, sug] = await Promise.all([
+    get('getAppSettings'), get('getMyOrdersSummary', { requesterEmail: email }),
+    get('getBreakfastOrders', { userEmail: email, serviceDate: bi.serviceDate }), get('getLunchOrders', { userEmail: email, serviceDate: li.serviceDate }),
+    get('getDinnerOrders', { userEmail: email, serviceDate: di.serviceDate }), get('getBoatRuns', boatRunsRangeParams()),
+    get('getDinnerMenus', { serviceDate: di.serviceDate, includePreviousDay:false }), get('getReminders'), get('getSuggestions')
+  ]);
+  let dailyOps = null, mealStats = null, kitchenLite = null;
+  if (canFullAdmin() || canHod()) dailyOps = await get('getDailyOpsSummary');
+  else if (canBoatCaptain() || canBoatManager()) { const ops = await get('getDailyOpsSummary'); dailyOps = ops ? { emergencyPending: ops.emergencyPending||0, partial:true } : { emergencyPending: (db.emergencyTravel||[]).filter(x=>x.status==='pending').length, partial:true }; }
+  if (hasPerm('super_admin')) mealStats = await get('getMealStatistics');
+  if (canKitchen()) {
+    kitchenLite = { breakfast: { latePending: (db.breakfastOrders||[]).filter(o=>o.serviceDate===bi.serviceDate && o.status==='late_pending').map(o=>({ id:o.id })) },
+      dinner: { pendingCount: (db.dinnerOrders||[]).filter(o=>o.serviceDate===di.serviceDate && (o.status==='pending'||o.status==='late_pending')).length } };
+  }
+  return { success:true, data: {
+    version: APP_VERSION+'-demo', fijiNow: formatFiji(), user: u ? Object.assign({}, u, { password: undefined }) : null, userFound: !!u,
+    features: settings && settings.features, settings: settings && settings.settings,
+    cutoffs: { fijiNow: formatFiji(), breakfast: bi, lunch: li, dinner: di }, myOrders: my,
+    orders: { serviceDates: { breakfast: bi.serviceDate, lunch: li.serviceDate, dinner: di.serviceDate }, breakfast: (bo&&bo.orders)||[], lunch: (lu&&lu.orders)||[], dinner: (dn&&dn.orders)||[] },
+    boatRuns: (runs&&runs.runs)||[], dinnerMenus: menus, reminders: (rem&&rem.reminders)||[], suggestions: (sug&&sug.suggestions)||[],
+    dailyOps, mealStats, kitchenLite, doThisNow: [], sheetsRead: ['demo'], ms: 0 } };
+}
+function demoArchiveOldRows(p){
+  if (!hasPerm('super_admin') && !passOk(p.passcode, 'super')) return Promise.resolve({ success:false, error:'Superadmin permission required' });
+  const db = loadDemo();
+  const cutoffDate = fijiDateString(addFijiDays(getFijiNow(), -60));
+  const runDate = {}; (db.boatRuns||[]).forEach(r => { runDate[r.id] = String(r.date||'').slice(0,10); });
+  const plan = [
+    ['Dinner Orders','dinnerOrders', o => String(o.serviceDate||'').slice(0,10)],
+    ['Breakfast Orders','breakfastOrders', o => String(o.serviceDate||'').slice(0,10)],
+    ['Lunch Orders','lunchOrders', o => String(o.serviceDate||'').slice(0,10)],
+    ['Boat Bookings','boatBookings', b => runDate[b.runId] || String(b.createdAt||'').slice(0,10)],
+    ['Boat Runs','boatRuns', r => String(r.date||'').slice(0,10)]
+  ];
+  const dry = p.dryRun === true || p.dryRun === '1' || p.dryRun === 'true' || p.dryRun === 1;
+  const sheets = {};
+  db.archive = db.archive || {};
+  plan.forEach(([name, key, dateOf]) => {
+    const list = db[key] || [];
+    const old = list.filter(x => { const d = dateOf(x); return /^\d{4}-\d{2}-\d{2}$/.test(d) && d < cutoffDate; });
+    if (dry) sheets[name] = { totalRows: list.length, olderThan60Days: old.length, keep: list.length - old.length, archiveTab: 'Archive_'+name };
+    else {
+      db.archive[name] = (db.archive[name]||[]).concat(old.map(x => Object.assign({}, x, { archivedAt: formatFiji() })));
+      db[key] = list.filter(x => old.indexOf(x) < 0);
+      sheets[name] = { moved: old.length, archiveTab: 'Archive_'+name, verified: true };
+    }
+  });
+  if (!dry) saveDemo(db);
+  return Promise.resolve({ success:true, data: { dryRun: dry, cutoffDate, days: 60, sheets, fijiNow: formatFiji() } });
+}
+function demoApiCore(action, p) {
   const db = loadDemo();
   const ok = (data) => ({ success:true, data });
   const fail = (error) => ({ success:false, error });
@@ -2486,38 +2590,72 @@ function cacheUsers(users){ try { localStorage.setItem(CACHE_USERS_KEY, JSON.str
 function readUsersCache(){ try { const o = JSON.parse(localStorage.getItem(CACHE_USERS_KEY)||'null'); return (o && o.users) || []; } catch(e){ return []; } }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
-/* C58 — screen data cache (memory + optional sessionStorage), TTL ~2.5 min */
+/* C58 / 2.10.0 — screen data cache.
+ * Memory + localStorage, keyed PER USER (pcr_v2_pcache:<email>). "Fresh" = younger than 2.5 min (skip the network);
+ * anything younger than 7 days can still be painted instantly while a background refresh runs.
+ * Never shared between users; cleared on logout. */
 const DATA_CACHE_TTL_MS = 150000;
-const DATA_CACHE_SS_KEY = 'pcr_v2_screen_cache';
+const DATA_CACHE_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+const PCACHE_PREFIX = 'pcr_v2_pcache:';
 const dataCacheMem = Object.create(null);
-(function hydrateDataCache(){
+let dataCacheOwner = '';
+try { sessionStorage.removeItem('pcr_v2_screen_cache'); } catch(e){} // pre-2.10 shared cache
+function pcacheKey(email){ return PCACHE_PREFIX + String(email||'').trim().toLowerCase(); }
+function clearDataCacheMem(){ Object.keys(dataCacheMem).forEach(function(k){ delete dataCacheMem[k]; }); }
+/** Point the cache at the signed-in user. Drops anything held for a different user. */
+function bindDataCacheToUser(email){
+  email = String(email||'').trim().toLowerCase();
+  if (dataCacheOwner === email) return;
+  clearDataCacheMem();
+  dataCacheOwner = email;
+  if (!email) return;
   try {
-    const raw = sessionStorage.getItem(DATA_CACHE_SS_KEY);
-    if (!raw) return;
-    const obj = JSON.parse(raw);
+    const obj = JSON.parse(localStorage.getItem(pcacheKey(email)) || 'null');
     const now = Date.now();
-    Object.keys(obj || {}).forEach(function(k){
-      const e = obj[k];
-      if (e && e.at && (now - e.at) < DATA_CACHE_TTL_MS) dataCacheMem[k] = e;
-    });
+    if (obj && obj.owner === email && obj.entries) {
+      Object.keys(obj.entries).forEach(function(k){
+        const e = obj.entries[k];
+        if (e && e.at && (now - e.at) < DATA_CACHE_MAX_AGE_MS) dataCacheMem[k] = e;
+      });
+    }
   } catch(e){}
-})();
-function persistDataCache(){
-  try { sessionStorage.setItem(DATA_CACHE_SS_KEY, JSON.stringify(dataCacheMem)); } catch(e){}
 }
+let _persistTimer = null;
+function persistDataCache(){
+  if (_persistTimer) return;
+  _persistTimer = setTimeout(function(){
+    _persistTimer = null;
+    if (!dataCacheOwner) return;
+    const entries = Object.assign({}, dataCacheMem);
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try { localStorage.setItem(pcacheKey(dataCacheOwner), JSON.stringify({ owner: dataCacheOwner, entries: entries })); return; }
+      catch(e) {
+        // quota: drop the biggest entry and retry
+        let big = null, size = -1;
+        Object.keys(entries).forEach(function(k){ const n = JSON.stringify(entries[k]).length; if (n > size) { size = n; big = k; } });
+        if (!big) return; delete entries[big];
+      }
+    }
+  }, 60);
+}
+/** Fresh data only (younger than 2.5 min) — callers use this to decide whether to skip the network. */
 function cacheGet(key){
   const e = dataCacheMem[key];
   if (!e) return null;
-  if (Date.now() - e.at > DATA_CACHE_TTL_MS) { delete dataCacheMem[key]; persistDataCache(); return null; }
+  if (Date.now() - e.at > DATA_CACHE_TTL_MS) return null;
   return e.data;
 }
+/** Any saved copy (up to 7 days) — for instant paint while a refresh runs. */
+function cachePeek(key){ const e = dataCacheMem[key]; return e ? e.data : null; }
+function cacheAt(key){ const e = dataCacheMem[key]; return e ? e.at : 0; }
 function cacheSet(key, data){
+  if (!dataCacheOwner) return;
   dataCacheMem[key] = { at: Date.now(), data: data };
   persistDataCache();
 }
 function cacheInvalidate(keys){
   if (!keys || keys === '*') {
-    Object.keys(dataCacheMem).forEach(function(k){ delete dataCacheMem[k]; });
+    clearDataCacheMem();
   } else {
     const list = Array.isArray(keys) ? keys : [keys];
     list.forEach(function(k){ delete dataCacheMem[k]; });
@@ -2525,6 +2663,182 @@ function cacheInvalidate(keys){
     if (list.some(function(k){ return /Orders|boat|kitchen/i.test(String(k)); })) delete dataCacheMem['myOrders'];
   }
   persistDataCache();
+}
+/** Logout: forget this user's saved screens (memory + disk). */
+function clearUserDataCache(email){
+  clearDataCacheMem();
+  try { if (email) localStorage.removeItem(pcacheKey(email)); } catch(e){}
+  try { Object.keys(localStorage).forEach(function(k){ if (k.indexOf(PCACHE_PREFIX) === 0 && k !== pcacheKey(email) && !email) localStorage.removeItem(k); }); } catch(e){}
+  dataCacheOwner = '';
+}
+
+/* 2.10.0 — "Updated just now / Offline, showing saved data" line (Home, My Orders, Meals, Boat, Kitchen) */
+const DATA_STATUS_TABS = ['home','myorders','meals','breakfast','lunch','dinner','boat','kitchen'];
+function fmtClock(ms){ try { return new Date(ms + 12*3600000).toISOString().slice(11,16); } catch(e){ return ''; } }
+function setDataStatus(mode, at){
+  const prev = state.dataStatus || {};
+  if (mode === 'fresh') state.dataStatus = { mode:'fresh', at: Date.now() };
+  else if (mode === 'saved') { if (prev.mode === 'offline') state.dataStatus = { mode:'offline', at: at || prev.at }; else state.dataStatus = { mode:'saved', at: at || prev.at }; }
+  else if (mode === 'offline') state.dataStatus = { mode:'offline', at: at || prev.savedAt || prev.at || 0 };
+  renderDataStatus();
+}
+function renderDataStatus(){
+  const el = document.getElementById('data-status');
+  if (!el) return;
+  const ds = state.dataStatus;
+  const show = state.user && ds && DATA_STATUS_TABS.includes(state.tab);
+  if (!show) { el.classList.add('hidden'); return; }
+  let html = '';
+  if (navigator.onLine === false && ds.mode !== 'offline') { ds.mode = 'offline'; ds.at = cacheAt('myOrders') || ds.at; }
+  if (ds.mode === 'offline') {
+    html = '<i class="fa-solid fa-plane-slash mr-1"></i>Offline — showing saved data'+(ds.at?' from '+fmtClock(ds.at):'');
+    el.className = 'text-[10px] text-amber-300/90 px-4 pt-2 max-w-lg mx-auto w-full';
+  } else if (ds.mode === 'saved') {
+    html = '<i class="fa-solid fa-rotate fa-spin mr-1"></i>Showing saved data'+(ds.at?' from '+fmtClock(ds.at):'')+' · refreshing…';
+    el.className = 'text-[10px] text-slate-400 px-4 pt-2 max-w-lg mx-auto w-full';
+  } else {
+    const mins = Math.floor((Date.now() - (ds.at||Date.now())) / 60000);
+    html = '<i class="fa-solid fa-circle-check mr-1"></i>'+(mins < 1 ? 'Updated just now' : 'Updated '+mins+' min ago');
+    el.className = 'text-[10px] text-teal-400/80 px-4 pt-2 max-w-lg mx-auto w-full';
+  }
+  const q = queueItems();
+  if (q.length) html += ' · <button type="button" class="underline text-amber-300" onclick="navigate(\'myorders\')">'+q.length+' waiting to send</button>';
+  el.innerHTML = html;
+}
+/** Paint helper: when a screen paints from a saved (not fresh) copy, say so. */
+function noteSavedPaint(key){
+  const at = cacheAt(key);
+  if (at && !cacheGet(key)) setDataStatus(navigator.onLine === false ? 'offline' : 'saved', at);
+  else if (at) setDataStatus('fresh');
+}
+
+/* 2.10.0 — offline order queue (meal orders, dinner change/cancel, boat bookings). Never admin/kitchen actions. */
+const QUEUE_PREFIX = 'pcr_v2_queue:';
+const QUEUEABLE = { placeDinnerOrder:1, placeLunchOrder:1, placeBreakfastOrder:1, cancelMealOrder:1, bookBoat:1, cancelBoatBooking:1 };
+function newRequestId(){
+  try { if (crypto && crypto.randomUUID) return 'cr_' + crypto.randomUUID().replace(/-/g,''); } catch(e){}
+  return 'cr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+}
+function queueKey(){ return QUEUE_PREFIX + String((state.user && state.user.email) || '').toLowerCase(); }
+function queueAll(){ if (!state.user) return []; try { return JSON.parse(localStorage.getItem(queueKey()) || '[]') || []; } catch(e){ return []; } }
+function queueSave(list){ try { localStorage.setItem(queueKey(), JSON.stringify(list)); } catch(e){} renderDataStatus(); }
+/** Waiting items (optionally filtered by kind). Failed items are listed separately. */
+function queueItems(kind){ return queueAll().filter(function(q){ return q.state !== 'failed' && (!kind || q.kind === kind); }); }
+function queueFailed(kind){ return queueAll().filter(function(q){ return q.state === 'failed' && (!kind || q.kind === kind); }); }
+function queueRemove(id){ queueSave(queueAll().filter(function(q){ return q.id !== id; })); }
+function queueKindOf(action, payload){
+  if (action === 'placeDinnerOrder') return 'dinner';
+  if (action === 'placeLunchOrder') return 'lunch';
+  if (action === 'placeBreakfastOrder') return 'breakfast';
+  if (action === 'cancelMealOrder') return String(payload.meal||'');
+  return 'boat';
+}
+/**
+ * Send a staff write. Every send carries a clientRequestId so the server can de-duplicate.
+ * No connection → saved to the local queue and reported as { success:true, queued:true }.
+ */
+async function sendOrQueue(action, payload, meta){
+  meta = meta || {};
+  const body = Object.assign({}, payload, { clientRequestId: newRequestId() });
+  try {
+    return await api(action, body);
+  } catch (e) {
+    if (!e || !e.network || !QUEUEABLE[action]) throw e;
+    const list = queueAll();
+    list.push({ id: body.clientRequestId, action, payload: body, kind: queueKindOf(action, payload),
+      label: meta.label || action, serviceDate: meta.serviceDate || '', createdAt: Date.now(), state: 'waiting', tries: 1 });
+    queueSave(list);
+    setDataStatus('offline');
+    return { success: true, queued: true, data: {} };
+  }
+}
+let _flushing = false;
+/** Send waiting items one by one. Server de-dupes by clientRequestId, so a repeat is harmless. */
+async function flushQueue(reason){
+  if (_flushing || !state.user) return;
+  if (!queueItems().length) return;
+  if (navigator.onLine === false) return;
+  _flushing = true;
+  const run = async function(){
+    let sent = 0;
+    for (const item of queueItems()) {
+      const body = Object.assign({}, item.payload, { clientRequestId: item.id });
+      if (item.serviceDate) body.queuedFor = item.serviceDate;
+      let r;
+      try { r = await api(item.action, body); }
+      catch (e) { if (e && e.network) break; r = { success:false, error: (e && e.message) || 'Error' }; }
+      const list = queueAll(); const cur = list.find(function(q){ return q.id === item.id; });
+      if (!cur) continue;
+      if (r && r.success) {
+        queueSave(list.filter(function(q){ return q.id !== item.id; }));
+        sent++;
+        toast('Sent: '+item.label+(r.duplicate?' (already received)':''),'ok');
+      } else if (r && (r.retry || /busy|timed out|try again|Service/i.test(String(r.error||'')))) {
+        cur.tries = (cur.tries||1) + 1; queueSave(list); break;
+      } else {
+        cur.state = 'failed';
+        cur.cutoffPassed = !!(r && r.cutoffPassed);
+        cur.error = cur.cutoffPassed ? 'Didn\'t go through — cutoff passed' : ((r && r.error) || 'Didn\'t go through');
+        cur.detail = (r && r.error) || '';
+        queueSave(list);
+        toast(item.label+': '+cur.error, 'error');
+      }
+    }
+    if (sent) {
+      cacheInvalidateMealBoat();
+      if (['home','myorders','meals','breakfast','lunch','dinner','boat','bookings'].includes(state.tab)) navigate(state.tab);
+    } else renderQueueAreas();
+  };
+  try {
+    if (navigator.locks && navigator.locks.request) await navigator.locks.request('pcr-queue-flush', { ifAvailable: true }, function(lock){ return lock ? run() : null; });
+    else await run();
+  } finally { _flushing = false; }
+}
+function queueBannerHtml(kinds){
+  kinds = Array.isArray(kinds) ? kinds : (kinds ? [kinds] : null);
+  const match = function(q){ return !kinds || kinds.includes(q.kind); };
+  const waiting = queueItems().filter(match), failed = queueFailed().filter(match);
+  if (!waiting.length && !failed.length) return '';
+  let h = '<div class="queue-area space-y-1.5">';
+  waiting.forEach(function(q){
+    h += '<div class="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 flex items-start gap-2">'+
+      '<i class="fa-solid fa-cloud-arrow-up text-amber-300 mt-0.5"></i><div class="min-w-0 flex-1">'+
+      '<p class="text-xs font-medium text-amber-200">Waiting to send · '+esc(q.label)+'</p>'+
+      '<p class="text-[10px] text-amber-100/70">Saved on this phone '+fmtClock(q.createdAt)+'. Sends automatically when you\'re back online.</p></div>'+
+      '<button type="button" class="q-send text-[10px] text-teal-300 shrink-0 min-h-[32px] px-1" data-id="'+esc(q.id)+'">Send now</button></div>';
+  });
+  failed.forEach(function(q){
+    h += '<div class="rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 flex items-start gap-2">'+
+      '<i class="fa-solid fa-circle-xmark text-rose-300 mt-0.5"></i><div class="min-w-0 flex-1">'+
+      '<p class="text-xs font-medium text-rose-200">'+esc(q.error||'Didn\'t go through')+' · '+esc(q.label)+'</p>'+
+      (q.detail?'<p class="text-[10px] text-rose-100/70">'+esc(q.detail)+'</p>':'')+'</div>'+
+      '<button type="button" class="q-dismiss text-[10px] text-slate-300 shrink-0 min-h-[32px] px-1" data-id="'+esc(q.id)+'">Dismiss</button></div>';
+  });
+  return h + '</div>';
+}
+function bindQueueButtons(){
+  $$('.q-send').forEach(function(b){ b.onclick = function(){ if (navigator.onLine === false) { toast('Still offline — it will send when you reconnect','info'); return; } flushQueue('manual'); }; });
+  $$('.q-dismiss').forEach(function(b){ b.onclick = function(){ queueRemove(b.dataset.id); renderQueueAreas(); if (state.tab==='myorders') renderMyOrders(); }; });
+}
+/** Refresh any queue banner already on screen. */
+function renderQueueAreas(){
+  $$('[data-queue-host]').forEach(function(host){
+    const kinds = host.getAttribute('data-queue-host');
+    host.innerHTML = queueBannerHtml(kinds === '*' ? null : kinds.split(','));
+    host.hidden = !host.innerHTML;
+  });
+  bindQueueButtons();
+  renderDataStatus();
+}
+function queueHostHtml(kinds){ const inner = queueBannerHtml(kinds === '*' ? null : kinds.split(',')); return '<div data-queue-host="'+kinds+'"'+(inner?'':' hidden')+'>'+inner+'</div>'; }
+function installQueueTriggers(){
+  if (window.__pcrQueueTriggers) return;
+  window.__pcrQueueTriggers = true;
+  window.addEventListener('online', function(){ setDataStatus('fresh'); flushQueue('online'); if (DATA_STATUS_TABS.includes(state.tab) && state.user) setTimeout(function(){ navigate(state.tab); }, 300); });
+  window.addEventListener('offline', function(){ setDataStatus('offline'); });
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') flushQueue('visible'); });
+  setInterval(function(){ if (document.visibilityState === 'visible') flushQueue('timer'); }, 30000);
+  setInterval(renderDataStatus, 30000);
 }
 function cacheInvalidateMealBoat(){
   Object.keys(dataCacheMem).forEach(function(k){
@@ -2563,8 +2877,14 @@ function showLoadingTips(container){
   return function(){ cancelled = true; clearTimeout(t0); clearTimeout(t1); clearTimeout(t2); };
 }
 function doLogout(){
+  try { document.documentElement.classList.remove('has-session'); } catch(e){}
+  const leaving = state.user && state.user.email;
+  // 2.10.0: forget this user's saved screens + personal "last choice" hints (never shown to the next user).
+  // Waiting offline orders stay (per user) and send next time this user signs in.
+  clearUserDataCache(leaving);
+  try { [LS_LAST_DINNER, LS_LAST_BOAT, CACHE_USERS_KEY].forEach(function(k){ localStorage.removeItem(k); }); } catch(e){}
+  state.dataStatus = null; state.bootPending = null;
   state.user = null; state.adminUnlock = null; localStorage.removeItem(SESSION_KEY);
-  cacheInvalidate('*');
   if (state._loginHeroTimer) { clearInterval(state._loginHeroTimer); state._loginHeroTimer = null; }
   $('#view-main').classList.add('hidden');
   $('#view-login').classList.remove('hidden');
@@ -2649,6 +2969,7 @@ function navigate(tab){
   if (skelTabs[tab]) paintSkeleton({ cards: skelTabs[tab] });
   (map[tab]||renderHome)();
   renderNav('#bottom-nav');
+  renderDataStatus();
   if (tab === 'home') setTimeout(prefetchNextTabByRole, 400);
 }
 function quickBtn(tab, icon, label, accent){
@@ -2682,7 +3003,8 @@ function renderHome(){
         '</div></div>'+
       '<div id="home-dothisnow" class="hidden"></div>'+
       '<div id="home-myorders"></div>'+
-      '<div class="grid grid-cols-3 gap-2">'+
+      queueHostHtml('*')+
+      '<div class="grid grid-cols-3 gap-2" id="home-meal-grid">'+
         '<button type="button" onclick="navigate(\'breakfast\')" class="meal-card-btn ui-card glass rounded-xl p-2.5 text-left '+(bi.open||bi.lateOpen?'meal-open-glow border-teal-600/40':'')+'">'+
           '<p class="text-[9px] uppercase tracking-wide text-slate-400">Breakfast</p>'+
           '<p class="text-sm font-medium mt-1">'+(bi.open?'<span class="text-teal-400">Open</span>':(bi.lateOpen?'<span class="text-orange-300">Late</span>':'<span class="text-amber-400">Closed</span>'))+'</p>'+
@@ -2711,8 +3033,9 @@ function renderHome(){
             '<button type="button" id="home-share-idea" class="text-[10px] text-amber-300/90"><i class="fa-solid fa-plus mr-0.5"></i>Share idea</button>'+
             '<button type="button" onclick="navigate(\'suggestions\')" class="text-[10px] text-teal-400">Box</button></div></div>'+
         '<div id="home-sug-list" class="space-y-2"></div></div>'+
-      '<p class="text-[10px] text-center text-slate-500">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p>'+
+      '<p class="text-[10px] text-center text-slate-500" id="home-ver">UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'')+'</p>'+
       '<p class="text-[9px] text-center text-teal-700/70">Paradise Cove Resort · Yasawa Islands Fiji</p></div></div>';
+  bindQueueButtons();
   const leaveBtn = $('#home-btn-leave');
   if (leaveBtn) leaveBtn.onclick = () => openLeaveRequestModal();
   const shareBtn = $('#home-share-idea');
@@ -2731,17 +3054,13 @@ function renderHome(){
   setTimeout(paintDoThisNowStrip, 2500);
   if (hasPerm('super_admin')) loadSuperadminHomeStats();
   else if (canFullAdmin() || canHod()) loadDailyOpsDashboard();
-  prefetchNextTabByRole();
   maybeShowFirstLoginCoach();
 }
 
-async function loadSuperadminHomeStats(){
-  const host = document.querySelector('.grid.grid-cols-3.gap-2');
-  if (!host) return;
-  host.innerHTML = '<div class="col-span-3 glass rounded-xl p-3 text-xs text-slate-400">Loading weekly / monthly meal stats…</div>';
-  try {
-    const r = await api('getMealStatistics');
-    if (!r || !r.success || !r.data) { host.innerHTML = '<div class="col-span-3 text-xs text-rose-300">Stats unavailable'+(r&&r.error?': '+esc(r.error):'')+'</div>'; return; }
+function paintSuperadminStats(data){
+  const host = document.getElementById('home-meal-grid');
+  if (!host || !data) return false;
+  const r = { data: data };
     const w = (r.data.weekly && r.data.weekly.totals) || {};
     const m = (r.data.monthly && r.data.monthly.totals) || {};
     host.innerHTML =
@@ -2752,8 +3071,23 @@ async function loadSuperadminHomeStats(){
       '<div><p class="text-[9px] text-slate-400">Month B/L/D</p><p class="text-sm text-teal-300">'+(m.breakfast||0)+'/'+(m.lunch||0)+'/'+(m.dinner||0)+'</p></div>'+
       '<div><button type="button" onclick="navigate(\'more\')" class="text-[10px] text-teal-400">Admin tools →</button></div></div>'+
       '<p class="text-[9px] text-slate-500">Staff meal tiles hidden on superadmin home — use More for full tools.</p></div>';
+  return true;
+}
+async function loadSuperadminHomeStats(){
+  const host = document.getElementById('home-meal-grid');
+  if (!host) return;
+  if (!paintSuperadminStats(cachePeek('mealStats')))
+    host.innerHTML = '<div class="col-span-3 glass rounded-xl p-3 text-xs text-slate-400">Loading weekly / monthly meal stats…</div>';
+  await bootWait();
+  if (cacheGet('mealStats')) { paintSuperadminStats(cachePeek('mealStats')); return; }
+  try {
+    const r = await api('getMealStatistics');
+    if (!r || !r.success || !r.data) { if (!cachePeek('mealStats') && document.getElementById('home-meal-grid')) document.getElementById('home-meal-grid').innerHTML = '<div class="col-span-3 text-xs text-rose-300">Stats unavailable'+(r&&r.error?': '+esc(r.error):'')+'</div>'; return; }
+    cacheSet('mealStats', r.data);
+    paintSuperadminStats(r.data);
   } catch(e){
-    host.innerHTML = '<div class="col-span-3 text-xs text-rose-300">'+esc(e.message)+'</div>';
+    const h = document.getElementById('home-meal-grid');
+    if (h && !cachePeek('mealStats')) h.innerHTML = '<div class="col-span-3 text-xs text-rose-300">'+esc(e.message)+'</div>';
   }
 }
 function reminderPriorityScore(r){
@@ -2772,21 +3106,35 @@ async function loadDailyOpsDashboard(){
   // Insert card after meal status grid if missing
   let box = host;
   if (!box) {
-    const mealGrid = document.querySelector('.grid.grid-cols-3.gap-2');
+    const mealGrid = document.getElementById('home-meal-grid');
     if (!mealGrid || !mealGrid.parentElement) return;
     box = document.createElement('div');
     box.id = 'home-ops-dashboard';
     box.className = 'space-y-2';
     mealGrid.parentElement.insertBefore(box, mealGrid.nextSibling);
   }
-  box.innerHTML = '<div class="glass rounded-xl p-3 space-y-2" data-skeleton="1"><div class="skel-line" style="width:40%"></div><div class="grid grid-cols-3 gap-2"><div class="skel-card h-16"></div><div class="skel-card h-16"></div><div class="skel-card h-16"></div></div></div>';
+  const savedOps = cachePeek('dailyOps');
+  if (savedOps && !savedOps.partial) paintDailyOps(savedOps, box);
+  else box.innerHTML = '<div class="glass rounded-xl p-3 space-y-2" data-skeleton="1"><div class="skel-line" style="width:40%"></div><div class="grid grid-cols-3 gap-2"><div class="skel-card h-16"></div><div class="skel-card h-16"></div><div class="skel-card h-16"></div></div></div>';
+  await bootWait();
+  const fresh = cacheGet('dailyOps');
+  if (fresh && !fresh.partial) { if (box.isConnected) paintDailyOps(fresh, box); return; }
   try {
     const r = await api('getDailyOpsSummary');
     if (!r || !r.success || !r.data) {
-      box.innerHTML = '<div class="glass rounded-xl p-3 text-xs text-rose-300">Ops summary unavailable'+(r&&r.error?': '+esc(r.error):'')+'</div>';
+      if (!savedOps) box.innerHTML = '<div class="glass rounded-xl p-3 text-xs text-rose-300">Ops summary unavailable'+(r&&r.error?': '+esc(r.error):'')+'</div>';
       return;
     }
-    const d = r.data;
+    cacheSet('dailyOps', r.data);
+    if (box.isConnected) paintDailyOps(r.data, box);
+  } catch(e){
+    if (!savedOps) box.innerHTML = '<div class="glass rounded-xl p-3 text-xs text-rose-300">'+esc(e.message)+'</div>';
+  }
+}
+function paintDailyOps(d, box){
+  box = box || document.getElementById('home-ops-dashboard');
+  if (!box || !d) return;
+  {
     function card(label, val, tab, icon, kitMeal){
       let go = '';
       if (tab === 'hod-leave') go = 'onclick="renderHodLeaveSummary()"';
@@ -2820,21 +3168,26 @@ async function loadDailyOpsDashboard(){
     const cDin = $('#ops-copy-dinner'); if (cDin) cDin.onclick = function(){
       copyPlainText('PCR dinner totals ('+(d.date||'')+' Fiji): '+(d.dinner!=null?d.dinner:0)+' · Breakfast: '+(d.breakfast!=null?d.breakfast:0)+' · Lunch: '+(d.lunch!=null?d.lunch:0), 'Dinner totals copied');
     };
-  } catch(e){
-    box.innerHTML = '<div class="glass rounded-xl p-3 text-xs text-rose-300">'+esc(e.message)+'</div>';
   }
 }
 
 async function loadHomeRemindersAndSuggestions(){
   const remBox = $('#home-rem-box'), sugList = $('#home-sug-list');
   if (!remBox || !sugList) return;
-  const cachedRem = cacheGet('reminders');
-  const cachedSug = cacheGet('suggestions');
+  const cachedRem = cachePeek('reminders');
+  const cachedSug = cachePeek('suggestions');
   let stopRem = function(){}, stopSug = function(){};
   if (cachedRem) paintHomeReminders(cachedRem, remBox);
   else stopRem = showLoadingTips(remBox);
   if (cachedSug) paintHomeSuggestions(cachedSug, sugList);
   else stopSug = showLoadingTips(sugList);
+  await bootWait();
+  if (cacheGet('reminders') && cacheGet('suggestions')) {
+    stopRem(); stopSug();
+    if ($('#home-rem-box')) paintHomeReminders(cachePeek('reminders'), $('#home-rem-box'));
+    if ($('#home-sug-list')) paintHomeSuggestions(cachePeek('suggestions'), $('#home-sug-list'));
+    return;
+  }
   try {
     const [rr, sr] = await Promise.all([api('getReminders'), api('getSuggestions')]);
     stopRem(); stopSug();
@@ -2846,8 +3199,8 @@ async function loadHomeRemindersAndSuggestions(){
     paintHomeSuggestions(suggestionsRaw, sugList);
   } catch(e){
     stopRem(); stopSug();
-    if (!cacheGet('reminders') && remBox) remBox.innerHTML = '<p class="text-xs text-slate-500">Unable to load reminders</p>';
-    if (!cacheGet('suggestions') && sugList) sugList.innerHTML = '<p class="text-xs text-slate-500">Unable to load suggestions</p>';
+    if (!cachePeek('reminders') && remBox) remBox.innerHTML = '<p class="text-xs text-slate-500">Unable to load reminders</p>';
+    if (!cachePeek('suggestions') && sugList) sugList.innerHTML = '<p class="text-xs text-slate-500">Unable to load suggestions</p>';
   }
 }
 
@@ -2923,8 +3276,8 @@ async function renderDinner(){
   state.mealPill = 'dinner';
   const orderKey = 'dinnerOrders:'+di.serviceDate;
   const menuKey = 'dinnerMenus:'+di.serviceDate;
-  const cachedOrders = cacheGet(orderKey);
-  const cachedMenus = cacheGet(menuKey);
+  const cachedOrders = cachePeek(orderKey);
+  const cachedMenus = cachePeek(menuKey);
 
   function paintDinner(myDinner, menuPack){
     myDinner = myDinner || [];
@@ -2944,7 +3297,7 @@ async function renderDinner(){
     const statusHtml = cur ? ('<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(cur.mealChoice)+'</strong> '+statusBadge(cur.status)+(cur.late?' <span class="text-amber-400">LATE</span>':'')+(lateChip?' '+lateChip:'')+'</p>') : '';
     const last = loadLastDinner();
     $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="dinner-root">'+
-      mealPillsHtml('dinner')+
+      mealPillsHtml('dinner')+queueHostHtml('dinner')+
       '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-moon text-teal-400 mr-2"></i>Dinner</h3>'+
       '<p class="text-[11px] text-teal-300/90 font-medium">'+esc(mealCutoffOneLiner('dinner', di))+'</p>'+
       '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+di.serviceDate+'</strong> · '+WEEKDAY_NAMES[wd]+'</p></div>'+
@@ -2966,7 +3319,7 @@ async function renderDinner(){
         if (!found) { const o=document.createElement('option'); o.value=cur.mealChoice; o.textContent=cur.mealChoice; o.selected=true; sel.appendChild(o); }
       }
     }
-    bindMealPills('#dinner-root');
+    bindMealPills('#dinner-root'); bindQueueButtons();
     if (cur && cur.mealChoice) { /* already set above */ }
     else if (last && last.mealChoice) {
       const sel = $('#dinner-choice');
@@ -2991,17 +3344,20 @@ async function renderDinner(){
     };
     $('#btn-dinner').onclick = async () => {
       const choice = $('#dinner-choice').value, notes = mealNoteValue('dinner-notes') || '';
-      const r = await api('placeDinnerOrder',{ mealChoice:choice, notes:notes, specialNote:notes, allowLate: !di.open });
+      const r = await sendOrQueue('placeDinnerOrder',{ mealChoice:choice, notes:notes, specialNote:notes, allowLate: !di.open },
+        { label: 'Dinner — '+choice+' ('+di.serviceDate+')', serviceDate: di.serviceDate });
       if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
       saveLastDinner(choice, notes);
+      if (r.queued) { toast('No connection — dinner saved on this phone, will send automatically','info'); renderDinner(); return; }
       cacheInvalidate([orderKey, 'kitchenDashboard']);
       toast((r.data&&r.data.late)?'Late dinner submitted — waiting chef':'Dinner booked','ok'); renderDinner();
     };
     const cancelDin = $('#btn-dinner-cancel');
     if (cancelDin) cancelDin.onclick = () => softConfirmCancel('Cancel your dinner order?', async () => {
       const prev = cur;
-      const r = await api('cancelMealOrder',{ meal:'dinner' });
+      const r = await sendOrQueue('cancelMealOrder',{ meal:'dinner' }, { label: 'Cancel dinner ('+di.serviceDate+')', serviceDate: di.serviceDate });
       if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
+      if (r.queued) { toast('No connection — cancel saved, will send automatically','info'); renderDinner(); return; }
       cacheInvalidate([orderKey, 'kitchenDashboard']);
       toastWithUndo('Dinner cancelled', async () => {
         if (!prev) return;
@@ -3014,8 +3370,11 @@ async function renderDinner(){
     });
   }
 
-  if (cachedOrders || cachedMenus) paintDinner(cachedOrders || [], cachedMenus || []);
+  if (cachedOrders || cachedMenus) { paintDinner(cachedOrders || [], cachedMenus || []); noteSavedPaint(orderKey); }
   // else skeleton from navigate remains
+  await bootWait();
+  if (state.tab !== 'meals' || state.mealPill !== 'dinner') return;
+  if (cacheGet(orderKey) && cacheGet(menuKey)) { paintDinner(cachePeek(orderKey), cachePeek(menuKey)); return; }
   try {
     const [d,m] = await Promise.all([
       api('getDinnerOrders',{ userEmail: state.user.email, serviceDate: di.serviceDate }),
@@ -3065,7 +3424,7 @@ async function renderBreakfast(){
   state.mealPill = 'breakfast';
   const bi = breakfastCutoffInfo();
   const cacheKey = 'breakfastOrders:'+bi.serviceDate;
-  const cached = cacheGet(cacheKey);
+  const cached = cachePeek(cacheKey);
 
   function paintBreakfast(myOrders){
     myOrders = (myOrders || []).filter(o => o.status !== 'cancelled');
@@ -3115,7 +3474,7 @@ async function renderBreakfast(){
     const statusLine = bi.open ? 'Open — count in before 1:00 PM Fiji'
       : (bi.lateOpen ? 'Late window — until 6:00 PM Fiji' : 'Fully closed');
     $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="breakfast-root">'+
-      mealPillsHtml('breakfast')+
+      mealPillsHtml('breakfast')+queueHostHtml('breakfast')+
       '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-mug-saucer text-teal-400 mr-2"></i>Breakfast</h3>'+
       '<p class="text-[11px] text-teal-300/90 font-medium">'+esc(mealCutoffOneLiner('breakfast', bi))+'</p>'+
       '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+bi.serviceDate+'</strong> (tomorrow)</p></div>'+
@@ -3124,13 +3483,14 @@ async function renderBreakfast(){
       (bfNote ? myNoteLine(cur) : '')+
       formHtml+
       '</div></div>';
-    bindMealPills('#breakfast-root');
+    bindMealPills('#breakfast-root'); bindQueueButtons();
     async function placeBf(allowLate){
       const payload = allowLate ? { allowLate:true } : {};
       const nv = mealNoteValue('bf-note');
       if (nv !== undefined) { payload.specialNote = nv; payload.notes = nv; }
-      const r = await api('placeBreakfastOrder', payload);
+      const r = await sendOrQueue('placeBreakfastOrder', payload, { label: (allowLate?'Late breakfast':'Breakfast')+' ('+bi.serviceDate+')', serviceDate: bi.serviceDate });
       if (!r.success) { toast(r.error,'error'); return; }
+      if (r.queued) { toast('No connection — breakfast saved on this phone, will send automatically','info'); renderBreakfast(); return; }
       cacheInvalidate([cacheKey, 'kitchenDashboard']);
       toast(allowLate?'Late breakfast submitted — waiting chef':'Counted in for breakfast','ok');
       renderBreakfast();
@@ -3141,8 +3501,9 @@ async function renderBreakfast(){
     if (lateBtn) lateBtn.onclick = () => placeBf(true);
     const cancel = $('#btn-breakfast-cancel');
     if (cancel) cancel.onclick = () => softConfirmCancel('Cancel breakfast count?', async () => {
-      const r = await api('cancelMealOrder',{ meal:'breakfast' });
+      const r = await sendOrQueue('cancelMealOrder',{ meal:'breakfast' }, { label: 'Cancel breakfast ('+bi.serviceDate+')', serviceDate: bi.serviceDate });
       if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
+      if (r.queued) { toast('No connection — cancel saved, will send automatically','info'); renderBreakfast(); return; }
       cacheInvalidate([cacheKey, 'kitchenDashboard']);
       toastWithUndo('Breakfast cancelled', async () => {
         const up = waitingLate?{allowLate:true}:{};
@@ -3155,7 +3516,10 @@ async function renderBreakfast(){
     });
   }
 
-  if (cached) paintBreakfast(cached);
+  if (cached) { paintBreakfast(cached); noteSavedPaint(cacheKey); }
+  await bootWait();
+  if (state.tab !== 'meals' || state.mealPill !== 'breakfast') return;
+  if (cacheGet(cacheKey)) { paintBreakfast(cachePeek(cacheKey)); return; }
   try {
     const r = await api('getBreakfastOrders',{ userEmail: state.user.email, serviceDate: bi.serviceDate });
     const myOrders = ((r.data && r.data.orders) || []);
@@ -3174,7 +3538,7 @@ async function renderLunch(){
   state.mealPill = 'lunch';
   const li = lunchCutoffInfo();
   const cacheKey = 'lunchOrders:'+li.serviceDate;
-  const cached = cacheGet(cacheKey);
+  const cached = cachePeek(cacheKey);
 
   function paintLunch(myLunch){
     myLunch = (myLunch || []).filter(o => o.status !== 'cancelled');
@@ -3195,7 +3559,7 @@ async function renderLunch(){
         '</div>';
     }
     $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="lunch-root">'+
-      mealPillsHtml('lunch')+
+      mealPillsHtml('lunch')+queueHostHtml('lunch')+
       '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-sun text-teal-400 mr-2"></i>Lunch</h3>'+
       '<p class="text-[11px] text-teal-300/90 font-medium">'+esc(mealCutoffOneLiner('lunch', li))+'</p>'+
       '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+li.serviceDate+'</strong> (tomorrow)</p></div>'+
@@ -3203,19 +3567,21 @@ async function renderLunch(){
       (cur ? myNoteLine(cur) : '')+
       formHtml+
       '</div></div>';
-    bindMealPills('#lunch-root');
+    bindMealPills('#lunch-root'); bindQueueButtons();
     const btn = $('#btn-lunch');
     if (btn) btn.onclick = async () => {
       const nv = mealNoteValue('lu-note') || '';
-      const r = await api('placeLunchOrder',{ specialNote:nv, notes:nv });
+      const r = await sendOrQueue('placeLunchOrder',{ specialNote:nv, notes:nv }, { label: 'Lunch ('+li.serviceDate+')', serviceDate: li.serviceDate });
       if (!r.success) { toast(r.error,'error'); return; }
+      if (r.queued) { toast('No connection — lunch saved on this phone, will send automatically','info'); renderLunch(); return; }
       cacheInvalidate([cacheKey, 'kitchenDashboard']);
       toast(cur?'Lunch updated':'Counted in for lunch','ok'); renderLunch();
     };
     const cancel = $('#btn-lunch-cancel');
     if (cancel) cancel.onclick = () => softConfirmCancel('Cancel lunch count?', async () => {
-      const r = await api('cancelMealOrder',{ meal:'lunch' });
+      const r = await sendOrQueue('cancelMealOrder',{ meal:'lunch' }, { label: 'Cancel lunch ('+li.serviceDate+')', serviceDate: li.serviceDate });
       if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
+      if (r.queued) { toast('No connection — cancel saved, will send automatically','info'); renderLunch(); return; }
       cacheInvalidate([cacheKey, 'kitchenDashboard']);
       toastWithUndo('Lunch cancelled', async () => {
         await api('placeLunchOrder', luNote ? { specialNote:luNote, notes:luNote } : {});
@@ -3226,7 +3592,10 @@ async function renderLunch(){
     });
   }
 
-  if (cached) paintLunch(cached);
+  if (cached) { paintLunch(cached); noteSavedPaint(cacheKey); }
+  await bootWait();
+  if (state.tab !== 'meals' || state.mealPill !== 'lunch') return;
+  if (cacheGet(cacheKey)) { paintLunch(cachePeek(cacheKey)); return; }
   try {
     const l = await api('getLunchOrders',{ userEmail: state.user.email, serviceDate: li.serviceDate });
     const myLunch = ((l.data && l.data.orders) || []);
@@ -3242,11 +3611,11 @@ async function renderLunch(){
 }
 
 async function renderBoat(){
-  const cachedRuns = cacheGet('boatRuns');
+  const cachedRuns = cachePeek('boatRuns');
 
   function paintBoat(runs){
     runs = runs || [];
-    let html = '<div class="glass rounded-xl p-3 border border-teal-500/30 space-y-2">'+
+    let html = queueHostHtml('boat')+'<div class="glass rounded-xl p-3 border border-teal-500/30 space-y-2">'+
       '<p class="text-sm font-semibold text-teal-200"><i class="fa-solid fa-ship mr-1.5"></i>Staff Boat Transfer Schedule — Soso Express</p>'+
       '<div class="text-xs text-sand-200/85 space-y-1.5">'+
       '<p><span class="text-teal-300 font-medium">Morning</span></p>'+
@@ -3314,8 +3683,11 @@ async function renderBoat(){
       const defSeats = String((lastBoat && lastBoat.seats) || 1);
       const seats = prompt('Number of seats?'+(lastBoat?' (last: '+defSeats+')':''), defSeats);
       if (!seats) return;
-      const res = await api('bookBoat',{ runId:b.dataset.id, seats:Number(seats) });
+      const runInfo = runs.find(function(x){ return x.id === b.dataset.id; }) || {};
+      const res = await sendOrQueue('bookBoat',{ runId:b.dataset.id, seats:Number(seats) },
+        { label: 'Boat — '+(runInfo.route||'')+' '+(runInfo.date||'')+' '+(runInfo.time||'')+' · '+Number(seats)+' seat'+(Number(seats)===1?'':'s') });
       if (!res.success) toast(res.error||'Couldn\'t reach kitchen / server — try again','error');
+      else if (res.queued) { saveLastBoat(seats, b.dataset.route||''); toast('No connection — booking saved on this phone, will send automatically','info'); renderBoat(); }
       else {
         saveLastBoat(seats, b.dataset.route||'');
         cacheInvalidate(['boatRuns']);
@@ -3352,10 +3724,14 @@ async function renderBoat(){
     if (addBtn) addBtn.onclick = () => openEditBoatRunModal(null);
     const emBtn = $('#btn-emerg-travel');
     if (emBtn) emBtn.onclick = () => openEmergencyTravelModal();
+    bindQueueButtons();
     loadBoatEmergencyInbox();
   }
 
-  if (cachedRuns) paintBoat(cachedRuns);
+  if (cachedRuns) { paintBoat(cachedRuns); noteSavedPaint('boatRuns'); }
+  await bootWait();
+  if (state.tab !== 'boat') return;
+  if (cacheGet('boatRuns')) { paintBoat(cachePeek('boatRuns')); return; }
   try {
     const r = await api('getBoatRuns', boatRunsRangeParams());
     const runs = (r.data && r.data.runs) || [];
@@ -3500,7 +3876,7 @@ async function renderMyBookings(){
     const r = await api('myBoatBookings');
     stopMb();
     const list = (r.data && r.data.bookings) || [];
-    let html = '<h3 class="font-semibold text-sm mb-2">My boat bookings</h3>';
+    let html = queueHostHtml('boat')+'<h3 class="font-semibold text-sm mb-2">My boat bookings</h3>';
     if (!list.length) html += '<p class="text-sm text-sand-200/50">No bookings yet.</p>';
     list.forEach(b => {
       html += '<div class="glass rounded-xl p-3 flex justify-between items-center"><div>'+
@@ -3510,14 +3886,16 @@ async function renderMyBookings(){
         (b.status==='confirmed'?'<button class="text-xs text-red-300 cancel-bb" data-id="'+b.id+'">Cancel</button>':'')+'</div>';
     });
     $('#mb-root').innerHTML = html;
+    bindQueueButtons();
     $$('.cancel-bb').forEach(b => b.onclick = () => softConfirmCancel('Cancel this boat booking?', async () => {
-      const res = await api('cancelBoatBooking',{ id:b.dataset.id });
+      const res = await sendOrQueue('cancelBoatBooking',{ id:b.dataset.id }, { label: 'Cancel boat booking' });
       if (res && res.success===false) { toast(res.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
+      if (res && res.queued) { toast('No connection — cancel saved, will send automatically','info'); renderMyBookings(); return; }
       cacheInvalidate(['boatRuns']);
       toastWithUndo('Booking cancelled', function(){ toast('Re-book from Boat tab if needed','info'); });
       renderMyBookings();
     }));
-  } catch(e){ stopMb(); $('#mb-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
+  } catch(e){ stopMb(); $('#mb-root').innerHTML = queueHostHtml('boat')+'<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; bindQueueButtons(); }
 }
 
 async function renderSchedule(){
@@ -4383,7 +4761,8 @@ async function renderKitchen(){
     } catch (e) { return String(Date.now()); }
   }
 
-  const cachedKit = cacheGet('kitchenDashboard');
+  const cachedKit = cachePeek('kitchenDashboard');
+  if (cachedKit && !fromBg) noteSavedPaint('kitchenDashboard');
   ensureKitRoot();
   const stopKitTips = (cachedKit && !fromBg) ? function(){} : showLoadingTips($('#kit-root') || $('#main-content'));
   state._kitRendering = true;
@@ -5422,13 +5801,20 @@ async function renderAdminFeaturesTab(){
       '<button id="tog-live" class="ui-btn '+(live?'bg-teal-600':'bg-slate-700')+' text-xs px-3 py-1.5 rounded-lg">'+(live?'ON':'OFF')+'</button></div>'+
       '<div class="glass rounded-xl p-3 flex items-center justify-between"><div><p class="text-sm font-medium">Leave escalation</p><p class="text-[10px] text-slate-500">feature_leave_escalation · HOD → managers</p></div>'+
       '<button id="tog-leave" class="ui-btn '+(leave?'bg-teal-600':'bg-slate-700')+' text-xs px-3 py-1.5 rounded-lg">'+(leave?'ON':'OFF')+'</button></div>'+
-      '<p class="text-[10px] text-slate-500">My Schedule OFF hides the schedule tab and blocks roster upload APIs. Request leave modal stays available.</p></div>';
+      '<p class="text-[10px] text-slate-500">My Schedule OFF hides the schedule tab and blocks roster upload APIs. Request leave modal stays available.</p>'+
+      '<div class="glass rounded-xl p-3 space-y-2 border border-slate-600/60" id="archive-card">'+
+        '<p class="text-sm font-medium"><i class="fa-solid fa-box-archive text-teal-400 mr-1.5"></i>Archive old rows</p>'+
+        '<p class="text-[10px] text-slate-400">Moves rows older than 60 days from Dinner / Breakfast / Lunch Orders, Boat Bookings and Boat Runs into matching <strong>Archive_</strong> tabs (copy → verify → delete, under a lock). Keeps the live sheets small so the app stays fast.</p>'+
+        '<div class="flex gap-2 flex-wrap"><button type="button" id="arch-dry" class="ui-btn bg-slate-700 text-xs px-3 py-2 rounded-lg min-h-[40px]">Check counts (dry run)</button>'+
+        '<button type="button" id="arch-run" class="ui-btn bg-rose-700/80 text-xs px-3 py-2 rounded-lg min-h-[40px] hidden">Archive now…</button></div>'+
+        '<div id="arch-out" class="text-[11px] text-slate-300"></div></div></div>';
     async function toggle(key, cur){
       const passcode = await askPasscode('super'); if (!passcode) return;
       const res = await api('setAppSetting',{ key, value: !cur, passcode });
       if (!res.success) toast(res.error,'error');
       else { toast(key+' → '+(!cur?'ON':'OFF'),'ok'); state.featureFlags[key]=!cur; renderAdmin(); }
     }
+    bindArchiveCard();
     $('#tog-mysch').onclick = () => toggle('feature_my_schedule', mySch);
     $('#tog-live').onclick = () => toggle('feature_live_roster', live);
     $('#tog-leave').onclick = () => toggle('feature_leave_escalation', leave);
@@ -5438,6 +5824,50 @@ async function renderAdminFeaturesTab(){
   }
 }
 
+/** 2.10.0 superadmin: archiveOldRows — dry run first, then a confirm step before the real move. */
+function bindArchiveCard(){
+  const out = $('#arch-out'), dryBtn = $('#arch-dry'), runBtn = $('#arch-run');
+  if (!out || !dryBtn) return;
+  function table(d, dry){
+    const rows = Object.keys(d.sheets||{}).map(function(k){
+      const x = d.sheets[k];
+      return '<tr><td class="pr-2 py-0.5">'+esc(k)+'</td><td class="text-right pr-2">'+(dry ? x.olderThan60Days : x.moved)+'</td>'+(dry?'<td class="text-right text-slate-500">'+x.totalRows+'</td>':'<td class="text-right text-slate-500">'+(x.verified?'verified':(x.error?esc(x.error):''))+'</td>')+'</tr>';
+    }).join('');
+    return '<p class="mb-1">'+(dry?'Dry run — nothing moved.':'Archived.')+' Cutoff: older than <strong>'+esc(d.cutoffDate)+'</strong></p>'+
+      '<table class="w-full"><thead><tr class="text-slate-500"><th class="text-left">Sheet</th><th class="text-right pr-2">'+(dry?'Would move':'Moved')+'</th><th class="text-right">'+(dry?'Total':'Check')+'</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+  let lastTotal = 0;
+  dryBtn.onclick = async function(){
+    out.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Counting…';
+    try {
+      const r = await api('archiveOldRows', { dryRun: 1 });
+      if (!r.success) { out.innerHTML = '<span class="text-rose-300">'+esc(r.error||'Failed')+'</span>'; return; }
+      out.innerHTML = table(r.data, true);
+      lastTotal = Object.values(r.data.sheets||{}).reduce(function(a,x){ return a + Number(x.olderThan60Days||0); }, 0);
+      runBtn.classList.toggle('hidden', !lastTotal);
+    } catch(e){ out.innerHTML = '<span class="text-rose-300">'+esc(e.message)+'</span>'; }
+  };
+  runBtn.onclick = function(){
+    openModal('<h3 class="font-semibold mb-2"><i class="fa-solid fa-box-archive text-rose-300 mr-2"></i>Archive '+lastTotal+' old rows?</h3>'+
+      '<p class="text-sm text-slate-300 mb-3">They will be copied to the Archive_ tabs, checked, then removed from the live sheets. Rows from the last 60 days are not touched.</p>'+
+      '<label class="flex items-center gap-2 text-xs text-slate-300 mb-3"><input type="checkbox" id="arch-ok"/> I understand — move them now</label>'+
+      '<div class="flex gap-2"><button type="button" id="arch-cancel" class="flex-1 rounded-xl py-2 text-sm border border-slate-600">Cancel</button>'+
+      '<button type="button" id="arch-go" class="flex-1 rounded-xl py-2 text-sm bg-rose-700 text-white" disabled>Archive now</button></div>');
+    $('#arch-ok').onchange = function(){ $('#arch-go').disabled = !this.checked; };
+    $('#arch-cancel').onclick = closeModal;
+    $('#arch-go').onclick = async function(){
+      this.disabled = true; this.textContent = 'Archiving…';
+      try {
+        const r = await api('archiveOldRows', {});
+        closeModal();
+        if (!r.success) { out.innerHTML = '<span class="text-rose-300">'+esc(r.error||'Failed')+'</span>'; toast(r.error||'Archive failed','error'); return; }
+        out.innerHTML = table(r.data, false); runBtn.classList.add('hidden');
+        cacheInvalidateMealBoat();
+        toast('Old rows archived','ok');
+      } catch(e){ closeModal(); toast(e.message,'error'); }
+    };
+  };
+}
 async function renderAdminKitchenTab(full){
   const root = $('#admin-body');
   const stopTips = showLoadingTips(root);
@@ -5593,11 +6023,13 @@ async function doLogin(email, password){
   saveSession();
   enterApp();
 }
+/** Pre-2.10 app-open calls — only used if the backend does not know getBootstrap yet. */
 function prefetchAfterLogin(){
   if (!state.user) return;
   const email = state.user.email;
   const bi = breakfastCutoffInfo(), li = lunchCutoffInfo(), di = dinnerCutoffInfo();
-  // fire-and-forget — never block UI
+  refreshFeatureFlags().then(function(){ cacheSet('featureFlags', { features: state.featureFlags, settings: state.appSettings }); });
+  api('getVersion').then(r=>{ state.backendVersion = r.version || (r.data && r.data.version); }).catch(()=>{});
   api('getCutoffInfo').then(function(r){ if (r && r.success) cacheSet('cutoffs', r.data || r); }).catch(function(){});
   api('getBoatRuns', boatRunsRangeParams()).then(function(r){ if (r && r.success) cacheSet('boatRuns', (r.data && r.data.runs) || []); }).catch(function(){});
   api('getReminders').then(function(r){ if (r && r.success) cacheSet('reminders', (r.data && r.data.reminders) || []); }).catch(function(){});
@@ -5614,18 +6046,81 @@ function prefetchAfterLogin(){
     }).catch(function(){});
   }
 }
+function bootWait(){ return state.bootPending ? state.bootPending.catch(function(){}) : Promise.resolve(); }
+function applyFlags(d){
+  const f = (d && d.features) || {};
+  state.featureFlags = {
+    feature_live_roster: !!f.feature_live_roster,
+    feature_leave_escalation: !!f.feature_leave_escalation,
+    feature_my_schedule: !!f.feature_my_schedule
+  };
+  state.appSettings = (d && d.settings) || {};
+}
+/** 2.10.0: one request on app open instead of ~13–19 separate calls. */
+async function loadBootstrap(){
+  let r;
+  try { r = await api('getBootstrap', {}); }
+  catch (e) { return false; } // offline — screens keep showing saved data
+  if (!r || !r.success || !r.data) {
+    if (r && /Unknown action/i.test(String(r.error||''))) prefetchAfterLogin(); // older backend
+    return false;
+  }
+  applyBootstrap(r.data);
+  return true;
+}
+function applyBootstrap(d){
+  if (!state.user) return;
+  state.backendVersion = d.version || state.backendVersion;
+  applyFlags(d);
+  cacheSet('featureFlags', { features: d.features, settings: d.settings });
+  if (d.user && String(d.user.email||'').toLowerCase() === String(state.user.email||'').toLowerCase()) {
+    const keepPhoto = state.user.photoUrl;
+    state.user = Object.assign({}, state.user, d.user);
+    if (!d.user.photoUrl && keepPhoto) state.user.photoUrl = keepPhoto;
+    saveSession();
+  }
+  if (d.cutoffs) cacheSet('cutoffs', d.cutoffs);
+  if (d.myOrders) cacheSet('myOrders', d.myOrders);
+  const o = d.orders || {}, sd = o.serviceDates || {};
+  if (sd.breakfast) cacheSet('breakfastOrders:'+sd.breakfast, o.breakfast || []);
+  if (sd.lunch) cacheSet('lunchOrders:'+sd.lunch, o.lunch || []);
+  if (sd.dinner) cacheSet('dinnerOrders:'+sd.dinner, o.dinner || []);
+  if (d.dinnerMenus && sd.dinner) cacheSet('dinnerMenus:'+sd.dinner, d.dinnerMenus);
+  if (d.boatRuns) cacheSet('boatRuns', d.boatRuns);
+  if (d.reminders) cacheSet('reminders', d.reminders);
+  if (d.suggestions) cacheSet('suggestions', d.suggestions);
+  if (d.dailyOps) cacheSet('dailyOps', d.dailyOps);
+  if (d.mealStats) cacheSet('mealStats', d.mealStats);
+  if (d.kitchenLite) cacheSet('kitchenLite', d.kitchenLite);
+  setDataStatus('fresh');
+  repaintAfterBootstrap();
+}
+function repaintAfterBootstrap(){
+  if (!state.user) return;
+  if (state.tab === 'home') {
+    paintHomeMyOrdersCard(cachePeek('myOrders'));
+    paintDoThisNowStrip();
+    const hv = $('#home-ver'); if (hv) hv.textContent = 'UI '+APP_VERSION+(state.backendVersion?' · API '+state.backendVersion:'')+(state.demo?' · demo':'');
+  } else if (state.tab === 'myorders' && cachePeek('myOrders')) {
+    paintMyOrders(cachePeek('myOrders'), false);
+  }
+}
 function enterApp(){
+  bindDataCacheToUser(state.user.email);
+  installQueueTriggers();
   $('#view-login').classList.add('hidden');
   $('#view-main').classList.remove('hidden');
-  refreshFeatureFlags().finally(()=>{
-    const land = roleLandingTab();
-    navigate(land);
-    maybeProfileModal();
-    if (land === 'home') setTimeout(maybeShowFirstLoginCoach, 700);
-    else setTimeout(maybeShowFirstLoginCoach, 900);
-  });
-  api('getVersion').then(r=>{ state.backendVersion = r.version || (r.data && r.data.version); }).catch(()=>{});
-  try { prefetchAfterLogin(); prefetchNextTabByRole(); } catch(e){}
+  const savedFlags = cachePeek('featureFlags');
+  if (savedFlags) applyFlags(savedFlags);
+  state.dataStatus = null;
+  const boot = loadBootstrap();
+  state.bootPending = boot;
+  boot.finally(function(){ if (state.bootPending === boot) state.bootPending = null; flushQueue('open'); });
+  const land = roleLandingTab();
+  navigate(land);               // paints instantly from this user's saved data
+  maybeProfileModal();
+  if (land === 'home') setTimeout(maybeShowFirstLoginCoach, 700);
+  else setTimeout(maybeShowFirstLoginCoach, 900);
 }
 
 $('#login-form').onsubmit = async (e) => {
@@ -5830,7 +6325,8 @@ function boot(){
   if (state.demo) {
     $('#demo-badge').classList.remove('hidden');
     loadDemo();
-  } else {
+  } else if (!(loadSession() || {}).email) {
+    // login screen only — sessions get the version from getBootstrap
     api('getVersion').then(function(r){
       state.backendVersion = r.version || (r.data && r.data.version);
       showBackendBanner('');
@@ -5841,22 +6337,29 @@ function boot(){
   const tick = () => { const el=$('#fiji-clock'); if(el) el.textContent = formatFiji(); };
   tick(); setInterval(tick, 30000);
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').then(function(reg){
-      function reloadOnce(){
-        var key = 'pcr-sw-reloaded-' + APP_VERSION;
-        if (sessionStorage.getItem(key)) return;
-        sessionStorage.setItem(key, '1');
-        location.reload();
+    // 2.10.0: the shell is served from the phone (cache-first). A new version installs in the background and
+    // waits; we show "Update available — tap to refresh" instead of reloading on our own.
+    // registered after the page has loaded so the shell precache doesn't compete with first paint on slow links
+    const swReady = new Promise(function(res){ if (document.readyState === 'complete') res(); else window.addEventListener('load', function(){ res(); }, { once:true }); })
+      .then(function(){ return new Promise(function(r){ setTimeout(r, navigator.serviceWorker.controller ? 0 : 2500); }); });
+    swReady.then(function(){ return navigator.serviceWorker.register('./sw.js'); }).then(function(reg){
+      function offer(w){
+        if (!w || !navigator.serviceWorker.controller) return;
+        const btn = document.getElementById('sw-update');
+        if (!btn) return;
+        btn.classList.remove('hidden');
+        btn.onclick = function(){ btn.disabled = true; state._swReload = true; w.postMessage({ type:'SKIP_WAITING' }); setTimeout(function(){ location.reload(); }, 3000); };
       }
-      if (reg.waiting) reloadOnce();
+      if (reg.waiting) offer(reg.waiting);
       reg.addEventListener('updatefound', function(){
-        var w = reg.installing;
+        const w = reg.installing;
         if (!w) return;
-        w.addEventListener('statechange', function(){
-          if (w.state === 'installed' && navigator.serviceWorker.controller) reloadOnce();
-        });
+        w.addEventListener('statechange', function(){ if (w.state === 'installed') offer(w); });
       });
-      navigator.serviceWorker.addEventListener('controllerchange', reloadOnce);
+      navigator.serviceWorker.addEventListener('controllerchange', function(){ if (state._swReload) location.reload(); });
+      // look for a new version on open and every 30 min while the app stays open
+      setTimeout(function(){ try { reg.update(); } catch(e){} }, 4000);
+      setInterval(function(){ try { reg.update(); } catch(e){} }, 30*60000);
     }).catch(function(){});
   }
   const session = loadSession();
