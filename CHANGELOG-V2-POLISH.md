@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.9.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.9.4**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -322,5 +322,34 @@ git checkout main
 git checkout v2.9.2-pre-myorders -- apps-script/Code.gs && cd apps-script && clasp push -f && \
   clasp deploy --deploymentId AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8 -d "rollback 2.9.2"
 # verify → version 2.9.2
+curl -sSL "https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec?action=getVersion"
+```
+
+
+## Kitchen special notes / allergies (2.9.4)
+
+| ID | Change |
+|----|--------|
+| C102 | **Special notes & allergies reach the kitchen.** *Why they were missing:* dinner had a "Notes / allergies" box (saved to `notes`), but breakfast and lunch had **no note field at all**, and the kitchen outputs mostly dropped the note: the Kitchen screen tables, the Dinner/Breakfast/Lunch **Order List** PDFs + print checklists, the CSV and the Admin → Kitchen tab never rendered it; only the old dinner prep list printed it in a plain "Comments" column (no flag, not at the top), and demo mode's prep list dropped it entirely. Re-booking dinner also opened with an empty note box, so changing a dish silently wiped the note. *Now:* optional **"Special note / allergy"** input (max 200 chars) on Breakfast (normal + late request), Lunch and Dinner; pre-filled with the current note when changing an order; "Your note to kitchen" chip. Stored in new column **`specialNote`** on Breakfast/Lunch/Dinner Orders (header appended at the end of row 1 by `initSheets` and, once per 6h under a script lock, by `assertSheetsReady` → `ensureOrderNoteColumns`; old rows read as empty; `notes` also written for back-compat; legacy dinner `notes` is used as fallback with system text like "order declined…" / "[On behalf by …]" stripped). Latest note wins on change (`noteFromParams`; a cleared box clears it; undo re-places with the previous note). Backend adds `specialNote`, `noteFlag`, `displayName` (current preferredName from Users) to kitchen rows and `specialNotes` lists to `getKitchenDashboard`, `getDinnerPrepList` (`prep.specialNotes`), `getBreakfastOrderSheet`, `getLunchOrderSheet`; `getMyOrdersSummary` meals carry `specialNote`. |
+| C103 | **Where the kitchen sees them:** Kitchen screen top card **"Allergies & special requests"** (Dinner / Breakfast / Lunch groups: preferredName · dish · note, late status) + inline chips on every order row and late-request row; Admin → Kitchen tab card; **Dinner Prep List** print / Download PDF / "View all as PDF" / HTML / TXT — notes section at the top + "Special note / allergy" column inline; **Dinner/Breakfast/Lunch Order List** View PDF / Download / Print checklist — notes section at top + note column (incl. late waiting list); CSV gets `specialNote,noteFlag`. Flags by keyword: **red ALLERGY** = allergy/allergic/nut/peanut/gluten/dairy/lactose/shellfish/seafood/egg; **amber DIET** = vegetarian/vegan/halal/no pork; other notes = plain "Request". Cancelled / rejected orders are left out; approved late orders are included (late-pending shown as "late — waiting chef"). Demo `?demo=1` supports notes end-to-end and seeds an allergy (Jone: peanut), dietary (Laisa: vegetarian, Mere breakfast: gluten free) and special requests (Mere: extra gravy, Epi: keep a plate warm, Tomasi lunch: take away). |
+| C104 | `APP_VERSION` → **2.9.4**; SW cache `pcr-staff-v2.9.4`; Code.gs 2.9.4. SCRIPT_URL / deployment id unchanged, GET-only `api()`, Fiji time via `getFijiNow`, cutoffs unchanged, `feature_my_schedule` OFF. No user-profile allergy field exists (Users sheet has none) — notes are per order. |
+
+### Rollback / restore (pre-notes 2.9.4)
+
+Rollback tag **`v2.9.3-pre-notes`** (SHA `25947326f4b37d9636c5f8bf0a317abbda14c79e`, also branch `backup/2.9.3-pre-notes`) = live 2.9.3.
+The extra `specialNote` sheet column is harmless for 2.9.3 (it reads columns by header name) — no sheet change is needed to roll back.
+
+```bash
+cd /workspace/pcr-staff-app   # or clone PC-Staff-App-V2
+git fetch --tags
+# rebuild static host from the tag
+git checkout gh-pages && git checkout v2.9.3-pre-notes -- public/ && \
+  rm -rf assets index.html manifest.json sw.js 2>/dev/null; cp -a public/. . && rm -rf public && \
+  git add -A && git commit -m "Restore public from v2.9.3-pre-notes" && git push origin gh-pages
+git checkout main
+# Apps Script (same deployment id)
+git checkout v2.9.3-pre-notes -- apps-script/Code.gs && cd apps-script && clasp push -f && \
+  clasp deploy --deploymentId AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8 -d "rollback 2.9.3"
+# verify → version 2.9.3 (first call after deploy may still show the old version; repeat)
 curl -sSL "https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec?action=getVersion"
 ```

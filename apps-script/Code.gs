@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.9.3';
+var APP_VERSION = '2.9.4';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -384,7 +384,9 @@ function assertSheetsReady() {
   var cache = CacheService.getScriptCache();
   try {
     if (cache.get('pcr_sheets_ready') === '1') {
-      return getSS();
+      var ssCached = getSS();
+      ensureOrderNoteColumns(ssCached);
+      return ssCached;
     }
   } catch (eCache) {}
 
@@ -401,7 +403,36 @@ function assertSheetsReady() {
   }
   // Sheets exist — cache readiness. Flag sheets_ready is set only by initializeSheets / markSheetsReady.
   try { cache.put('pcr_sheets_ready', '1', 21600); } catch (ePut) {}
+  ensureOrderNoteColumns(ss);
   return ss;
+}
+
+/**
+ * C102: add the optional `specialNote` column to the three order sheets.
+ * Appends a header at the END of row 1 only (existing rows/columns untouched,
+ * old rows read as ''). Script-locked so parallel requests cannot add it twice;
+ * result cached 6h so the hot path stays one cache read.
+ */
+var ORDER_NOTE_SHEETS = ['Breakfast Orders', 'Lunch Orders', 'Dinner Orders'];
+function ensureOrderNoteColumns(ss) {
+  var cache = null;
+  try {
+    cache = CacheService.getScriptCache();
+    if (cache.get('pcr_note_cols_v294') === '1') return;
+  } catch (eC) {}
+  var lock = null, got = false;
+  try { lock = LockService.getScriptLock(); got = lock.tryLock(8000); } catch (eL) {}
+  if (!got) return; // another request is adding it; appendRow() also ensures columns
+  try {
+    ss = ss || getSS();
+    for (var i = 0; i < ORDER_NOTE_SHEETS.length; i++) {
+      var sh = ss.getSheetByName(ORDER_NOTE_SHEETS[i]);
+      if (sh && sh.getLastRow() > 0) ensureColumns(sh, ['specialNote']);
+    }
+    try { if (cache) cache.put('pcr_note_cols_v294', '1', 21600); } catch (eP) {}
+  } finally {
+    try { lock.releaseLock(); } catch (eR) {}
+  }
 }
 
 function markSheetsReady(by) {
@@ -461,15 +492,15 @@ function initializeSheets() {
   ]);
   ensureSheet(ss, 'Dinner Orders', [
     'id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes',
-    'status', 'late', 'createdAt'
+    'status', 'late', 'createdAt', 'specialNote'
   ]);
   ensureSheet(ss, 'Lunch Orders', [
     'id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes',
-    'status', 'late', 'createdAt'
+    'status', 'late', 'createdAt', 'specialNote'
   ]);
   ensureSheet(ss, 'Breakfast Orders', [
     'id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes',
-    'status', 'late', 'createdAt'
+    'status', 'late', 'createdAt', 'specialNote'
   ]);
   ensureSheet(ss, 'Reminders', [
     'id', 'userEmail', 'title', 'body', 'dueDate', 'done', 'priority', 'important', 'audience', 'createdAt'
@@ -2440,11 +2471,108 @@ function processDinnerWorkflow(p) {
   };
 }
 
-function buildPrepPayload(serviceDate) {
+/* ========== C102: KITCHEN SPECIAL NOTES / ALLERGIES ========== */
+var ORDER_HEADERS = ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt', 'specialNote'];
+var NOTE_ALLERGY_RE = /\b(allerg\w*|nuts?|peanuts?|gluten|dairy|lactose|shellfish|seafood|eggs?)\b/i;
+var NOTE_DIET_RE = /\b(vegetarian|vegan|halal|no\s*pork)\b/i;
+
+function cleanSpecialNote(v) {
+  return String(v == null ? '' : v).replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200);
+}
+
+/** Latest note sent by the client. '' (cleared) is a real value; undefined = keep fallback. */
+function noteFromParams(p, fallback) {
+  if (p && p.specialNote !== undefined && p.specialNote !== null) return cleanSpecialNote(p.specialNote);
+  if (p && p.notes !== undefined && p.notes !== null) return cleanSpecialNote(p.notes);
+  return cleanSpecialNote(fallback);
+}
+
+/** Staff-written note for the kitchen: specialNote, else legacy notes minus system text. */
+function kitchenNoteOf(o) {
+  if (!o) return '';
+  var sn = cleanSpecialNote(o.specialNote);
+  if (sn) return sn;
+  var raw = String(o.notes || '')
+    .replace(/\s*\|?\s*order declined please see hod or chef/gi, '')
+    .replace(/^\s*\[On behalf by[^\]]*\]\s*/i, '');
+  return cleanSpecialNote(raw);
+}
+
+/** 'allergy' (red) · 'diet' (amber) · 'request' (plain) · '' (no note) */
+function noteFlag(text) {
+  text = String(text || '');
+  if (!text) return '';
+  if (NOTE_ALLERGY_RE.test(text)) return 'allergy';
+  if (NOTE_DIET_RE.test(text)) return 'diet';
+  return 'request';
+}
+
+function preferredNameMap() {
+  var map = {};
+  try {
+    sheetToObjects('Users').forEach(function (u) {
+      var e = String(u.email || '').trim().toLowerCase();
+      if (e) map[e] = displayUserName(u);
+    });
+  } catch (e) {}
+  return map;
+}
+
+function kitchenDisplayName(o, nameMap) {
+  var e = String((o && o.userEmail) || '').trim().toLowerCase();
+  return (nameMap && e && nameMap[e]) || (o && o.userName) || '';
+}
+
+/** Adds specialNote / noteFlag / displayName to each order row (in place). */
+function decorateOrderNotes(orders, nameMap) {
+  (orders || []).forEach(function (o) {
+    var n = kitchenNoteOf(o);
+    o.specialNote = n;
+    o.noteFlag = noteFlag(n);
+    o.displayName = kitchenDisplayName(o, nameMap);
+  });
+  return orders;
+}
+
+/**
+ * One entry per staff member with a note (cancelled/rejected excluded, late approved kept).
+ * Uses the same row the place*Order functions update, so a changed order shows its latest note.
+ */
+function kitchenNoteEntries(meal, orders, nameMap) {
+  var seen = {};
+  var out = [];
+  (orders || []).forEach(function (o) {
+    var st = String(o.status || '');
+    if (st === 'cancelled' || st === 'rejected' || st === 'declined') return;
+    var note = kitchenNoteOf(o);
+    if (!note) return;
+    var key = String(o.userEmail || '').trim().toLowerCase() || String(o.id);
+    if (seen[key]) return;
+    seen[key] = true;
+    out.push({
+      id: o.id,
+      meal: meal,
+      name: kitchenDisplayName(o, nameMap),
+      department: o.department || '',
+      dish: o.mealChoice || (meal === 'dinner' ? 'Standard' : (meal === 'lunch' ? 'Lunch' : 'Breakfast')),
+      note: note,
+      flag: noteFlag(note),
+      status: st,
+      late: truthy(o.late)
+    });
+  });
+  var rank = { allergy: 0, diet: 1, request: 2 };
+  out.sort(function (a, b) { return (rank[a.flag] - rank[b.flag]) || String(a.name).localeCompare(String(b.name)); });
+  return out;
+}
+
+function buildPrepPayload(serviceDate, nameMap) {
   var orders = sheetToObjects('Dinner Orders').filter(function (o) {
     return String(o.serviceDate).indexOf(serviceDate) === 0 &&
       o.status !== 'cancelled' && o.status !== 'rejected';
   });
+  nameMap = nameMap || preferredNameMap();
+  decorateOrderNotes(orders, nameMap);
   var tally = {};
   orders.forEach(function (o) {
     var k = o.mealChoice || 'Standard';
@@ -2456,11 +2584,15 @@ function buildPrepPayload(serviceDate) {
     var k = o.mealChoice || 'Standard';
     if (!byItem[k]) byItem[k] = [];
     byItem[k].push({
+      id: o.id,
       userName: o.userName,
+      displayName: o.displayName,
       department: o.department,
       foodSelection: o.mealChoice || k,
       orderedAt: o.createdAt,
-      comments: o.notes || '',
+      comments: o.specialNote || '',
+      specialNote: o.specialNote || '',
+      noteFlag: o.noteFlag || '',
       status: o.status,
       approved: o.status === 'approved' || o.status === 'late_approved' || o.status === 'prepared' || o.status === 'served',
       denied: o.status === 'rejected' || o.status === 'cancelled',
@@ -2481,6 +2613,7 @@ function buildPrepPayload(serviceDate) {
     pending: pending,
     approved: approvedN,
     late: lateN,
+    specialNotes: kitchenNoteEntries('dinner', orders, nameMap),
     orders: orders
   };
 }
@@ -2639,6 +2772,7 @@ function placeMealOnBehalf(p) {
     email = 'behalf+' + staffName.toLowerCase().replace(/[^a-z0-9]+/g, '.') + '@pcr.local';
   }
   var notes = '[On behalf by ' + ((requester.firstName || '') + ' ' + (requester.lastName || '')).trim() + '] ' + comment;
+  var specialNote = cleanSpecialNote(comment);
   if (meal === 'breakfast') {
     var bi = breakfastCutoffInfo();
     var bRow = {
@@ -2649,11 +2783,12 @@ function placeMealOnBehalf(p) {
       department: department,
       mealChoice: 'Breakfast',
       notes: notes,
+      specialNote: specialNote,
       status: 'late_pending',
       late: true,
       createdAt: nowIso()
     };
-    appendRow('Breakfast Orders', bRow, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
+    appendRow('Breakfast Orders', bRow, ORDER_HEADERS);
     return { success: true, data: { order: bRow, meal: meal, message: 'Sent to Kitchen for approval' } };
   }
   if (meal === 'lunch') {
@@ -2666,11 +2801,12 @@ function placeMealOnBehalf(p) {
       department: department,
       mealChoice: 'Lunch',
       notes: notes,
+      specialNote: specialNote,
       status: 'ordered',
       late: false,
       createdAt: nowIso()
     };
-    appendRow('Lunch Orders', lRow, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
+    appendRow('Lunch Orders', lRow, ORDER_HEADERS);
     return { success: true, data: { order: lRow, meal: meal, message: 'Lunch counted (headcount)' } };
   }
   // dinner → pending kitchen/auto workflow
@@ -2683,11 +2819,12 @@ function placeMealOnBehalf(p) {
     department: department,
     mealChoice: p.mealChoice || 'Standard',
     notes: notes,
+    specialNote: specialNote,
     status: di.open ? 'pending' : 'late_pending',
     late: !di.open,
     createdAt: nowIso()
   };
-  appendRow('Dinner Orders', dRow, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
+  appendRow('Dinner Orders', dRow, ORDER_HEADERS);
   processDinnerWorkflow({ serviceDate: dRow.serviceDate });
   return { success: true, data: { order: dRow, meal: meal, message: 'Dinner sent to Kitchen' } };
 }
@@ -2700,6 +2837,8 @@ function getBreakfastOrderSheet(p) {
   var orders = sheetToObjects('Breakfast Orders').filter(function (o) {
     return String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled';
   });
+  var nameMap = preferredNameMap();
+  decorateOrderNotes(orders, nameMap);
   return {
     success: true,
     data: {
@@ -2707,14 +2846,19 @@ function getBreakfastOrderSheet(p) {
       totalCounted: orders.filter(countsInBreakfastTotal).length,
       orders: orders.map(function (o) {
         return {
+          id: o.id,
           userName: o.userName,
+          displayName: o.displayName,
           department: o.department,
           timeOrdered: o.createdAt,
           status: o.status,
           late: truthy(o.late),
-          notes: o.notes || ''
+          notes: o.notes || '',
+          specialNote: o.specialNote || '',
+          noteFlag: o.noteFlag || ''
         };
       }),
+      specialNotes: kitchenNoteEntries('breakfast', orders, nameMap),
       cutoff: info
     }
   };
@@ -2727,6 +2871,8 @@ function getLunchOrderSheet(p) {
   var orders = sheetToObjects('Lunch Orders').filter(function (o) {
     return String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled';
   });
+  var nameMap = preferredNameMap();
+  decorateOrderNotes(orders, nameMap);
   return {
     success: true,
     data: {
@@ -2734,13 +2880,19 @@ function getLunchOrderSheet(p) {
       totalCounted: orders.length,
       orders: orders.map(function (o) {
         return {
+          id: o.id,
           userName: o.userName,
+          displayName: o.displayName,
           department: o.department,
           timeOrdered: o.createdAt,
           status: o.status,
-          notes: o.notes || ''
+          late: truthy(o.late),
+          notes: o.notes || '',
+          specialNote: o.specialNote || '',
+          noteFlag: o.noteFlag || ''
         };
       }),
+      specialNotes: kitchenNoteEntries('lunch', orders, nameMap),
       cutoff: info
     }
   };
@@ -2759,6 +2911,7 @@ function placeDinnerOrder(p) {
   if (!u) return { success: false, error: 'User required' };
   var serviceDate = p.serviceDate || info.serviceDate;
   var status = late ? 'late_pending' : 'pending';
+  var dNote = noteFromParams(p, '');
 
   var existing = sheetToObjects('Dinner Orders').filter(function (o) {
     return String(o.userEmail).toLowerCase() === email && String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled' && o.status !== 'rejected';
@@ -2766,7 +2919,8 @@ function placeDinnerOrder(p) {
   if (existing.length) {
     updateRowById('Dinner Orders', existing[0].id, {
       mealChoice: p.mealChoice || existing[0].mealChoice,
-      notes: p.notes || '',
+      notes: noteFromParams(p, kitchenNoteOf(existing[0])),
+      specialNote: noteFromParams(p, kitchenNoteOf(existing[0])),
       late: late,
       status: status
     });
@@ -2780,12 +2934,13 @@ function placeDinnerOrder(p) {
     userName: displayUserName(u),
     department: u.department || '',
     mealChoice: p.mealChoice || 'Standard',
-    notes: p.notes || '',
+    notes: dNote,
+    specialNote: dNote,
     status: status,
     late: late,
     createdAt: nowIso()
   };
-  appendRow('Dinner Orders', row, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
+  appendRow('Dinner Orders', row, ORDER_HEADERS);
   processDinnerWorkflow({ serviceDate: serviceDate });
   return { success: true, data: { order: findOrder('Dinner Orders', row.id) || row, late: late, cutoff: info } };
 }
@@ -2800,6 +2955,7 @@ function placeLunchOrder(p) {
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User required' };
   var serviceDate = p.serviceDate || info.serviceDate;
+  var lNote = noteFromParams(p, '');
 
   var existing = sheetToObjects('Lunch Orders').filter(function (o) {
     return String(o.userEmail).toLowerCase() === email && String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled';
@@ -2807,7 +2963,8 @@ function placeLunchOrder(p) {
   if (existing.length) {
     updateRowById('Lunch Orders', existing[0].id, {
       mealChoice: 'Lunch',
-      notes: p.notes || '',
+      notes: noteFromParams(p, kitchenNoteOf(existing[0])),
+      specialNote: noteFromParams(p, kitchenNoteOf(existing[0])),
       late: false,
       status: 'ordered'
     });
@@ -2820,12 +2977,13 @@ function placeLunchOrder(p) {
     userName: displayUserName(u),
     department: u.department || '',
     mealChoice: 'Lunch',
-    notes: p.notes || '',
+    notes: lNote,
+    specialNote: lNote,
     status: 'ordered',
     late: false,
     createdAt: nowIso()
   };
-  appendRow('Lunch Orders', row, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
+  appendRow('Lunch Orders', row, ORDER_HEADERS);
   return { success: true, data: { order: row, late: false, cutoff: info } };
 }
 
@@ -2871,7 +3029,8 @@ function placeBreakfastOrder(p) {
   if (existing.length) {
     updateRowById('Breakfast Orders', existing[0].id, {
       mealChoice: 'Breakfast',
-      notes: p.notes || existing[0].notes || '',
+      notes: noteFromParams(p, kitchenNoteOf(existing[0])),
+      specialNote: noteFromParams(p, kitchenNoteOf(existing[0])),
       late: late,
       status: status
     });
@@ -2884,12 +3043,13 @@ function placeBreakfastOrder(p) {
     userName: displayUserName(u),
     department: u.department || '',
     mealChoice: 'Breakfast',
-    notes: p.notes || '',
+    notes: noteFromParams(p, ''),
+    specialNote: noteFromParams(p, ''),
     status: status,
     late: late,
     createdAt: nowIso()
   };
-  appendRow('Breakfast Orders', row, ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt']);
+  appendRow('Breakfast Orders', row, ORDER_HEADERS);
   return { success: true, data: { order: row, late: late, cutoff: info } };
 }
 
@@ -3093,6 +3253,7 @@ function getMyOrdersSummary(p) {
       effectiveStatus: eff,
       late: truthy(o.late),
       notes: o.notes || '',
+      specialNote: kitchenNoteOf(o),
       createdAt: o.createdAt || ''
     };
     if (meal === 'breakfast' || meal === 'lunch') {
@@ -3219,6 +3380,10 @@ function getKitchenDashboard(p) {
   var breakfastsAll = sheetToObjects('Breakfast Orders').filter(function (o) {
     return String(o.serviceDate).indexOf(breakfastDate) === 0 && o.status !== 'cancelled';
   });
+  var kNameMap = preferredNameMap();
+  decorateOrderNotes(dinners, kNameMap);
+  decorateOrderNotes(lunches, kNameMap);
+  decorateOrderNotes(breakfastsAll, kNameMap);
   var breakfasts = breakfastsAll.filter(countsInBreakfastTotal);
   var lateBreakfastPending = breakfastsAll.filter(function (o) { return o.status === 'late_pending'; });
   var lateBreakfast = breakfastsAll.filter(function (o) { return truthy(o.late); });
@@ -3283,6 +3448,17 @@ function getKitchenDashboard(p) {
         pending: pending.length,
         last7Days: last7MealStats(dinnerDate)
       },
+      specialNotes: (function () {
+        var sb = kitchenNoteEntries('breakfast', breakfastsAll, kNameMap);
+        var sl = kitchenNoteEntries('lunch', lunches, kNameMap);
+        var sd = kitchenNoteEntries('dinner', dinners, kNameMap);
+        var all = sd.concat(sb, sl);
+        return {
+          breakfast: sb, lunch: sl, dinner: sd,
+          total: all.length,
+          allergyCount: all.filter(function (x) { return x.flag === 'allergy'; }).length
+        };
+      })(),
       menus: (menus.data && menus.data.items) || [],
       workflow: wf.data,
       fijiNow: formatFiji(getFijiNow())
