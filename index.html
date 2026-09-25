@@ -136,6 +136,8 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 2px rgba(13,148,136,0.25);
 }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.note-chip { white-space: normal; overflow-wrap: anywhere; max-width: 16rem; }
+#kit-notes-card .note-chip { max-width: 100%; }
 @keyframes fade-in { from { opacity:0; transform:translateY(3px);} to { opacity:1; transform:translateY(0);} }
 @keyframes float { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-4px);} }
 @keyframes pulse-soft { 0%,100%{opacity:1;} 50%{opacity:0.72;} }
@@ -203,7 +205,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.9.3';
+const APP_VERSION = '2.9.4';
 const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
 function deptSelectOptions(selected){
   selected = selected || '';
@@ -503,7 +505,7 @@ function seedDemoSamples(db){
   if (!db.rosterShifts) db.rosterShifts = [];
   if (!db.notifications) db.notifications = [];
   // C68: seed realistic meal rows for chef sheet demos (once)
-  if (!db._seededChefSheets) {
+  if (db._seededChefSheets !== dinnerCutoffInfo().serviceDate) {
     const sd = dinnerCutoffInfo().serviceDate;
     const t0 = formatFiji(addFijiDays(getFijiNow(), -0.02));
     if (!(db.breakfastOrders||[]).some(o=>o.serviceDate===sd)) {
@@ -511,7 +513,7 @@ function seedDemoSamples(db){
         { id:uid('brk'), serviceDate:sd, userEmail:'ana.tui@paradisecoveresortfiji.com', userName:'Ana Tui', department:'Housekeeping', mealChoice:'Breakfast', notes:'', status:'ordered', late:false, createdAt:sd+' 07:12' },
         { id:uid('brk'), serviceDate:sd, userEmail:'staff2@pcr.com', userName:'Jone Ratu', department:'F&B', mealChoice:'Breakfast', notes:'', status:'ordered', late:false, createdAt:sd+' 08:05' },
         { id:uid('brk'), serviceDate:sd, userEmail:'staff3@pcr.com', userName:'Mere Waqa', department:'Spa', mealChoice:'Breakfast', notes:'', status:'ordered', late:false, createdAt:sd+' 09:40' },
-        { id:uid('brk'), serviceDate:sd, userEmail:'staff4@pcr.com', userName:'Samuela Koro', department:'Grounds', mealChoice:'Breakfast', notes:'late', status:'late_pending', late:true, createdAt:sd+' 14:22' }
+        { id:uid('brk'), serviceDate:sd, userEmail:'staff4@pcr.com', userName:'Samuela Koro', department:'Grounds', mealChoice:'Breakfast', notes:'', status:'late_pending', late:true, createdAt:sd+' 14:22' }
       ]);
     }
     if (!(db.lunchOrders||[]).some(o=>o.serviceDate===sd)) {
@@ -531,10 +533,26 @@ function seedDemoSamples(db){
         { id:uid('din'), serviceDate:sd, userEmail:'staff3@pcr.com', userName:'Mere Waqa', department:'Spa', mealChoice:items[1]||items[0], notes:'', status:'approved', late:false, createdAt:sd+' 15:10' },
         { id:uid('din'), serviceDate:sd, userEmail:'staff5@pcr.com', userName:'Laisa Bale', department:'Kids Club', mealChoice:items[1]||items[0], notes:'', status:'late_approved', late:true, createdAt:sd+' 20:15' },
         { id:uid('din'), serviceDate:sd, userEmail:'staff6@pcr.com', userName:'Tomasi Vuki', department:'Boatman', mealChoice:items[2]||items[0], notes:'', status:'approved', late:false, createdAt:sd+' 16:45' },
-        { id:uid('din'), serviceDate:sd, userEmail:'staff7@pcr.com', userName:'Epi Nacewa', department:'Porters', mealChoice:items[2]||items[0], notes:'running late', status:'late_pending', late:true, createdAt:sd+' 20:40' }
+        { id:uid('din'), serviceDate:sd, userEmail:'staff7@pcr.com', userName:'Epi Nacewa', department:'Porters', mealChoice:items[2]||items[0], notes:'Running late — please keep a plate warm', specialNote:'Running late — please keep a plate warm', status:'late_pending', late:true, createdAt:sd+' 20:40' }
       ]);
     }
-    db._seededChefSheets = true;
+    db._seededChefSheets = sd;
+  }
+  // C102: seed allergy + special-request notes on the demo meal rows (once per service date)
+  {
+    const sd = dinnerCutoffInfo().serviceDate;
+    if (db._seededNotes !== sd) {
+      const setNote = (list, email, note) => {
+        const o = (list||[]).find(x => x.serviceDate===sd && x.userEmail===email && !isInactiveMealStatus(x.status));
+        if (o && !kitchenNoteOf(o)) { o.specialNote = note; o.notes = note; }
+      };
+      setNote(db.dinnerOrders, 'staff2@pcr.com', 'Peanut allergy — no nuts at all please');
+      setNote(db.dinnerOrders, 'staff3@pcr.com', 'Extra gravy on the side, small portion');
+      setNote(db.dinnerOrders, 'staff5@pcr.com', 'Vegetarian — no meat');
+      setNote(db.breakfastOrders, 'staff3@pcr.com', 'Gluten free bread if possible');
+      setNote(db.lunchOrders, 'staff6@pcr.com', 'Please pack to take away on the boat');
+      db._seededNotes = sd;
+    }
   }
   // Seed a few roster shifts for Ana (demo staff) if empty
   if (!db.rosterShifts.length) {
@@ -607,6 +625,116 @@ function lateStateChip(st){
   if (s==='late_pending') return '<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-200 text-[10px] font-medium px-2 py-0.5"><i class="fa-solid fa-hourglass-half"></i> Needs chef OK</span>';
   if (s==='pending' || s==='pending_approval') return '<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-200 text-[10px] font-medium px-2 py-0.5">Waiting approval</span>';
   return '';
+}
+/* ===== C102: special notes / allergies for the kitchen ===== */
+const NOTE_ALLERGY_RE = /\b(allerg\w*|nuts?|peanuts?|gluten|dairy|lactose|shellfish|seafood|eggs?)\b/i;
+const NOTE_DIET_RE = /\b(vegetarian|vegan|halal|no\s*pork)\b/i;
+function cleanNoteText(v){ return String(v==null?'':v).replace(/[\r\n\t]+/g,' ').replace(/\s+/g,' ').trim().slice(0,200); }
+function noteFlagOf(text){
+  text = String(text||'');
+  if (!text) return '';
+  if (NOTE_ALLERGY_RE.test(text)) return 'allergy';
+  if (NOTE_DIET_RE.test(text)) return 'diet';
+  return 'request';
+}
+/** Staff-written note: specialNote, else legacy notes/comments minus system text */
+function kitchenNoteOf(o){
+  if (!o) return '';
+  const sn = cleanNoteText(o.specialNote);
+  if (sn) return sn;
+  const raw = String(o.notes || o.comments || '')
+    .replace(/\s*\|?\s*order declined please see hod or chef/gi, '')
+    .replace(/^\s*\[On behalf by[^\]]*\]\s*/i, '');
+  return cleanNoteText(raw);
+}
+function orderDisplayName(o){ return (o && (o.displayName || o.userName)) || ''; }
+function isInactiveMealStatus(st){ st = String(st||''); return st==='cancelled' || st==='rejected' || st==='declined'; }
+/** One entry per person with a note; cancelled/rejected left out; approved late kept */
+function noteEntriesFrom(meal, orders){
+  const seen = {}, out = [];
+  (orders||[]).forEach(o => {
+    if (!o || isInactiveMealStatus(o.status)) return;
+    const note = kitchenNoteOf(o);
+    if (!note) return;
+    const key = String(o.userEmail||'').toLowerCase() || String(o.id||'') || (orderDisplayName(o)+'|'+(o.orderedAt||o.createdAt||o.timeOrdered||''));
+    if (seen[key]) return; seen[key] = 1;
+    out.push({ id:o.id, meal, name: orderDisplayName(o), department:o.department||'',
+      dish: o.mealChoice || o.foodSelection || (meal==='dinner'?'Standard':(meal==='lunch'?'Lunch':'Breakfast')),
+      note, flag: noteFlagOf(note), status:String(o.status||''), late: o.late===true||o.late==='TRUE'||o.late==='true' });
+  });
+  const rank = { allergy:0, diet:1, request:2 };
+  out.sort((a,b) => (rank[a.flag]-rank[b.flag]) || String(a.name).localeCompare(String(b.name)));
+  return out;
+}
+const NOTE_FLAG_LABEL = { allergy:'ALLERGY', diet:'DIET', request:'Request' };
+/** Dark UI chip for inline display */
+function noteChipHtml(noteOrOrder){
+  const note = typeof noteOrOrder === 'string' ? cleanNoteText(noteOrOrder) : kitchenNoteOf(noteOrOrder);
+  if (!note) return '';
+  const f = noteFlagOf(note);
+  const cls = f==='allergy' ? 'bg-red-500/15 border-red-500/50 text-red-200' : (f==='diet' ? 'bg-amber-500/15 border-amber-400/50 text-amber-200' : 'bg-slate-700/40 border-slate-500/40 text-slate-200');
+  const icon = f==='allergy' ? 'fa-triangle-exclamation' : (f==='diet' ? 'fa-leaf' : 'fa-note-sticky');
+  return '<span class="note-chip inline-flex items-start gap-1 mt-0.5 rounded-md border px-1.5 py-0.5 text-[10px] leading-snug break-words max-w-full '+cls+'" data-note-flag="'+f+'">'+
+    '<i class="fa-solid '+icon+' mt-[2px]"></i><span>'+(f!=='request'?'<strong>'+NOTE_FLAG_LABEL[f]+':</strong> ':'')+esc(note)+'</span></span>';
+}
+/** Print/PDF inline note (light background) */
+function notePrintHtml(noteOrOrder){
+  const note = typeof noteOrOrder === 'string' ? cleanNoteText(noteOrOrder) : kitchenNoteOf(noteOrOrder);
+  if (!note) return '';
+  const f = noteFlagOf(note);
+  const st = f==='allergy' ? 'color:#b91c1c;font-weight:700' : (f==='diet' ? 'color:#b45309;font-weight:600' : 'color:#111');
+  return '<span class="print-note" data-note-flag="'+f+'" style="'+st+'">'+(f!=='request'?'⚠ '+NOTE_FLAG_LABEL[f]+': ':'')+esc(note)+'</span>';
+}
+function noteStatusLabel(e){
+  const st = String(e.status||'');
+  if (st==='late_approved') return 'late approved';
+  if (st==='late_pending') return 'late — waiting chef';
+  if (st==='pending') return 'waiting';
+  return e.late ? 'late' : '';
+}
+/** "Allergies & special requests" block for print / PDF (top of every kitchen sheet) */
+function notesSectionPrintHtml(entries, showMeal){
+  entries = entries || [];
+  const head = '<h2 style="margin:0 0 6px;font-size:15px;color:#b91c1c">⚠ Allergies &amp; special requests</h2>';
+  if (!entries.length) {
+    return '<div class="notes-section" style="margin:12px 0 14px;padding:8px 10px;border:1px solid #ddd;border-radius:6px">'+head+'<p style="margin:0;font-size:12px;color:#555">None for this service.</p></div>';
+  }
+  const nA = entries.filter(e=>e.flag==='allergy').length;
+  const rows = entries.map(e => {
+    const bg = e.flag==='allergy' ? '#fee2e2' : (e.flag==='diet' ? '#fef3c7' : '#ffffff');
+    const col = e.flag==='allergy' ? '#b91c1c' : (e.flag==='diet' ? '#b45309' : '#334155');
+    const lbl = noteStatusLabel(e);
+    return '<tr style="background:'+bg+';page-break-inside:avoid">'+
+      '<td style="color:'+col+';font-weight:700;white-space:nowrap">'+(e.flag==='request'?'Request':'⚠ '+NOTE_FLAG_LABEL[e.flag])+'</td>'+
+      '<td><strong>'+esc(e.name)+'</strong>'+(e.department?'<br/><span style="font-size:10px;color:#555">'+esc(e.department)+'</span>':'')+'</td>'+
+      (showMeal?'<td>'+esc(e.meal.charAt(0).toUpperCase()+e.meal.slice(1))+'</td>':'')+
+      '<td>'+esc(e.dish)+(lbl?'<br/><em style="font-size:10px;color:#c2410c">('+esc(lbl)+')</em>':'')+'</td>'+
+      '<td style="color:'+col+';font-weight:'+(e.flag==='request'?'400':'700')+'">'+esc(e.note)+'</td></tr>';
+  }).join('');
+  return '<div class="notes-section" style="margin:12px 0 16px;padding:10px;border:2px solid #b91c1c;border-radius:6px;page-break-inside:avoid">'+head+
+    '<p style="margin:0 0 6px;font-size:11px;color:#444">'+entries.length+' note'+(entries.length===1?'':'s')+(nA?' · <strong style="color:#b91c1c">'+nA+' allergy</strong>':'')+' · check before plating</p>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5"><thead><tr style="background:#f8fafc"><th>Flag</th><th>Staff</th>'+(showMeal?'<th>Meal</th>':'')+'<th>Dish</th><th>Note</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+/** Dark UI card listing notes (Kitchen screen / Admin kitchen tab) */
+function notesCardHtml(groups, opts){
+  opts = opts || {};
+  const all = [].concat(groups.dinner||[], groups.breakfast||[], groups.lunch||[]);
+  const nA = all.filter(e=>e.flag==='allergy').length;
+  let h = '<div class="glass rounded-2xl p-4 border '+(nA?'border-red-500/45':'border-slate-600/40')+'" id="kit-notes-card" data-note-count="'+all.length+'">'+
+    '<div class="flex flex-wrap justify-between items-center gap-2 mb-2"><h3 class="font-semibold text-sm"><i class="fa-solid fa-triangle-exclamation '+(nA?'text-red-400':'text-slate-400')+' mr-2"></i>Allergies &amp; special requests</h3>'+
+    '<span class="text-[10px] text-slate-400">'+all.length+' note'+(all.length===1?'':'s')+(nA?' · <strong class="text-red-300">'+nA+' allergy</strong>':'')+'</span></div>';
+  if (!all.length) return h + '<p class="text-[11px] text-slate-500">No allergy or special-request notes for the upcoming services.</p></div>';
+  [['dinner','Dinner',opts.dinnerDate],['breakfast','Breakfast',opts.breakfastDate],['lunch','Lunch',opts.lunchDate]].forEach(([k,label,date]) => {
+    const list = groups[k] || [];
+    if (!list.length) return;
+    h += '<p class="text-[10px] uppercase tracking-wide text-slate-500 mt-2 mb-1">'+label+(date?' · '+esc(date):'')+'</p><ul class="space-y-1.5">';
+    list.forEach(e => {
+      const lbl = noteStatusLabel(e);
+      h += '<li class="rounded-lg bg-slate-900/40 px-2 py-1.5 min-w-0"><p class="text-xs text-slate-100 break-words"><strong>'+esc(e.name)+'</strong> <span class="text-slate-400">· '+esc(e.dish)+'</span>'+(lbl?' <span class="text-[10px] text-amber-300">('+esc(lbl)+')</span>':'')+'</p>'+noteChipHtml(e.note)+'</li>';
+    });
+    h += '</ul>';
+  });
+  return h + '</div>';
 }
 function displayName(u){
   u = u || state.user;
@@ -1228,15 +1356,33 @@ function demoParseHour(createdAt){
   const m = String(createdAt||'').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
   return m ? Number(m[4]) : 0;
 }
+function demoNoteParam(p, fallback){
+  if (p && p.specialNote !== undefined && p.specialNote !== null) return cleanNoteText(p.specialNote);
+  if (p && p.notes !== undefined && p.notes !== null) return cleanNoteText(p.notes);
+  return cleanNoteText(fallback);
+}
+function demoNameMap(db){
+  const map = {};
+  (db.users||[]).forEach(u => { if (u && u.email) map[String(u.email).toLowerCase()] = fullDisplayName(u); });
+  return map;
+}
+/** C102: copies of order rows with specialNote / noteFlag / displayName (like Code.gs decorateOrderNotes) */
+function demoDecorate(db, orders, nameMap){
+  nameMap = nameMap || demoNameMap(db);
+  return (orders||[]).map(o => {
+    const n = kitchenNoteOf(o);
+    return Object.assign({}, o, { specialNote:n, noteFlag:noteFlagOf(n), displayName: nameMap[String(o.userEmail||'').toLowerCase()] || o.userName || '' });
+  });
+}
 function demoBuildPrep(db, serviceDate){
-  const orders = (db.dinnerOrders||[]).filter(o=>o.serviceDate===serviceDate && o.status!=='cancelled' && o.status!=='rejected');
+  const orders = demoDecorate(db, (db.dinnerOrders||[]).filter(o=>o.serviceDate===serviceDate && o.status!=='cancelled' && o.status!=='rejected'));
   const tally = {};
   orders.forEach(o=>{ const k=o.mealChoice||'Standard'; tally[k]=(tally[k]||0)+1; });
   const byItem = {};
   Object.keys(tally).sort().forEach(k=>byItem[k]=[]);
-  orders.forEach(o=>{ const k=o.mealChoice||'Standard'; if(!byItem[k]) byItem[k]=[]; byItem[k].push({ userName:o.userName, department:o.department, orderedAt:o.createdAt, status:o.status, late:!!o.late }); });
+  orders.forEach(o=>{ const k=o.mealChoice||'Standard'; if(!byItem[k]) byItem[k]=[]; byItem[k].push({ id:o.id, userName:o.userName, displayName:o.displayName, department:o.department, foodSelection:o.mealChoice||k, orderedAt:o.createdAt, comments:o.specialNote, specialNote:o.specialNote, noteFlag:o.noteFlag, status:o.status, approved:['approved','late_approved','prepared','served'].includes(o.status), late:!!o.late }); });
   return {
-    serviceDate, totalOrders:orders.length, tally, byItem,
+    serviceDate, totalOrders:orders.length, tally, byItem, specialNotes: noteEntriesFrom('dinner', orders),
     pending: orders.filter(o=>o.status==='pending'||o.status==='late_pending').length,
     approved: orders.filter(o=>['approved','late_approved','prepared','served'].includes(o.status)).length,
     late: orders.filter(o=>o.late).length, orders
@@ -1529,9 +1675,10 @@ function demoApi(action, p) {
       const u = db.users.find(x=>x.email===email);
       const status = late ? 'late_pending' : 'pending';
       let o = db.dinnerOrders.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled' && x.status!=='rejected');
-      if (o) { o.mealChoice=p.mealChoice; o.notes=p.notes||''; o.late=late; o.status=status; }
+      if (o) { const n = demoNoteParam(p, kitchenNoteOf(o)); o.mealChoice=p.mealChoice||o.mealChoice; o.notes=n; o.specialNote=n; o.late=late; o.status=status; }
       else {
-        o = { id:uid('din'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:u.firstName+' '+u.lastName, department:u.department, mealChoice:p.mealChoice||'Standard', notes:p.notes||'', status, late, createdAt:formatFiji() };
+        const n = demoNoteParam(p, '');
+        o = { id:uid('din'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:fullDisplayName(u), department:u.department, mealChoice:p.mealChoice||'Standard', notes:n, specialNote:n, status, late, createdAt:formatFiji() };
         db.dinnerOrders.push(o);
       }
       demoProcessDinnerWorkflow(db); saveDemo(db); return Promise.resolve(ok({ order:o, late, cutoff:info }));
@@ -1543,9 +1690,10 @@ function demoApi(action, p) {
       const u = db.users.find(x=>x.email===email);
       if (!db.lunchOrders) db.lunchOrders = [];
       let o = db.lunchOrders.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled');
-      if (o) { o.mealChoice='Lunch'; o.notes=p.notes||''; o.late=false; o.status='ordered'; }
+      if (o) { const n = demoNoteParam(p, kitchenNoteOf(o)); o.mealChoice='Lunch'; o.notes=n; o.specialNote=n; o.late=false; o.status='ordered'; }
       else {
-        o = { id:uid('lun'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:u.firstName+' '+u.lastName, department:u.department, mealChoice:'Lunch', notes:p.notes||'', status:'ordered', late:false, createdAt:formatFiji() };
+        const n = demoNoteParam(p, '');
+        o = { id:uid('lun'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:fullDisplayName(u), department:u.department, mealChoice:'Lunch', notes:n, specialNote:n, status:'ordered', late:false, createdAt:formatFiji() };
         db.lunchOrders.push(o);
       }
       saveDemo(db); return Promise.resolve(ok({ order:o, late:false, cutoff:info }));
@@ -1565,9 +1713,10 @@ function demoApi(action, p) {
       if (!db.breakfastOrders) db.breakfastOrders = [];
       const status = late ? 'late_pending' : 'ordered';
       let o = db.breakfastOrders.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled' && x.status!=='rejected');
-      if (o) { o.mealChoice='Breakfast'; o.notes=p.notes||''; o.late=late; o.status=status; }
+      if (o) { const n = demoNoteParam(p, kitchenNoteOf(o)); o.mealChoice='Breakfast'; o.notes=n; o.specialNote=n; o.late=late; o.status=status; }
       else {
-        o = { id:uid('brk'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:u.firstName+' '+u.lastName, department:u.department, mealChoice:'Breakfast', notes:p.notes||'', status, late, createdAt:formatFiji() };
+        const n = demoNoteParam(p, '');
+        o = { id:uid('brk'), serviceDate:p.serviceDate||info.serviceDate, userEmail:email, userName:fullDisplayName(u), department:u.department, mealChoice:'Breakfast', notes:n, specialNote:n, status, late, createdAt:formatFiji() };
         db.breakfastOrders.push(o);
       }
       saveDemo(db); return Promise.resolve(ok({ order:o, late, cutoff:info }));
@@ -1633,21 +1782,22 @@ function demoApi(action, p) {
       const dept = String(p.department||state.user.department||'').trim();
       if (!name) return Promise.resolve(fail('Staff name required'));
       const notes = '[On behalf by '+state.user.firstName+'] '+(p.comment||'');
+      const specialNote = cleanNoteText(p.comment||'');
       const email = 'behalf+'+name.toLowerCase().replace(/[^a-z0-9]+/g,'.')+'@pcr.local';
       if (meal==='breakfast') {
         const info = breakfastCutoffInfo();
-        const o = { id:uid('brk'), serviceDate:info.serviceDate, userEmail:email, userName:name, department:dept, mealChoice:'Breakfast', notes, status:'late_pending', late:true, createdAt:formatFiji() };
+        const o = { id:uid('brk'), serviceDate:info.serviceDate, userEmail:email, userName:name, department:dept, mealChoice:'Breakfast', notes, specialNote, status:'late_pending', late:true, createdAt:formatFiji() };
         (db.breakfastOrders=db.breakfastOrders||[]).push(o); saveDemo(db);
         return Promise.resolve(ok({ order:o, meal, message:'Sent to Kitchen for approval' }));
       }
       if (meal==='lunch') {
         const info = lunchCutoffInfo();
-        const o = { id:uid('lun'), serviceDate:info.serviceDate, userEmail:email, userName:name, department:dept, mealChoice:'Lunch', notes, status:'ordered', late:false, createdAt:formatFiji() };
+        const o = { id:uid('lun'), serviceDate:info.serviceDate, userEmail:email, userName:name, department:dept, mealChoice:'Lunch', notes, specialNote, status:'ordered', late:false, createdAt:formatFiji() };
         (db.lunchOrders=db.lunchOrders||[]).push(o); saveDemo(db);
         return Promise.resolve(ok({ order:o, meal, message:'Lunch counted' }));
       }
       const info = dinnerCutoffInfo();
-      const o = { id:uid('din'), serviceDate:info.serviceDate, userEmail:email, userName:name, department:dept, mealChoice:p.mealChoice||'Standard', notes, status:info.open?'pending':'late_pending', late:!info.open, createdAt:formatFiji() };
+      const o = { id:uid('din'), serviceDate:info.serviceDate, userEmail:email, userName:name, department:dept, mealChoice:p.mealChoice||'Standard', notes, specialNote, status:info.open?'pending':'late_pending', late:!info.open, createdAt:formatFiji() };
       db.dinnerOrders.push(o); saveDemo(db);
       return Promise.resolve(ok({ order:o, meal, message:'Dinner sent to Kitchen' }));
     }
@@ -1657,8 +1807,8 @@ function demoApi(action, p) {
       const info = isB ? breakfastCutoffInfo() : lunchCutoffInfo();
       const list = isB ? (db.breakfastOrders||[]) : (db.lunchOrders||[]);
       const sd = p.serviceDate || info.serviceDate;
-      const orders = list.filter(o=>o.serviceDate===sd && o.status!=='cancelled');
-      return Promise.resolve(ok({ serviceDate:sd, totalCounted: orders.filter(o=>o.status!=='late_pending'&&o.status!=='rejected').length, orders: orders.map(o=>({ userName:o.userName, department:o.department, timeOrdered:o.createdAt, status:o.status, late:!!o.late, notes:o.notes||'' })), cutoff:info }));
+      const orders = demoDecorate(db, list.filter(o=>o.serviceDate===sd && o.status!=='cancelled'));
+      return Promise.resolve(ok({ serviceDate:sd, totalCounted: orders.filter(o=>o.status!=='late_pending'&&o.status!=='rejected').length, orders: orders.map(o=>({ id:o.id, userName:o.userName, displayName:o.displayName, department:o.department, timeOrdered:o.createdAt, status:o.status, late:!!o.late, notes:o.notes||'', specialNote:o.specialNote, noteFlag:o.noteFlag })), specialNotes: noteEntriesFrom(isB?'breakfast':'lunch', orders), cutoff:info }));
     }
     case 'getBreakfastOrders': {
       if (!db.breakfastOrders) db.breakfastOrders = [];
@@ -1782,9 +1932,12 @@ function demoApi(action, p) {
       const dinnerDate = p.dinnerDate || di.serviceDate;
       const lunchDate = p.lunchDate || li.serviceDate;
       const breakfastDate = p.breakfastDate || bi.serviceDate;
-      const dinners = db.dinnerOrders.filter(o=>o.serviceDate===dinnerDate && o.status!=='cancelled' && o.status!=='rejected');
-      const lunches = db.lunchOrders.filter(o=>o.serviceDate===lunchDate && o.status!=='cancelled');
-      const breakfasts = db.breakfastOrders.filter(o=>o.serviceDate===breakfastDate && o.status!=='cancelled');
+      const nm = demoNameMap(db);
+      const dinners = demoDecorate(db, db.dinnerOrders.filter(o=>o.serviceDate===dinnerDate && o.status!=='cancelled' && o.status!=='rejected'), nm);
+      const lunches = demoDecorate(db, db.lunchOrders.filter(o=>o.serviceDate===lunchDate && o.status!=='cancelled'), nm);
+      const breakfasts = demoDecorate(db, db.breakfastOrders.filter(o=>o.serviceDate===breakfastDate && o.status!=='cancelled'), nm);
+      const snB = noteEntriesFrom('breakfast', breakfasts), snL = noteEntriesFrom('lunch', lunches), snD = noteEntriesFrom('dinner', dinners);
+      const snAll = snD.concat(snB, snL);
       const tally = (arr) => arr.reduce((m,o)=>{ const k=o.mealChoice||'Standard'; m[k]=(m[k]||0)+1; return m; },{});
       const pending = dinners.filter(o=>o.status==='pending'||o.status==='late_pending');
       const approved = dinners.filter(o=>['approved','late_approved','prepared','served'].includes(o.status));
@@ -1806,6 +1959,7 @@ function demoApi(action, p) {
         dinner:{ orders:dinners, late:dinners.filter(o=>o.late), tally:tally(dinners), cutoff:di, pendingCount:pending.length, approvedCount:approved.length, lateCount:dinners.filter(o=>o.late).length, total:dinners.length },
         lunch:{ total:lunches.length, orders:lunches, late:lunches.filter(o=>o.late), tally:tally(lunches), cutoff:li, serviceDate:lunchDate },
         stats:{ tomorrowTotal:dinners.length, perItem:tally(dinners), lateCount:dinners.filter(o=>o.late).length, approved:approved.length, pending:pending.length, last7Days:last7 },
+        specialNotes:{ breakfast:snB, lunch:snL, dinner:snD, total:snAll.length, allergyCount:snAll.filter(e=>e.flag==='allergy').length },
         menus, workflow:wf, fijiNow: formatFiji()
       }));
     }
@@ -2754,6 +2908,16 @@ function paintHomeSuggestions(suggestions, sugList){
 }
 
 
+/** C102: optional "Special note / allergy" input used by all three meal forms */
+function mealNoteInputHtml(id, value){
+  return '<div class="space-y-1 min-w-0"><label for="'+id+'" class="text-[10px] text-slate-400">Special note / allergy <span class="text-slate-500">(optional — shown to the kitchen)</span></label>'+
+    '<input id="'+id+'" maxlength="200" autocomplete="off" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="e.g. peanut allergy, no pork, extra rice" value="'+esc(value||'')+'"/></div>';
+}
+function mealNoteValue(id){ const el = $('#'+id); return el ? cleanNoteText(el.value) : undefined; }
+function myNoteLine(o){
+  const n = kitchenNoteOf(o);
+  return n ? '<div class="text-[11px] text-slate-300 min-w-0">Your note to kitchen: '+noteChipHtml(n)+'</div>' : '';
+}
 async function renderDinner(){
   const di = dinnerCutoffInfo();
   state.mealPill = 'dinner';
@@ -2785,9 +2949,10 @@ async function renderDinner(){
       '<p class="text-[11px] text-teal-300/90 font-medium">'+esc(mealCutoffOneLiner('dinner', di))+'</p>'+
       '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+di.serviceDate+'</strong> · '+WEEKDAY_NAMES[wd]+'</p></div>'+
       statusHtml+
+      (cur && !isInactiveMealStatus(cur.status) ? myNoteLine(cur) : '')+
       '<label class="text-[10px] text-slate-400">Meal choice (tomorrow\'s menu)</label>'+
       '<select id="dinner-choice" class="w-full rounded-xl px-3 py-2 text-sm">'+dinnerOpts+'</select>'+
-      '<input id="dinner-notes" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="Notes / allergies"/>'+
+      mealNoteInputHtml('dinner-notes', (cur && !isInactiveMealStatus(cur.status)) ? kitchenNoteOf(cur) : '')+
       (last && last.mealChoice?'<button type="button" id="btn-dinner-same" class="w-full rounded-xl py-2 text-xs text-teal-300 border border-teal-500/35">Same as last time ('+esc(last.mealChoice)+')</button>':'')+
       '<button id="btn-dinner" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">'+(di.open?'Book dinner':'Submit late dinner request')+'</button>'+
       (cur && cur.status!=='cancelled' && cur.status!=='rejected'?'<button id="btn-dinner-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel dinner</button>':'')+
@@ -2825,8 +2990,8 @@ async function renderDinner(){
       toast('Loaded last dinner choice','ok');
     };
     $('#btn-dinner').onclick = async () => {
-      const choice = $('#dinner-choice').value, notes = $('#dinner-notes').value;
-      const r = await api('placeDinnerOrder',{ mealChoice:choice, notes:notes, allowLate: !di.open });
+      const choice = $('#dinner-choice').value, notes = mealNoteValue('dinner-notes') || '';
+      const r = await api('placeDinnerOrder',{ mealChoice:choice, notes:notes, specialNote:notes, allowLate: !di.open });
       if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
       saveLastDinner(choice, notes);
       cacheInvalidate([orderKey, 'kitchenDashboard']);
@@ -2840,7 +3005,8 @@ async function renderDinner(){
       cacheInvalidate([orderKey, 'kitchenDashboard']);
       toastWithUndo('Dinner cancelled', async () => {
         if (!prev) return;
-        await api('placeDinnerOrder',{ mealChoice:prev.mealChoice, notes:prev.notes||'', allowLate: !di.open });
+        const pn = kitchenNoteOf(prev);
+        await api('placeDinnerOrder',{ mealChoice:prev.mealChoice, notes:pn, specialNote:pn, allowLate: !di.open });
         cacheInvalidate([orderKey, 'kitchenDashboard']);
         renderDinner();
       });
@@ -2909,9 +3075,11 @@ async function renderBreakfast(){
     const waitingLate = st === 'late_pending';
     const declined = st === 'rejected' || st === 'declined';
     const counted = cur && (st === 'ordered' || st === 'late_approved' || st === 'approved');
+    const bfNote = (cur && !declined) ? kitchenNoteOf(cur) : '';
     if (bi.open) {
       formHtml =
         '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
+        mealNoteInputHtml('bf-note', bfNote)+
         '<button id="btn-breakfast" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">'+(counted?'Update / already counted':'Count me in')+'</button>'+
         (cur && !declined?'<button id="btn-breakfast-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
     } else if (bi.lateOpen) {
@@ -2927,12 +3095,14 @@ async function renderBreakfast(){
         formHtml =
           '<div class="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3">'+
           '<p class="text-sm text-rose-300">order declined please see hod or chef</p></div>'+
+          mealNoteInputHtml('bf-note', '')+
           '<button id="btn-breakfast-late" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white mt-2 min-h-[48px]">Request late breakfast again</button>';
       } else {
         formHtml =
           '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">'+
           '<p class="text-sm font-medium text-amber-300"><i class="fa-solid fa-clock mr-1"></i>Normal breakfast closed (1pm)</p>'+
           '<p class="text-[10px] text-amber-200/80">Late requests open until 6:00 PM Fiji — needs chef approval.</p>'+
+          mealNoteInputHtml('bf-note', '')+
           '<button id="btn-breakfast-late" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">Request late breakfast</button></div>';
       }
     } else {
@@ -2951,11 +3121,15 @@ async function renderBreakfast(){
       '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+bi.serviceDate+'</strong> (tomorrow)</p></div>'+
       (counted?'<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for breakfast '+statusBadge(st)+'</p>':'')+
       (waitingLate?('<div class="mb-1">'+lateStateChip('late_pending')+'</div>'):'')+
+      (bfNote ? myNoteLine(cur) : '')+
       formHtml+
       '</div></div>';
     bindMealPills('#breakfast-root');
     async function placeBf(allowLate){
-      const r = await api('placeBreakfastOrder', allowLate ? { allowLate:true } : {});
+      const payload = allowLate ? { allowLate:true } : {};
+      const nv = mealNoteValue('bf-note');
+      if (nv !== undefined) { payload.specialNote = nv; payload.notes = nv; }
+      const r = await api('placeBreakfastOrder', payload);
       if (!r.success) { toast(r.error,'error'); return; }
       cacheInvalidate([cacheKey, 'kitchenDashboard']);
       toast(allowLate?'Late breakfast submitted — waiting chef':'Counted in for breakfast','ok');
@@ -2971,7 +3145,9 @@ async function renderBreakfast(){
       if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
       cacheInvalidate([cacheKey, 'kitchenDashboard']);
       toastWithUndo('Breakfast cancelled', async () => {
-        await api('placeBreakfastOrder', waitingLate?{allowLate:true}:{});
+        const up = waitingLate?{allowLate:true}:{};
+        if (bfNote) { up.specialNote = bfNote; up.notes = bfNote; }
+        await api('placeBreakfastOrder', up);
         cacheInvalidate([cacheKey, 'kitchenDashboard']);
         renderBreakfast();
       });
@@ -3003,10 +3179,12 @@ async function renderLunch(){
   function paintLunch(myLunch){
     myLunch = (myLunch || []).filter(o => o.status !== 'cancelled');
     const cur = myLunch[0];
+    const luNote = cur ? kitchenNoteOf(cur) : '';
     let formHtml = '';
     if (li.open) {
       formHtml =
         '<p class="text-xs text-slate-300">One meal — chef needs headcount only.</p>'+
+        mealNoteInputHtml('lu-note', luNote)+
         '<button id="btn-lunch" class="btn-primary w-full rounded-xl py-3.5 text-base font-semibold text-white min-h-[48px]">'+(cur?'Update / already counted':'Count me in')+'</button>'+
         (cur?'<button id="btn-lunch-cancel" class="w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30">Cancel count</button>':'');
     } else {
@@ -3022,12 +3200,14 @@ async function renderLunch(){
       '<p class="text-[11px] text-teal-300/90 font-medium">'+esc(mealCutoffOneLiner('lunch', li))+'</p>'+
       '<p class="text-[10px] text-sand-200/50">Service date (Fiji): <strong>'+li.serviceDate+'</strong> (tomorrow)</p></div>'+
       (cur?'<p class="text-xs text-teal-300/90"><i class="fa-solid fa-check mr-1"></i>You are counted in for lunch '+statusBadge(cur.status)+'</p>':'')+
+      (cur ? myNoteLine(cur) : '')+
       formHtml+
       '</div></div>';
     bindMealPills('#lunch-root');
     const btn = $('#btn-lunch');
     if (btn) btn.onclick = async () => {
-      const r = await api('placeLunchOrder',{});
+      const nv = mealNoteValue('lu-note') || '';
+      const r = await api('placeLunchOrder',{ specialNote:nv, notes:nv });
       if (!r.success) { toast(r.error,'error'); return; }
       cacheInvalidate([cacheKey, 'kitchenDashboard']);
       toast(cur?'Lunch updated':'Counted in for lunch','ok'); renderLunch();
@@ -3038,7 +3218,7 @@ async function renderLunch(){
       if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
       cacheInvalidate([cacheKey, 'kitchenDashboard']);
       toastWithUndo('Lunch cancelled', async () => {
-        await api('placeLunchOrder',{});
+        await api('placeLunchOrder', luNote ? { specialNote:luNote, notes:luNote } : {});
         cacheInvalidate([cacheKey, 'kitchenDashboard']);
         renderLunch();
       });
@@ -4196,7 +4376,8 @@ async function renderKitchen(){
         d: dash && { dinnerDate: dash.dinnerDate, lunchDate: dash.lunchDate, breakfastDate: dash.breakfastDate,
           dt: dash.dinner && dash.dinner.total, bt: dash.breakfast && dash.breakfast.total, lt: dash.lunch && dash.lunch.total,
           dp: dash.dinner && dash.dinner.pendingCount, dl: dash.dinner && dash.dinner.lateCount,
-          s: dash.stats && dash.stats.last7Days },
+          s: dash.stats && dash.stats.last7Days,
+          nt: ['dinner','breakfast','lunch'].map(k => noteEntriesFrom(k, dash[k] && dash[k].orders).map(e => e.id+':'+e.note+':'+e.status).join(',')).join('|') },
         p: prep && { sd: prep.serviceDate, t: prep.prep && prep.prep.totalOrders, a: prep.autoGeneratedAt830 }
       });
     } catch (e) { return String(Date.now()); }
@@ -4245,7 +4426,7 @@ async function renderKitchen(){
             const prev = JSON.parse(prevFp);
             const cur = JSON.parse(fpStr);
             const structureSame = prev && cur && prev.d && cur.d &&
-              prev.d.dp === cur.d.dp && prev.d.dl === cur.d.dl &&
+              prev.d.dp === cur.d.dp && prev.d.dl === cur.d.dl && prev.d.nt === cur.d.nt &&
               JSON.stringify(prev.d.s) === JSON.stringify(cur.d.s) &&
               prev.p && cur.p && prev.p.t === cur.p.t;
             if (updated && structureSame) return;
@@ -4281,6 +4462,13 @@ async function renderKitchen(){
     const dinnerPack = d.dinner || {};
     const lunchPack = d.lunch || {};
     const breakfastPack = d.breakfast || {};
+    // C102: allergies & special requests (cancelled/rejected excluded, approved late kept)
+    const noteGroups = {
+      dinner: noteEntriesFrom('dinner', dinnerPack.orders),
+      breakfast: noteEntriesFrom('breakfast', breakfastPack.orders),
+      lunch: noteEntriesFrom('lunch', lunchPack.orders)
+    };
+    const inlineNote = (o) => isInactiveMealStatus(o && o.status) ? '' : noteChipHtml(o);
 
     function headcountBlock(title, meal, pack, date) {
       pack = pack || {};
@@ -4305,7 +4493,7 @@ async function renderKitchen(){
             '<div class="flex justify-between items-center mb-1 gap-2"><p class="text-xs text-orange-300 font-medium"><i class="fa-solid fa-clock mr-1"></i>Late breakfast ('+latePend.length+')</p>'+
             '<button id="btn-bf-approve-all" class="text-xs px-3 py-2 min-h-[40px] rounded-lg bg-teal-600/25 text-teal-200 font-semibold">Approve all</button></div>';
           latePend.forEach(o => {
-            h += '<div class="flex justify-between items-center gap-2 py-0.5"><p class="text-[10px] text-sand-200/70">'+esc(o.userName)+' · '+esc(o.department)+' '+statusBadge(o.status)+'</p>'+
+            h += '<div class="flex justify-between items-center gap-2 py-0.5"><div class="min-w-0"><p class="text-[10px] text-sand-200/70">'+esc(orderDisplayName(o))+' · '+esc(o.department)+' '+statusBadge(o.status)+'</p>'+inlineNote(o)+'</div>'+
               '<span class="flex gap-2"><button class="text-[10px] text-teal-400 late-bf-approve px-2 py-1" data-id="'+o.id+'">Approve</button>'+
               '<button class="text-[10px] text-rose-300 late-bf-reject px-2 py-1" data-id="'+o.id+'">Reject</button></span></div>';
           });
@@ -4316,7 +4504,7 @@ async function renderKitchen(){
       }
       h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Time</th><th>Status</th><th></th></tr></thead><tbody>';
       (pack.orders||[]).forEach(o => {
-        h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(o.userName)+'</td><td>'+esc(o.department)+'</td><td class="text-[10px] text-slate-400">'+esc(String(o.createdAt||'').slice(0,16))+'</td><td>'+statusBadge(o.status)+'</td>'+
+        h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(orderDisplayName(o))+inlineNote(o)+'</td><td>'+esc(o.department)+'</td><td class="text-[10px] text-slate-400">'+esc(String(o.createdAt||'').slice(0,16))+'</td><td>'+statusBadge(o.status)+'</td>'+
           '<td><button class="text-teal-400 mark-ord" data-id="'+o.id+'" data-meal="'+meal+'">'+(o.status==='prepared'||o.status==='served'?'✓':'Mark')+'</button></td></tr>';
       });
       if (!(pack.orders||[]).length) h += '<tr><td colspan="5" class="py-3 text-slate-500 text-center">0 counted — no headcount yet</td></tr>';
@@ -4346,7 +4534,7 @@ async function renderKitchen(){
       if (late.length) {
         h += '<div class="mb-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30"><p class="text-xs text-amber-300 font-medium"><i class="fa-solid fa-clock mr-1"></i>Late requests ('+late.length+')</p>';
         late.forEach(o => {
-          h += '<div class="flex justify-between items-center gap-2 py-0.5"><p class="text-[10px] text-sand-200/70">'+esc(o.userName)+' — '+esc(o.mealChoice)+' '+statusBadge(o.status)+'</p>';
+          h += '<div class="flex justify-between items-center gap-2 py-0.5"><div class="min-w-0"><p class="text-[10px] text-sand-200/70">'+esc(orderDisplayName(o))+' — '+esc(o.mealChoice)+' '+statusBadge(o.status)+'</p>'+inlineNote(o)+'</div>';
           if (canKitchen() && o.status==='late_pending') {
             h += '<button class="text-xs px-2 py-1.5 text-teal-400 late-approve" data-id="'+o.id+'">Approve</button>';
           }
@@ -4358,7 +4546,7 @@ async function renderKitchen(){
       }
       h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Meal</th><th>Status</th><th></th></tr></thead><tbody>';
       (pack.orders||[]).forEach(o => {
-        h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(o.userName)+'</td><td>'+esc(o.department)+'</td><td>'+esc(o.mealChoice)+'</td><td>'+statusBadge(o.status)+'</td>'+
+        h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(orderDisplayName(o))+'</td><td>'+esc(o.department)+'</td><td>'+esc(o.mealChoice)+inlineNote(o)+'</td><td>'+statusBadge(o.status)+'</td>'+
           '<td><button class="text-teal-400 mark-ord" data-id="'+o.id+'" data-meal="'+meal+'">'+(o.status==='prepared'||o.status==='served'?'✓':'Mark')+'</button></td></tr>';
       });
       h += '</tbody></table></div>';
@@ -4384,7 +4572,8 @@ async function renderKitchen(){
     const autoNote = prepData.autoGeneratedAt830
       ? '<p class="text-[10px] text-teal-300 mb-2"><i class="fa-solid fa-magic mr-1"></i>Auto-generated at 8:30pm'+(prepData.snapshot&&prepData.snapshot.generatedAt?' · '+esc(prepData.snapshot.generatedAt):'')+'</p>'
       : '<p class="text-[10px] text-slate-500 mb-2">Prep list auto-locks after 8:30pm Fiji for tomorrow\'s service.</p>';
-    let html = '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1">1 · Overview</p>'+statsHtml+
+    let html = notesCardHtml(noteGroups, { dinnerDate:d.dinnerDate, breakfastDate:d.breakfastDate||breakfastPack.serviceDate, lunchDate:d.lunchDate||lunchPack.serviceDate })+
+      '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-2">1 · Overview</p>'+statsHtml+
       '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-2">2 · Dinner</p>'+
       '<div class="glass rounded-2xl p-4 space-y-2">'+
       '<div class="flex flex-wrap justify-between items-center gap-2"><h3 class="font-semibold text-sm"><i class="fa-solid fa-print text-teal-400 mr-2"></i>Dinner Prep List</h3>'+
@@ -4483,8 +4672,8 @@ async function renderKitchen(){
       const meal = b.dataset.meal;
       try {
         const data = await fetchChefSheetData(meal);
-        const rows = (data.orders||[]).map(o=>[o.userName,o.department,o.timeOrdered||o.createdAt,o.status].map(csvEscape).join(',')).join('\n');
-        downloadText('pcr-'+meal+'-'+ (data.serviceDate||'') +'.csv', 'name,department,timeOrdered,status\n'+rows);
+        const rows = (data.orders||[]).map(o=>{ const n = isInactiveMealStatus(o.status) ? '' : kitchenNoteOf(o); return [orderDisplayName(o),o.department,o.timeOrdered||o.createdAt,o.status,n,noteFlagOf(n)].map(csvEscape).join(','); }).join('\n');
+        downloadText('pcr-'+meal+'-'+ (data.serviceDate||'') +'.csv', 'name,department,timeOrdered,status,specialNote,noteFlag\n'+rows);
         toast('CSV downloaded','ok');
       } catch (e) { toast((e && e.message) || 'CSV failed','error'); }
     });
@@ -4522,15 +4711,17 @@ async function renderKitchen(){
       ).join('');
       let sections = Object.keys(byItem).sort().map(k => {
         const rows = (byItem[k]||[]).map(o =>
-          '<tr><td>☐</td><td>'+esc(o.userName)+'</td><td>'+esc(o.foodSelection||k)+'</td><td>'+esc(o.orderedAt)+'</td><td>'+esc(o.comments||'')+'</td><td>'+(o.denied?'DENIED':(o.approved?'APPROVED':esc(o.status)))+(o.late?' LATE':'')+'</td></tr>'
+          '<tr style="page-break-inside:avoid"><td>☐</td><td>'+esc(orderDisplayName(o))+'</td><td>'+esc(o.foodSelection||k)+'</td><td>'+esc(o.orderedAt)+'</td><td>'+notePrintHtml(o)+'</td><td>'+(o.denied?'DENIED':(o.approved?'APPROVED':esc(o.status)))+(o.late?' LATE':'')+'</td></tr>'
         ).join('');
-        return '<h3 style="margin-top:18px">'+esc(k)+' ('+(byItem[k]||[]).length+')</h3><table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="4"><thead><tr><th>Served</th><th>Staff name</th><th>Food</th><th>Time ordered</th><th>Comments</th><th>Approved/Denied</th></tr></thead><tbody>'+rows+'</tbody></table>';
+        return '<h3 style="margin-top:18px">'+esc(k)+' ('+(byItem[k]||[]).length+')</h3><table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="4"><thead><tr><th>Served</th><th>Staff name</th><th>Food</th><th>Time ordered</th><th>Special note / allergy</th><th>Approved/Denied</th></tr></thead><tbody>'+rows+'</tbody></table>';
       }).join('');
+      const noteEntries = prepNoteEntries(prep);
       const logo = goldenLogoAbsUrl();
       return '<div style="font-family:system-ui,sans-serif;color:#111;background:#fff;max-width:800px;margin:0 auto;padding:16px">'+
         '<div style="text-align:center"><img src="'+logo+'" alt="PCR" style="height:72px;object-fit:contain"/><h1 style="margin:8px 0 4px;font-size:20px">Dinner Prep List — '+esc(data.serviceDate)+' FJT</h1>'+
         (data.autoGeneratedAt830?'<p style="color:#0d9488;font-size:12px">Auto-generated at 8:30pm</p>':'')+
         '<p>Total dinner orders: <strong>'+(prep.totalOrders||0)+'</strong></p></div>'+
+        notesSectionPrintHtml(noteEntries, false)+
         '<h2 style="font-size:14px;margin-top:16px">Breakdown (sorted by food)</h2>'+breakdown+
         '<p style="font-size:11px;color:#666">Cross off Served when handed out. Sum of counts should equal total.</p>'+
         sections+
@@ -4544,11 +4735,16 @@ async function renderKitchen(){
       const byItem = prep.byItem || {};
       const nl = String.fromCharCode(10);
       let t = 'Dinner Prep List — '+data.serviceDate+' FJT'+nl;
-      t += 'Total dinner orders: '+(prep.totalOrders||0)+nl+nl+'Breakdown:'+nl;
+      t += 'Total dinner orders: '+(prep.totalOrders||0)+nl+nl;
+      const tn = prepNoteEntries(prep);
+      t += '*** ALLERGIES & SPECIAL REQUESTS ('+tn.length+') ***'+nl;
+      if (!tn.length) t += '  None for this service.'+nl;
+      tn.forEach(e=>{ t += '  '+(e.flag==='request'?'[Request]':'[!! '+NOTE_FLAG_LABEL[e.flag]+']')+' '+e.name+' | '+e.dish+' | '+e.note+(noteStatusLabel(e)?' ('+noteStatusLabel(e)+')':'')+nl; });
+      t += nl+'Breakdown:'+nl;
       Object.keys(tally).sort().forEach(k=>{ t += '  '+k+': '+tally[k]+'  Given out: ______'+nl; });
       Object.keys(byItem).sort().forEach(k=>{
         t += nl+'== '+k+' =='+nl;
-        (byItem[k]||[]).forEach(o=>{ t += '[ ] '+o.userName+' | '+(o.foodSelection||k)+' | '+o.orderedAt+' | '+(o.comments||'')+' | '+o.status+(o.late?' LATE':'')+nl; });
+        (byItem[k]||[]).forEach(o=>{ const n = kitchenNoteOf(o); t += '[ ] '+orderDisplayName(o)+' | '+(o.foodSelection||k)+' | '+o.orderedAt+' | '+(n?(noteFlagOf(n)==='request'?'':'!! '+NOTE_FLAG_LABEL[noteFlagOf(n)]+': ')+n:'')+' | '+o.status+(o.late?' LATE':'')+nl; });
       });
       t += nl+'Did not order but received dinner:'+nl+'Name ______ Item ______ Time ______ Notes ______'+nl;
       t += nl+'Signature Chef in charge __________  HOD __________  Date ______'+nl;
@@ -4760,6 +4956,15 @@ function isLateWaitingStatus(st){
   st = String(st || '');
   return st === 'late_pending' || (st === 'late' && st !== 'late_approved');
 }
+/** C102: note entries for a dinner prep payload (full rows preferred, else byItem) */
+function prepNoteEntries(prep, fallbackOrders){
+  prep = prep || {};
+  if (Array.isArray(prep.orders) && prep.orders.length) return noteEntriesFrom('dinner', prep.orders);
+  const flat = [];
+  Object.keys(prep.byItem||{}).forEach(k => (prep.byItem[k]||[]).forEach(o => flat.push(Object.assign({ mealChoice:k }, o))));
+  if (flat.length) return noteEntriesFrom('dinner', flat);
+  return noteEntriesFrom('dinner', fallbackOrders||[]);
+}
 function chefSheetShell(title, serviceDate, totalLabel, totalValue, bodyHtml){
   const logo = goldenLogoAbsUrl();
   const printed = formatFiji();
@@ -4788,17 +4993,19 @@ function buildHeadcountOrderSheetHtml(mealLabel, data){
   const waitList = Object.keys(waitMap).map(k => waitMap[k]).sort(sheetTimeSort);
   const total = data.totalCounted != null ? data.totalCounted : main.length;
   let rows = main.map(o =>
-    '<tr><td style="width:56px;text-align:center">☐</td><td>'+esc(o.userName||'')+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(String(o.timeOrdered||o.createdAt||''))+'</td></tr>'
+    '<tr style="page-break-inside:avoid"><td style="width:56px;text-align:center">☐</td><td>'+esc(orderDisplayName(o))+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(String(o.timeOrdered||o.createdAt||''))+(String(o.status)==='late_approved'?' <em style="color:#0d9488">(late approved)</em>':'')+'</td><td>'+notePrintHtml(o)+'</td></tr>'
   ).join('');
-  if (!main.length) rows = '<tr><td colspan="4" style="padding:10px;color:#666">No counted orders yet (0 counted)</td></tr>';
-  let body = '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
-    '<thead><tr style="background:#f0fdfa"><th style="width:56px">Served</th><th>Name</th><th>Department</th><th>Time ordered</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  if (!main.length) rows = '<tr><td colspan="5" style="padding:10px;color:#666">No counted orders yet (0 counted)</td></tr>';
+  const hcMeal = String(mealLabel).toLowerCase().indexOf('breakfast')>=0 ? 'breakfast' : 'lunch';
+  let body = notesSectionPrintHtml(noteEntriesFrom(hcMeal, orders), false)+
+    '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
+    '<thead><tr style="background:#f0fdfa"><th style="width:56px">Served</th><th>Name</th><th>Department</th><th>Time ordered</th><th>Special note / allergy</th></tr></thead><tbody>'+rows+'</tbody></table>';
   if (waitList.length) {
     body += '<h2 style="margin:22px 0 8px;font-size:14px;color:#c2410c">Waiting list (late)</h2>'+
       '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
-      '<thead><tr style="background:#fff7ed"><th style="width:56px">Served</th><th>Name</th><th>Department</th><th>Time ordered</th></tr></thead><tbody>'+
+      '<thead><tr style="background:#fff7ed"><th style="width:56px">Served</th><th>Name</th><th>Department</th><th>Time ordered</th><th>Special note / allergy</th></tr></thead><tbody>'+
       waitList.map(o =>
-        '<tr><td style="text-align:center">☐</td><td>'+esc(o.userName||'')+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(String(o.timeOrdered||o.createdAt||''))+' <em style="color:#c2410c">(late pending)</em></td></tr>'
+        '<tr style="page-break-inside:avoid"><td style="text-align:center">☐</td><td>'+esc(orderDisplayName(o))+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(String(o.timeOrdered||o.createdAt||''))+' <em style="color:#c2410c">(late pending)</em></td><td>'+notePrintHtml(o)+'</td></tr>'
       ).join('')+'</tbody></table>';
   } else if (String(mealLabel).toLowerCase().indexOf('breakfast')>=0) {
     body += '<p style="margin-top:16px;font-size:11px;color:#666">No late requests</p>';
@@ -4838,12 +5045,12 @@ function buildDinnerOrderSheetHtml(data){
     let rows = main.map(o => {
       const lateNote = (o.late || String(o.status||'').indexOf('late')===0) ? ' <em style="color:#c2410c">(late)</em>' : '';
       const stNote = (String(o.status)==='late_approved') ? ' <em style="color:#0d9488">(late approved)</em>' : lateNote;
-      return '<tr><td style="width:40px;text-align:center">☐</td><td>'+esc(o.userName||'')+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(String(o.timeOrdered||o.orderedAt||o.createdAt||''))+stNote+'</td></tr>';
+      return '<tr style="page-break-inside:avoid"><td style="width:40px;text-align:center">☐</td><td>'+esc(orderDisplayName(o))+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(String(o.timeOrdered||o.orderedAt||o.createdAt||''))+stNote+'</td><td>'+notePrintHtml(o)+'</td></tr>';
     }).join('');
-    if (!main.length) rows = '<tr><td colspan="4" style="color:#666;padding:8px">No orders for this item</td></tr>';
+    if (!main.length) rows = '<tr><td colspan="5" style="color:#666;padding:8px">No orders for this item</td></tr>';
     sections += '<h2 style="margin:18px 0 6px;font-size:14px;color:#0f766e">'+esc(k)+'</h2>'+
       '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
-      '<thead><tr style="background:#f0fdfa"><th style="width:40px"></th><th>Name</th><th>Department</th><th>Time ordered</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+      '<thead><tr style="background:#f0fdfa"><th style="width:40px"></th><th>Name</th><th>Department</th><th>Time ordered</th><th>Special note / allergy</th></tr></thead><tbody>'+rows+'</tbody></table>'+
       '<p style="margin:4px 0 0;font-size:12px"><strong>Total '+esc(k)+':</strong> '+main.length+'</p>';
   });
   if (!mainKeys.length) {
@@ -4859,16 +5066,16 @@ function buildDinnerOrderSheetHtml(data){
     if (seen[key]) return false; seen[key]=1; return String(o.status||'late_pending')==='late_pending' || o.late;
   }).filter(o => String(o.status||'late_pending')==='late_pending').sort(sheetTimeSort);
   const subtotal = prep.totalOrders != null ? prep.totalOrders : (data.total != null ? data.total : mainTotal);
-  let body = sections +
+  let body = notesSectionPrintHtml(prepNoteEntries(prep, (data.orders||[]).length ? data.orders : ordersFlat), false) + sections +
     '<div style="margin-top:20px;padding:12px;background:#f0fdfa;border:1px solid #99f6e4;text-align:center">'+
     '<p style="margin:0;font-size:14px"><strong>Subtotal: total dinner orders for that day</strong></p>'+
     '<p style="margin:6px 0 0;font-size:22px;font-weight:700;color:#0f766e">'+esc(String(subtotal))+'</p></div>';
   if (lateList.length) {
     body += '<h2 style="margin:22px 0 8px;font-size:14px;color:#c2410c">Waiting list for late orders</h2>'+
       '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
-      '<thead><tr style="background:#fff7ed"><th style="width:40px"></th><th>Name</th><th>Department</th><th>Item</th><th>Time ordered</th></tr></thead><tbody>'+
+      '<thead><tr style="background:#fff7ed"><th style="width:40px"></th><th>Name</th><th>Department</th><th>Item</th><th>Time ordered</th><th>Special note / allergy</th></tr></thead><tbody>'+
       lateList.map(o =>
-        '<tr><td style="text-align:center">☐</td><td>'+esc(o.userName||'')+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(o.mealChoice||o.foodSelection||'')+'</td><td>'+esc(String(o.timeOrdered||o.orderedAt||o.createdAt||''))+' <em>(late pending)</em></td></tr>'
+        '<tr style="page-break-inside:avoid"><td style="text-align:center">☐</td><td>'+esc(orderDisplayName(o))+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(o.mealChoice||o.foodSelection||'')+'</td><td>'+esc(String(o.timeOrdered||o.orderedAt||o.createdAt||''))+' <em>(late pending)</em></td><td>'+notePrintHtml(o)+'</td></tr>'
       ).join('')+'</tbody></table>';
   } else {
     body += '<p style="margin-top:16px;font-size:11px;color:#666">No late requests</p>';
@@ -5261,6 +5468,11 @@ async function renderAdminKitchenTab(full){
         stats.last7Days.map(x=>'<span class="badge bg-slate-700/40">'+esc(String(x.date).slice(5))+': B'+(x.breakfast!=null?x.breakfast:0)+' L'+(x.lunch!=null?x.lunch:0)+' D'+(x.dinner!=null?x.dinner:(x.total||0))+'</span>').join('')+'</div>';
     }
     html += '</div>';
+    html += notesCardHtml({
+      dinner: noteEntriesFrom('dinner', (d.dinner && d.dinner.orders) || []),
+      breakfast: noteEntriesFrom('breakfast', (d.breakfast && d.breakfast.orders) || []),
+      lunch: noteEntriesFrom('lunch', (d.lunch && d.lunch.orders) || [])
+    }, { dinnerDate:d.dinnerDate, breakfastDate:d.breakfastDate, lunchDate:d.lunchDate });
     html += '<button onclick="navigate(\'kitchen\')" class="glass w-full rounded-xl px-4 py-2 text-left text-sm"><i class="fa-solid fa-list-check text-teal-400 mr-2"></i>Open prep list / ops</button>';
 
     // late pending approvals
@@ -5268,7 +5480,7 @@ async function renderAdminKitchenTab(full){
     if (latePending.length) {
       html += '<div class="glass rounded-xl p-3"><p class="text-xs font-semibold text-amber-300 mb-2">Late pending ('+latePending.length+') — chef/admin approve</p>';
       latePending.forEach(o=>{
-        html += '<div class="flex justify-between items-center text-xs py-1 border-t border-slate-700/50"><span>'+esc(o.userName)+' · '+esc(o.mealChoice)+'</span>'+
+        html += '<div class="flex justify-between items-center gap-2 text-xs py-1 border-t border-slate-700/50"><span class="min-w-0">'+esc(orderDisplayName(o))+' · '+esc(o.mealChoice)+noteChipHtml(o)+'</span>'+
           '<button class="text-teal-400 adm-late-ok" data-id="'+o.id+'">Approve</button></div>';
       });
       html += '</div>';
