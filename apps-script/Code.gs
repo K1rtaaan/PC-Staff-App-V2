@@ -2453,7 +2453,8 @@ function getDinnerMenus(p) {
 }
 
 function saveDinnerMenuItem(p) {
-  requirePasscode(p, 'super');
+  var menuEditor = getRequester(p); // 3.0: chef (and admin/superadmin) edit the menu
+  if (!(menuEditor && isChefPerm(menuEditor))) requirePasscode(p, 'super');
   seedDinnerMenus();
   var headers = ['id', 'weekday', 'weekdayName', 'itemName', 'sortOrder', 'active', 'updatedAt'];
   var weekday = Number(p.weekday);
@@ -2495,7 +2496,8 @@ function findMenuItem(id) {
 }
 
 function deleteDinnerMenuItem(p) {
-  requirePasscode(p, 'super');
+  var menuEditor = getRequester(p); // 3.0: chef (and admin/superadmin) edit the menu
+  if (!(menuEditor && isChefPerm(menuEditor))) requirePasscode(p, 'super');
   var rows = sheetToObjects('Dinner Menus');
   var found = null;
   for (var i = 0; i < rows.length; i++) if (String(rows[i].id) === String(p.id)) found = rows[i];
@@ -2583,7 +2585,8 @@ function kitchenNoteOf(o) {
   if (sn) return sn;
   var raw = String(o.notes || '')
     .replace(/\s*\|?\s*order declined please see hod or chef/gi, '')
-    .replace(/^\s*\[On behalf by[^\]]*\]\s*/i, '');
+    .replace(/^\s*\[On behalf by[^\]]*\]\s*/i, '')
+    .replace(/^\s*\[(Late request|Special by[^\]]*)\].*$/i, ''); // 3.0: the request reason is not a kitchen note
   return cleanSpecialNote(raw);
 }
 

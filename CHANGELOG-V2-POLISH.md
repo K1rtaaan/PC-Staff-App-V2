@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.10.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.0.0** (branch `redesign-3.0`, NOT deployed; live is 2.10.0 — rollback tag `v2.10.0-pre-redesign`). Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -388,3 +388,25 @@ git checkout v2.9.4-pre-speed -- apps-script/Code.gs && rm -f apps-script/Speed.
 # verify → version 2.9.4 (first call after deploy may still show the old version; repeat)
 curl -sSL "https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec?action=getVersion"
 ```
+
+## Redesign 3.0 (3.0.0) — branch `redesign-3.0`, not deployed
+
+Rollback: tag `v2.10.0-pre-redesign` / branch `backup/2.10.0-pre-redesign` (SHA c871d96). Apps Script needs `V3.gs` added and `initSheets` run before this frontend goes live.
+
+| ID | Change |
+|----|--------|
+| R1 | Register: removed "@pcr.com default email" checkbox (C12 retired) |
+| R2 | Verification codes (signup + reset) shown in a centred overlay, 2× size, ≥15 s, Copy + Close; setting `verification_delivery = screen \| email` (superadmin Settings) |
+| R3 | Roles reduced to superadmin, admin, chef, boat_manager, hod, staff; staff default; assistant-HOD is a per-user flag tied to a department; admin action `migrateRoles` (dry run + apply): captain→boat_manager, assistant_hod→staff+flag, basic→staff |
+| R4 | Department join approval: new staff pick a department, HOD/assistant get a notification, approve/decline; leave, late meals and department updates unlock only after approval; only admin can change department later |
+| R5 | Staff Home: greeting + clock, today's statuses, next boat with seats left, leave status, tomorrow's order cards with live countdowns and "Books closed" message, Do this now (Book a boat, My bookings, Request leave, Meals), department updates, suggestion box |
+| R6 | Single Meals tab: status block (replaces My Orders), B/L/D ordering, cancel reason required, 3-cancel lock for breakfast/lunch, dinner change/cancel only before 8 pm then "Contact your HOD", Late Meal Request, weekly dinner menu likes/dislikes (burger/pizza excluded), Chef feedback form |
+| R7 | Leave: type (Day off/Annual/Sick sheet/Other), HOD/assistant step then admin final step, timeline, Escalate (MailApp to HOD, assistant, admins), Cancel |
+| R8 | My History (renamed My Orders): profile/app info, orders, boats, leave, late/special requests, chef feedback, suggestions; date filter + CSV |
+| R9 | HOD: status bar, Approvals inbox, Department staff (join requests, edit, remove), Department updates (post; staff like/dislike/comment), Special Meal Order Request (flows into kitchen notes/allergies once chef accepts) |
+| R10 | Chef: dashboard (totals, pending late/special, most liked/disliked, weekly SVG chart), requests with Accept all / Decline all, food comments, menu editor with vote counts, reports (daily/weekly/monthly, print/CSV) with roster upload compare (2.7.0 parser) |
+| R11 | Admin: final leave approval, reminders CRUD, users (role, department, assistant flag, delete), boat admin, Admin status export (12 CSVs) |
+| R12 | Superadmin: new dashboard (today/tomorrow meal totals, pending approvals by type, boat load, users/new users, version/health) and grouped Manage hub; no staff clutter |
+| R13 | Backend: new sheets/columns via initSheets/assertSheetsReady; server-side role/ownership checks on every new action; counts exclude pending late/special; `getUsers` no longer public |
+| R14 | Demo mode runs the real `V3.gs` in the browser (`assets/v3-demo-server.js`, built by `npm run build`); demo seed `v3seed-1` covers every role incl. a pending-join staff member |
+| R15 | Boot: duplicate getV3Home / getSuperDashboard reads on app open merged into one |
