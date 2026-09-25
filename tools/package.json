@@ -1,0 +1,14 @@
+{
+  "name": "pcr-staff-app-v2-build",
+  "private": true,
+  "description": "Builds public/assets/app.css (purged Tailwind) and public/assets/fa/ (subset Font Awesome)",
+  "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i tailwind.input.css -o ../public/assets/app.css --minify",
+    "build:fa": "python3 fa-subset.py",
+    "build": "npm run build:css && npm run build:fa"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17",
+    "@fortawesome/fontawesome-free": "6.5.1"
+  }
+}

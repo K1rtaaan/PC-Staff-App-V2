@@ -1,6 +1,6 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.9.4**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.10.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 ## Visual / brand
 
@@ -351,5 +351,40 @@ git checkout main
 git checkout v2.9.3-pre-notes -- apps-script/Code.gs && cd apps-script && clasp push -f && \
   clasp deploy --deploymentId AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8 -d "rollback 2.9.3"
 # verify → version 2.9.3 (first call after deploy may still show the old version; repeat)
+curl -sSL "https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec?action=getVersion"
+```
+
+## Speed release (2.10.0)
+
+| ID | Change |
+|----|--------|
+| C105 | **Instant paint from saved data.** Home, My Orders, Meals (breakfast / lunch / dinner), Boat and Kitchen paint straight away from the last data saved on the phone (localStorage `pcr_v2_pcache:<email>`, per user, owner-checked), then refresh in the background. A small line under the header says "Updated just now" / "Showing saved data from HH:MM · refreshing…" / "Offline — showing saved data from HH:MM". Logout wipes that user's saved data (plus last-dinner / last-boat hints). Saved copies older than 7 days are ignored. |
+| C106 | **One bootstrap call.** New backend action `getBootstrap` returns user/profile, feature flags, settings, cutoffs, My Orders summary, this user's breakfast/lunch/dinner orders, 14-day boat runs, dinner menu, reminders, suggestions, role ops cards (admin/HOD full daily ops, boat roles emergency count, superadmin meal stats, chef late/pending counts) and "Do this now" — each sheet read once per request (`REQ_MEMO`). App open now makes **1** backend call for staff (was 19), **2** for chef/admin home (was 16–17; the 2nd is a background prefetch of the Kitchen tab). All old actions still work; the frontend falls back to them if `getBootstrap` is unknown. |
+| C107 | **Server cache (CacheService, `Speed.gs`).** App Settings / feature flags 10 min, Dinner Menus 10 min, Reminders 5 min, Suggestions 2 min, 14-day `getBoatRuns` result 3 min. Every write through `appendRow` / `updateRowById` / `setSetting` / delete helpers bumps the sheet's cache version (so menu edits, boat run add/edit/remove, dedupe, flag changes and bookings that change seat counts invalidate immediately). Values are chunked at 30,000 chars (max 8 chunks, well under the 100KB/key limit); anything bigger is simply not cached. Cutoff info is pure time maths (no sheet read), so it is not cached; there is no department-list API (the list is fixed in the frontend). |
+| C108 | **Self-hosted CSS + icons.** Tailwind CDN (JIT in the browser), Font Awesome CDN, lucide and framer-motion (both unused) removed. `public/assets/app.css` is a prebuilt, purged Tailwind 3.4.17 build (25 KB, ~5.5 KB gzipped); `public/assets/fa/` is Font Awesome 6.5.1 cut down to the 66 icons used (CSS 18 KB + fonts 9.7 KB). Rebuild after adding classes/icons: `cd tools && npm install && npm run build` (fa subset needs `pip install fonttools brotli`). Screenshots of 30 screens (staff, chef, boat captain, boat manager, superadmin) at 390px compared pixel-by-pixel before/after: identical apart from the version text and a few antialiased pixels. |
+| C109 | **App shell stored on the phone.** `sw.js` precaches index.html, manifest, CSS, icon fonts, logo and login photo and serves them cache-first with background revalidation. A new release installs in the background and waits; the app shows **"Update available — tap to refresh"**. Cache name `pcr-staff-v2.10.0` (old caches deleted on activate). Apps Script / Google hosts are never handled or cached by the SW. CSS links carry `?v=<version>`; the SW is registered after page load so first paint isn't slowed. Signed-in opens no longer download the 130 KB login photo. |
+| C110 | **Archive old rows (superadmin).** Action `archiveOldRows` (superadmin passcode) moves rows older than 60 days from Dinner / Breakfast / Lunch Orders, Boat Bookings (dated by their run) and Boat Runs into `Archive_<sheet>` tabs: copy → read back and verify count + ids → delete bottom-up → verify source count, all under a script lock; cache invalidated. `dryRun=1` only reports counts (plus oldest row date and rows without a date). Admin → Settings / Features → "Archive old rows": dry run first, then "Archive now…" with a confirm tick-box. **Not run on the live sheet** — 25 Sep 2026 dry run: 0 rows older than 60 days on every sheet (oldest data 10–15 Sep 2026). |
+| C111 | **Offline order queue.** Meal orders (breakfast / lunch / dinner), dinner cancel / change, meal cancel and boat book / cancel that fail for lack of connection are saved per user (`pcr_v2_queue:<email>`) with a unique `clientRequestId`, shown as **"Waiting to send"** on My Orders, Home and the relevant tab, and sent automatically (online event, app open, every 30 s while visible, "Send now"). The backend is idempotent on `clientRequestId` (script lock + `Request Log` sheet + cache): a re-send returns the stored result with `duplicate:true`, never a second order. Cutoffs are still enforced on arrival; a queued item whose service date has moved on (or a boat run already gone) comes back as **"Didn't go through — cutoff passed"**. Admin / kitchen approvals are never queued. |
+| C112 | Allergy keywords widened: red adds prawn, crab, lobster, fish, soy/soya, sesame, coconut; amber adds "no beef", "pescatarian". |
+| C113 | `APP_VERSION` → **2.10.0**; SW cache `pcr-staff-v2.10.0`; Code.gs 2.10.0 (+ new `Speed.gs`). SCRIPT_URL / deployment id unchanged, GET-only `api()`, Fiji time via `getFijiNow`, cutoffs unchanged (B/L 1pm, late breakfast 6pm, dinner 8pm), `feature_my_schedule` OFF. |
+
+### Rollback / restore (pre-speed 2.10.0)
+
+Rollback tag **`v2.9.4-pre-speed`** (SHA `db391932d9a9922d9fe16d053d057b4afad545b0`, also branch `backup/2.9.4-pre-speed`) = live 2.9.4.
+The new `Request Log` / `Archive_*` tabs are harmless for 2.9.4 and can stay. The 2.9.4 service worker takes over by itself (it calls skipWaiting), so phones return to 2.9.4 within one or two opens.
+
+```bash
+cd /workspace/pcr-staff-app   # or clone PC-Staff-App-V2
+git fetch --tags
+# rebuild static host from the tag
+git checkout gh-pages && git checkout v2.9.4-pre-speed -- public/ && \
+  rm -rf assets index.html manifest.json sw.js 2>/dev/null; cp -a public/. . && rm -rf public && \
+  git add -A && git commit -m "Restore public from v2.9.4-pre-speed" && git push origin gh-pages
+git checkout main
+# Apps Script (same deployment id) — remove Speed.gs, restore 2.9.4 Code.gs
+git checkout v2.9.4-pre-speed -- apps-script/Code.gs && rm -f apps-script/Speed.gs && cd apps-script && clasp push -f && \
+  clasp deploy --deploymentId AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8 -d "rollback 2.9.4"
+# (quicker backend-only alternative: redeploy the old version: clasp deploy --deploymentId <same id> -V 34)
+# verify → version 2.9.4 (first call after deploy may still show the old version; repeat)
 curl -sSL "https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec?action=getVersion"
 ```

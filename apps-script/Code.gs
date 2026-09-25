@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '2.9.4';
+var APP_VERSION = '2.10.0';
 var SUPER_PASS = '2026';
 var ADMIN_PASS = '2025';
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -157,8 +157,8 @@ function routeAction(action, p) {
     case 'saveBoatRun': return saveBoatRun(p);
     case 'deleteBoatRun': return deleteBoatRun(p);
     case 'getBoatBookings': return getBoatBookings(p);
-    case 'bookBoat': return bookBoat(p);
-    case 'cancelBoatBooking': return cancelBoatBooking(p);
+    case 'bookBoat': return withIdempotency('bookBoat', p, bookBoat); // 2.10.0 offline-queue safe
+    case 'cancelBoatBooking': return withIdempotency('cancelBoatBooking', p, cancelBoatBooking); // 2.10.0 offline-queue safe
     case 'myBoatBookings': return myBoatBookings(p);
     case 'getDailyOpsSummary': return getDailyOpsSummary(p);
     case 'getBoatTripSummary': return getBoatTripSummary(p);
@@ -168,12 +168,12 @@ function routeAction(action, p) {
     case 'getHodLeaveSummary': return getHodLeaveSummary(p);
 
     case 'getDinnerOrders': return getDinnerOrders(p);
-    case 'placeDinnerOrder': return placeDinnerOrder(p);
+    case 'placeDinnerOrder': return withIdempotency('placeDinnerOrder', p, placeDinnerOrder); // 2.10.0 offline-queue safe
     case 'getLunchOrders': return getLunchOrders(p);
-    case 'placeLunchOrder': return placeLunchOrder(p);
+    case 'placeLunchOrder': return withIdempotency('placeLunchOrder', p, placeLunchOrder); // 2.10.0 offline-queue safe
     case 'getBreakfastOrders': return getBreakfastOrders(p);
-    case 'placeBreakfastOrder': return placeBreakfastOrder(p);
-    case 'cancelMealOrder': return cancelMealOrder(p);
+    case 'placeBreakfastOrder': return withIdempotency('placeBreakfastOrder', p, placeBreakfastOrder); // 2.10.0 offline-queue safe
+    case 'cancelMealOrder': return withIdempotency('cancelMealOrder', p, cancelMealOrder); // 2.10.0 offline-queue safe
     case 'getKitchenDashboard': return getKitchenDashboard(p);
     case 'markOrderStatus': return markOrderStatus(p);
     case 'getDinnerMenus': return getDinnerMenus(p);
@@ -217,6 +217,8 @@ function routeAction(action, p) {
 
     case 'getCutoffInfo': return getCutoffInfo(p);
     case 'getMyOrdersSummary': return getMyOrdersSummary(p);
+    case 'getBootstrap': return getBootstrap(p); // 2.10.0 (Speed.gs)
+    case 'archiveOldRows': return archiveOldRows(p); // 2.10.0 superadmin, dryRun=1 reports only
     case 'initSheets':
       requirePasscode(p, 'admin');
       initializeSheets();
@@ -537,6 +539,7 @@ function initializeSheets() {
   ensureSheet(ss, 'Notifications', [
     'id', 'userEmail', 'title', 'body', 'kind', 'relatedId', 'read', 'createdAt'
   ]);
+  ensureSheet(ss, 'Request Log', REQUEST_LOG_HEADERS); // 2.10.0 idempotent offline-queue writes
   seedAlertEmails();
   seedDinnerMenus();
   seedSampleReminders();
@@ -557,7 +560,18 @@ function sheetCellToValue(v, headerName) {
   return Utilities.formatDate(v, 'Pacific/Fiji', 'yyyy-MM-dd HH:mm:ss');
 }
 
+/** 2.10.0: per-request read memo — only switched on inside the read-only getBootstrap (Speed.gs). */
+var REQ_MEMO = null;
 function sheetToObjects(sheetName) {
+  if (REQ_MEMO && REQ_MEMO[sheetName]) {
+    return REQ_MEMO[sheetName].map(function (o) { return Object.assign({}, o); });
+  }
+  var rows = sheetToObjectsRaw(sheetName);
+  if (REQ_MEMO) REQ_MEMO[sheetName] = rows.map(function (o) { return Object.assign({}, o); });
+  return rows;
+}
+
+function sheetToObjectsRaw(sheetName) {
   var sh = getSS().getSheetByName(sheetName);
   if (!sh || sh.getLastRow() < 2) return [];
   var values = sh.getDataRange().getValues();
@@ -601,6 +615,7 @@ function appendRow(sheetName, obj, headers) {
     return v;
   });
   sh.appendRow(row);
+  scInvalidateSheet(sheetName); // 2.10.0 server cache
 }
 
 function updateRowById(sheetName, id, patch) {
@@ -612,6 +627,17 @@ function updateRowById(sheetName, id, patch) {
   if (!found) return null;
   var sh = getSS().getSheetByName(sheetName);
   var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  // 2.10.0: make sure the row still holds this id (rows can shift if old rows were archived meanwhile)
+  var idCol = headers.indexOf('id');
+  if (idCol >= 0 && String(sh.getRange(found._row, idCol + 1).getValue()) !== String(id)) {
+    var fresh = sheetToObjectsRaw(sheetName);
+    found = null;
+    for (var fi = 0; fi < fresh.length; fi++) {
+      if (String(fresh[fi].id) === String(id)) { found = fresh[fi]; break; }
+    }
+    if (!found) return null;
+  }
+  scInvalidateSheet(sheetName); // 2.10.0 server cache
   for (var k in patch) {
     if (!patch.hasOwnProperty(k)) continue;
     var col = headers.indexOf(k);
@@ -771,7 +797,7 @@ function canSeeBoatOps(u) {
 
 
 function ensureFeatureDefaults() {
-  var existing = sheetToObjects('App Settings');
+  var existing = cachedRows('App Settings');
   var map = {};
   existing.forEach(function (r) { map[String(r.key)] = r; });
   Object.keys(FEATURE_DEFAULTS).forEach(function (k) {
@@ -787,7 +813,7 @@ function ensureFeatureDefaults() {
 }
 
 function getSetting(key, fallback) {
-  var rows = sheetToObjects('App Settings');
+  var rows = cachedRows('App Settings'); // 2.10.0 cached (invalidated by setSetting)
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i].key) === String(key)) return String(rows[i].value);
   }
@@ -796,6 +822,7 @@ function getSetting(key, fallback) {
 }
 
 function setSetting(key, value, byEmail) {
+  scInvalidateSheet('App Settings'); // 2.10.0 flag change → drop cached settings
   var rows = sheetToObjects('App Settings');
   var found = null;
   for (var i = 0; i < rows.length; i++) {
@@ -815,6 +842,7 @@ function setSetting(key, value, byEmail) {
         if (valCol >= 0) sh.getRange(r + 1, valCol + 1).setValue(String(value));
         if (atCol >= 0) sh.getRange(r + 1, atCol + 1).setValue(nowIso());
         if (byCol >= 0) sh.getRange(r + 1, byCol + 1).setValue(byEmail || '');
+        scInvalidateSheet('App Settings');
         return;
       }
     }
@@ -838,7 +866,7 @@ function featureOffMessage(feature) {
 
 function getAppSettings(p) {
   ensureFeatureDefaults();
-  var rows = sheetToObjects('App Settings');
+  var rows = cachedRows('App Settings');
   var settings = {};
   rows.forEach(function (r) {
     // never return pin hash to non-super in clear — still return presence
@@ -1120,6 +1148,7 @@ function deactivateBrokenSeedBoatRuns() {
       r.active = false;
     }
   }
+  if (deactivated) scInvalidateSheet('Boat Runs'); // 2.10.0
   return deactivated;
 }
 
@@ -1829,6 +1858,11 @@ function boatDateInWindow(dateStr, fromDate, toDate) {
 
 function getBoatRuns(p) {
   p = p || {};
+  // 2.10.0: cached ~3 min per window; any Boat Runs / Boat Bookings write bumps the 'boat' namespace
+  var cacheKey = scKey('boat', JSON.stringify([String(p.date || ''), String(p.fromDate || p.startDate || ''), String(p.toDate || p.endDate || ''),
+    String(p.includeInactive || ''), String(p.allDates || p.includeAll || ''), fijiDateString(getFijiNow())]));
+  var hitRuns = scGetJson(cacheKey);
+  if (hitRuns) return { success: true, data: { runs: hitRuns, cached: true } };
   var runs = sheetToObjects('Boat Runs').filter(function (r) {
     return p.includeInactive || truthy(r.active) || r.active === '' || r.active === undefined;
   });
@@ -1851,6 +1885,7 @@ function getBoatRuns(p) {
       fullNotification: truthy(r.fullNotification)
     });
   });
+  scPutJson(cacheKey, runs, 180);
   return { success: true, data: { runs: runs } };
 }
 
@@ -1906,6 +1941,7 @@ function dedupeBoatRuns(p) {
       }
     }
   });
+  if (deactivated) scInvalidateSheet('Boat Runs'); // 2.10.0
 
   return {
     success: true,
@@ -2265,8 +2301,10 @@ function seedDinnerMenus() {
 }
 
 function getDinnerMenus(p) {
-  seedDinnerMenus();
-  var allActive = sheetToObjects('Dinner Menus').filter(function (r) {
+  p = p || {};
+  var menuRows = cachedRows('Dinner Menus'); // 2.10.0 cached ~10 min; menu edits invalidate
+  if (!menuRows.length) { seedDinnerMenus(); menuRows = sheetToObjects('Dinner Menus'); }
+  var allActive = menuRows.filter(function (r) {
     return p.includeInactive ? true : truthy(r.active);
   });
   var items = allActive.slice();
@@ -2413,6 +2451,7 @@ function deleteDinnerMenuItem(p) {
   for (var i = 0; i < rows.length; i++) if (String(rows[i].id) === String(p.id)) found = rows[i];
   if (!found) return { success: false, error: 'Not found' };
   getSS().getSheetByName('Dinner Menus').deleteRow(found._row);
+  scInvalidateSheet('Dinner Menus'); // 2.10.0
   return { success: true };
 }
 
@@ -2473,8 +2512,8 @@ function processDinnerWorkflow(p) {
 
 /* ========== C102: KITCHEN SPECIAL NOTES / ALLERGIES ========== */
 var ORDER_HEADERS = ['id', 'serviceDate', 'userEmail', 'userName', 'department', 'mealChoice', 'notes', 'status', 'late', 'createdAt', 'specialNote'];
-var NOTE_ALLERGY_RE = /\b(allerg\w*|nuts?|peanuts?|gluten|dairy|lactose|shellfish|seafood|eggs?)\b/i;
-var NOTE_DIET_RE = /\b(vegetarian|vegan|halal|no\s*pork)\b/i;
+var NOTE_ALLERGY_RE = /\b(allerg\w*|nuts?|peanuts?|gluten|dairy|lactose|shellfish|seafood|eggs?|prawns?|crabs?|lobsters?|fish|soy|soya|sesame|coconuts?)\b/i;
+var NOTE_DIET_RE = /\b(vegetarian|vegan|halal|no\s*pork|no\s*beef|pescatarian)\b/i;
 
 function cleanSpecialNote(v) {
   return String(v == null ? '' : v).replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200);
@@ -3494,7 +3533,7 @@ function sortReminders(rows) {
 
 function getReminders(p) {
   // C35: global broadcast reminders for all staff (active / not done)
-  var rows = sheetToObjects('Reminders').filter(function (r) {
+  var rows = cachedRows('Reminders').filter(function (r) { // 2.10.0 cached ~5 min
     return !(r.done === true || r.done === 'TRUE' || r.done === 1);
   });
   sortReminders(rows);
@@ -3534,6 +3573,7 @@ function deleteReminder(p) {
   for (var i = 0; i < rows.length; i++) if (rows[i].id === p.id) found = rows[i];
   if (!found) return { success: false, error: 'Not found' };
   getSS().getSheetByName('Reminders').deleteRow(found._row);
+  scInvalidateSheet('Reminders'); // 2.10.0
   return { success: true };
 }
 
@@ -3566,7 +3606,7 @@ function normalizeSuggestion(s) {
 
 function getSuggestions(p) {
   var adminView = (p.adminView === true || p.adminView === 'true' || p.adminView === '1') && isAdminRequester(p);
-  var rows = sheetToObjects('Suggestions').map(normalizeSuggestion);
+  var rows = cachedRows('Suggestions').map(normalizeSuggestion); // 2.10.0 cached ~2 min
   if (!adminView) {
     rows = rows.filter(function (s) {
       var st = String(s.status || 'open').toLowerCase();
