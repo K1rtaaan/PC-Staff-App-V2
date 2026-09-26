@@ -103,7 +103,7 @@ async function patchPdfCapture(page) {
   await A.ctx.close();
 
   // ---------- Phase B: real time — kitchen + superadmin views
-  for (const who of [['kitchen@paradisecoveresortfiji.com', 'staff123', 'kitchen'], ['it@paradisecoveresortfiji.com', '21slands', 'superadmin']]) {
+  for (const who of [['chef', 'kitchen2026', 'kitchen'], ['it@paradisecoveresortfiji.com', '21slands', 'superadmin']]) {
     const B = await newPage(browser, '2026-09-25T00:00:00Z');
     page = B.page;
     await page.goto(BASE + '?demo=1', { waitUntil: 'load' });
@@ -111,6 +111,7 @@ async function patchPdfCapture(page) {
     await page.reload({ waitUntil: 'load' });
     await login(page, who[0], who[1]);
     const L = who[2];
+    if (L === 'kitchen') await page.evaluate(() => v3RememberActor('Vikash Chand'));
     await page.evaluate(() => navigate('kitchen'));
     await page.waitForSelector('#kit-notes-card', { timeout: 20000 });
     await page.waitForTimeout(500);
@@ -184,7 +185,8 @@ async function patchPdfCapture(page) {
     await page.evaluate(() => { state.adminKitchenTab = 'kitchen'; navigate('admin'); });
     await page.waitForSelector('#admin-body #kit-notes-card', { timeout: 20000 }).catch(() => {});
     const adm = await page.$('#admin-body #kit-notes-card');
-    check(L + ': Admin → Kitchen tab shows notes card', !!adm);
+    if (L === 'kitchen') check('Chef station cannot open the admin page', !adm && await page.evaluate(() => state.tab !== 'admin'));
+    else check(L + ': Admin → Kitchen tab shows notes card', !!adm);
     await noSideScroll(page, L + ' admin kitchen tab');
     await page.screenshot({ path: OUT + '/4-' + L + '-admin-kitchen.png', fullPage: true });
     await B.ctx.close();

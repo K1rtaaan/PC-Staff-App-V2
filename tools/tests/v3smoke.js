@@ -9,8 +9,8 @@ const roles = [
   ['staff-pending','new.staff@paradisecoveresortfiji.com','staff123'],
   ['hod','hod.hk@paradisecoveresortfiji.com','staff123'],
   ['asst-hod','asst.hk@paradisecoveresortfiji.com','staff123'],
-  ['chef','kitchen@paradisecoveresortfiji.com','staff123'],
-  ['boat-manager','boat.mgr@paradisecoveresortfiji.com','staff123'],
+  ['chef-station','chef','kitchen2026'],
+  ['boat-station','boat','boatcrew2026'],
   ['admin','admin@paradisecoveresortfiji.com','staff123'],
   ['superadmin','it@paradisecoveresortfiji.com','21slands'],
 ];

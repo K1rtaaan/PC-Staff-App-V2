@@ -25,7 +25,7 @@ var APP_VERSION = '3.0.0';
 // sensitive actions (settings, delete user, grant/remove admin or superadmin, role migration, archive, alert emails).
 // A password alone never grants anything: the caller must also be signed in with the right role (session token).
 var ADMIN_PASSWORD = '2026';
-// 3.0 role seat limits: V3_SEAT_LIMITS in V3.gs (super_admin 3, admin 5, boat_manager 2, chef 3).
+// 3.0 role seat limits: V3_SEAT_LIMITS in V3.gs (super_admin 3, admin 5). Chef / Boat = shared station logins (Stations.gs).
 var SESSION_TTL_DAYS = 60;
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
 var SUPERADMIN_PASSWORD = '21slands';
@@ -120,8 +120,13 @@ function handleRequest(e, method) {
     }
     // 3.0: who is calling comes from the signed session token, never from a client-supplied email
     var auth = bindRequestIdentity(action, payload);
-    if (auth && auth.error) return jsonOut({ success: false, error: auth.error, authRequired: true });
+    if (auth && auth.error) {
+      var sessionProblem = !(auth.stationDenied || auth.needsActor || auth.stationOnly);
+      return jsonOut({ success: false, error: auth.error, authRequired: sessionProblem, needsActor: !!auth.needsActor, stationDenied: !!auth.stationDenied, stationOnly: !!auth.stationOnly });
+    }
     var result = routeAction(action, payload);
+    // 3.0 stations: every write made from a station page is logged with the picked name
+    if (payload._station && STATION_MUTATIONS[action] && result && result.success) stationLogWrite(payload, action, result);
     return jsonOut(result);
   } catch (err) {
     return jsonOut({ success: false, error: String(err && err.message ? err.message : err) });
@@ -255,6 +260,10 @@ function routeAction(action, p) {
     default: {
       var v3res = routeV3(action, p); // 3.0 actions (V3.gs)
       if (v3res) return v3res;
+      var stRes = routeStations(action, p); // 3.0 station logins (Stations.gs)
+      if (stRes) return stRes;
+      var snRes = routeSnapshots(action, p); // 3.0 saved order summaries (Snapshots.gs)
+      if (snRes) return snRes;
       return { success: false, error: 'Unknown action: ' + action };
     }
   }
@@ -755,35 +764,35 @@ function isHodPerm(u) {
   return p.indexOf('hod') >= 0 || p.indexOf('assistant_hod') >= 0 || isAdminPerm(u);
 }
 
+/* 3.0: chef / boat tools belong to the Chef / Boat STATION logins (Stations.gs). Personal accounts: superadmin only —
+ * the old chef / boat_manager / admin permissions still work until that station has been set up (migration). */
 function isChefPerm(u) {
-  var p = userPermissions(u);
-  return p.indexOf('chef') >= 0 || isAdminPerm(u);
+  if (!u) return false;
+  if (u.station) return u.station === 'chef';
+  if (isSuperPerm(u)) return true;
+  return !stationConfigured('chef') && stationLegacyPerm(u, 'chef');
 }
 
 function isBoatManagerPerm(u) {
-  var p = userPermissions(u);
-  return p.indexOf('boat_manager') >= 0 || isAdminPerm(u);
+  if (!u) return false;
+  if (u.station) return u.station === 'boat';
+  if (isSuperPerm(u)) return true;
+  return !stationConfigured('boat') && stationLegacyPerm(u, 'boat');
 }
 
 function isBoatCaptainPerm(u) {
-  var p = userPermissions(u);
-  return p.indexOf('boat_captain') >= 0 || isBoatManagerPerm(u);
+  return isBoatManagerPerm(u);
 }
 
 function requireBoatManagerOrAdmin(p) {
   var u = getRequester(p);
   if (!u) throw new Error('Login required');
-  if (isBoatManagerPerm(u) || isAdminPerm(u)) return u;
-  try { requirePasscode(p, 'admin'); return u; } catch (e) {
-    throw new Error('Boat manager / admin required');
-  }
+  if (isBoatManagerPerm(u)) return u;
+  throw new Error('Boat station (or superadmin) required');
 }
 
 function canSeeBoatOps(u) {
-  if (!u) return false;
-  var p = userPermissions(u);
-  return p.indexOf('boat_manager') >= 0 || p.indexOf('boat_captain') >= 0 ||
-    p.indexOf('admin') >= 0 || p.indexOf('super_admin') >= 0;
+  return isBoatManagerPerm(u);
 }
 
 
@@ -1160,6 +1169,9 @@ function displayUserName(u) {
 }
 
 function login(p) {
+  // 3.0: "chef" / "boat" station usernames (no @) sign in to the shared station pages
+  var st = stationLogin(p.email, p.password);
+  if (st) return st;
   ensureSuperAdmin();
   var email = String(p.email || '').trim().toLowerCase();
   var password = String(p.password || '');
@@ -1244,6 +1256,19 @@ var PUBLIC_ACTIONS = { login: 1, register: 1, verifyEmail: 1, requestVerificatio
  * App Setting auth_legacy_email = true is an emergency switch that accepts old (pre-3.0) clients without a token.
  */
 function bindRequestIdentity(action, p) {
+  // internal fields (_station, _stationUser, _actor) are never accepted from the client
+  Object.keys(p).forEach(function (k) { if (k.charAt(0) === '_') delete p[k]; });
+  var tok = p.sessionToken || p.token;
+  if (isStationToken(tok)) {
+    delete p.sessionToken; delete p.token; delete p.requesterEmail;
+    if (PUBLIC_ACTIONS[action]) { delete p.userEmail; return null; }
+    var st = stationVerifyToken(tok);
+    if (!st) return { error: 'This station was signed out (the password was changed). Sign in again.' };
+    var gate = stationBindRequest(action, p, st.key);
+    if (gate) return gate;
+    return { station: st.key };
+  }
+  delete p.actorName;
   var claimed = String(p.requesterEmail || '').trim().toLowerCase();
   var u = verifySessionToken(p.sessionToken || p.token);
   delete p.requesterEmail;
@@ -1258,6 +1283,8 @@ function bindRequestIdentity(action, p) {
   }
   var me = String(u.email).toLowerCase();
   p.requesterEmail = me;
+  var stGate = stationPersonalGate(action, u);
+  if (stGate) return { error: stGate, stationOnly: true };
   var privileged = isAdminPerm(u) || isHodPerm(u) || isChefPerm(u) || isBoatCaptainPerm(u) || isAsstHod(u);
   // own-account writes: only an admin may act for someone else (chef / HOD use placeMealOnBehalf / placeSpecialMeal)
   if (SELF_WRITE_ACTIONS[action] && !isAdminPerm(u) && p.userEmail && String(p.userEmail).trim().toLowerCase() !== me) p.userEmail = me;
@@ -1539,6 +1566,7 @@ function requireKitchenOrAdmin(p) {
 /** The signed-in caller. p.requesterEmail is set ONLY by bindRequestIdentity() from the session token
  *  (or by server code calling a helper for a user it already verified). p.email is never used as identity. */
 function getRequester(p) {
+  if (p && p._stationUser && typeof p._stationUser === 'object') return p._stationUser; // 3.0 station page
   var email = String((p && p.requesterEmail) || '').trim().toLowerCase();
   if (!email) return null;
   return findUserByEmail(email);
@@ -1594,26 +1622,23 @@ function addUser(p) {
 
   if (requester && isHodPerm(requester) && !isAdminPerm(requester)) {
     p.department = requester.department;
-    if (p.role && p.role !== 'staff' && p.role !== 'kitchen' && p.role !== 'chef' && p.role !== 'boat' && p.role !== 'boat_manager' && p.role !== 'boat_captain') {
-      return { success: false, error: 'HOD can only create staff/kitchen/boat in their department' };
-    }
+    if (p.role && p.role !== 'staff') return { success: false, error: 'HOD can only create staff in their department' };
   }
 
   var isPcr = email.indexOf('@pcr.com') !== -1;
   var role = p.role || 'staff';
   if (ROLES.indexOf(role) === -1) role = 'staff';
-  // 3.0 roles: captain → boat_manager, assistant_hod → staff + flag, kitchen → chef
+  // 3.0 roles: staff / HOD / admin / superadmin (+ assistant HOD flag). Chef & boat use the station logins.
   var addAsst = role === 'assistant_hod' || truthy(p.assistantHod);
   if (role === 'assistant_hod') role = 'staff';
-  if (role === 'boat_captain' || role === 'boat') role = 'boat_manager';
-  if (role === 'kitchen') role = 'chef';
+  if (V3_STATION_ROLES[role]) return { success: false, error: V3_STATION_ROLE_MSG };
   if (V3_ROLES.indexOf(role) < 0) role = 'staff';
   // Only admin/super can assign non-staff roles; admin / superadmin accounts need a superadmin + the admin password
   if (!isAdminPerm(requester)) role = 'staff';
   if ((role === 'admin' || role === 'super_admin') && !(isSuperPerm(requester) && isAdminPassword(p.passcode))) {
     return { success: false, error: 'Only a superadmin with the admin password can create admin / superadmin accounts' };
   }
-  var perms = parsePermissions(v3PermsForRole(role, truthy(p.boatManager)), role);
+  var perms = parsePermissions(v3PermsForRole(role), role);
 
   var active = p.active === true || p.active === 'true' || p.active === 'TRUE';
   var verified = true;
@@ -1703,6 +1728,7 @@ function updateUser(p) {
         return { success: false, error: 'Only admin/superadmin can assign permissions' };
       }
       var newPerms = parsePermissions(p.permissions, p.role || u.role);
+      if (newPerms.some(function (x) { return V3_STATION_ROLES[x]; })) return { success: false, error: V3_STATION_ROLE_MSG };
       var oldPerms = userPermissions(u);
       var grantingSuper = newPerms.indexOf('super_admin') >= 0 && oldPerms.indexOf('super_admin') < 0;
       var revokingSuper = newPerms.indexOf('super_admin') < 0 && oldPerms.indexOf('super_admin') >= 0;
@@ -1716,6 +1742,7 @@ function updateUser(p) {
       patch.permissions = permissionsToString(newPerms);
       patch.role = primaryRoleFromPermissions(newPerms);
     } else if (p.role !== undefined) {
+      if (V3_STATION_ROLES[String(p.role)]) return { success: false, error: V3_STATION_ROLE_MSG };
       if (isHodPerm(requester) && !isAdminPerm(requester) && ['super_admin', 'admin', 'hod', 'assistant_hod'].indexOf(p.role) >= 0) {
         return { success: false, error: 'HOD cannot assign that role' };
       }
@@ -1729,9 +1756,7 @@ function updateUser(p) {
       // keep permissions in sync with primary role when only role sent
       var synced = parsePermissions(u.permissions, p.role);
       if (synced.indexOf(p.role) < 0 && p.role) {
-        if (p.role === 'kitchen') synced = ['chef'];
-        else if (p.role === 'boat') synced = ['boat_manager'];
-        else synced = [p.role];
+        synced = [p.role];
       }
       patch.permissions = permissionsToString(parsePermissions(synced.join(','), p.role));
     }
@@ -1939,7 +1964,8 @@ function getBoatRuns(p) {
  */
 function dedupeBoatRuns(p) {
   p = p || {};
-  try { requirePasscode(p, 'admin'); } catch (e) {
+  // 3.0: Boat station (or superadmin) — see Stations.gs
+  try { requireBoatManagerOrAdmin(p); } catch (e) {
     return { success: false, error: String(e.message || e) };
   }
   var sh = getSS().getSheetByName('Boat Runs');
@@ -2043,7 +2069,7 @@ function saveBoatRun(p) {
     notes: p.notes || '',
     fullNotification: false,
     active: true,
-    createdBy: p.requesterEmail || '',
+    createdBy: requesterTag(getRequester(p)) || p.requesterEmail || '',
     createdAt: nowIso()
   };
   appendRow('Boat Runs', row, ['id', 'date', 'time', 'route', 'capacity', 'notes', 'fullNotification', 'active', 'createdBy', 'createdAt']);
@@ -2101,7 +2127,17 @@ function bookBoat(p) {
 }
 
 function cancelBoatBooking(p) {
-  var b = updateRowById('Boat Bookings', p.id, { status: 'cancelled' });
+  // 3.0: only the person who booked, or the Boat station / superadmin, may cancel a booking
+  var requester = getRequester(p);
+  if (!requester) return { success: false, error: 'Login required' };
+  var cur = sheetToObjects('Boat Bookings').filter(function (x) { return String(x.id) === String(p.id); })[0];
+  if (!cur) return { success: false, error: 'Booking not found' };
+  if (!isBoatManagerPerm(requester) && String(cur.userEmail).toLowerCase() !== String(requester.email).toLowerCase()) {
+    return { success: false, error: 'You can only cancel your own booking' };
+  }
+  var patch = { status: 'cancelled' };
+  if (requester.station) patch.cancelledBy = displayUserName(requester);
+  var b = updateRowById('Boat Bookings', p.id, patch);
   return { success: !!b, data: { booking: b } };
 }
 
@@ -2265,7 +2301,7 @@ function reviewEmergencyTravel(p) {
   if (!status) return { success: false, error: 'status must be confirmed or rejected' };
   var updated = updateRowById('Emergency Travel', p.id, {
     status: status,
-    reviewedBy: requester.email || '',
+    reviewedBy: requesterTag(requester),
     reviewNote: String(p.note || p.reviewNote || '')
   });
   return { success: !!updated, data: { request: updated }, error: updated ? undefined : 'Not found' };
@@ -2733,6 +2769,7 @@ function upsertDinnerPrepSnapshot(serviceDate, autoGenerated) {
 function getDinnerPrepList(p) {
   try { requireKitchenOrAdmin(p); } catch (e) { return { success: false, error: String(e.message || e) }; }
   processDinnerWorkflow(p);
+  snapFallback(); // 3.0: after 8pm make sure tonight's saved dinner summary exists (Snapshots.gs)
   var info = dinnerCutoffInfo();
   var serviceDate = p.serviceDate || info.serviceDate;
   var payload = buildPrepPayload(serviceDate);
@@ -2838,8 +2875,8 @@ function getMealStatistics(p) {
 /** HOD / admin: order breakfast/lunch headcount or dinner menu on behalf of staff */
 function placeMealOnBehalf(p) {
   var requester = getRequester(p);
-  if (!requester || !(isHodPerm(requester) || isAdminPerm(requester))) {
-    return { success: false, error: 'HOD / admin required' };
+  if (!requester || !(isHodPerm(requester) || isAdminPerm(requester) || isChefPerm(requester))) {
+    return { success: false, error: 'HOD / admin / Chef station required' };
   }
   var meal = String(p.meal || '').toLowerCase();
   var staffName = String(p.staffName || p.userName || '').trim();
@@ -3571,7 +3608,13 @@ function markOrderStatus(p) {
   var sheet = 'Dinner Orders';
   if (meal === 'lunch') sheet = 'Lunch Orders';
   else if (meal === 'breakfast') sheet = 'Breakfast Orders';
-  var o = updateRowById(sheet, p.id, { status: p.status || 'prepared' });
+  // 3.0: Chef station (or superadmin) only; records who marked it (the name picked on the station device)
+  var requester = getRequester(p);
+  if (!requester || !isChefPerm(requester)) return { success: false, error: 'Chef station (or superadmin) only' };
+  var st = String(p.status || 'prepared');
+  if (['prepared', 'served', 'ordered'].indexOf(st) < 0) return { success: false, error: 'status must be prepared, served or ordered' };
+  try { var msh = getSS().getSheetByName(sheet); if (msh && msh.getLastRow() > 0) ensureColumns(msh, ['statusBy', 'statusAt']); } catch (e) {}
+  var o = updateRowById(sheet, p.id, { status: st, statusBy: requesterTag(requester), statusAt: nowIso() });
   return { success: !!o, data: { order: o } };
 }
 

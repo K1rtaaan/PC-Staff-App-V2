@@ -58,18 +58,18 @@ function check(n, c, x) { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL 
   await page.evaluate(() => { try { closeModal(); } catch (e) {} });
   await page.evaluate(() => navigate('usersv3')); await wait(1200);
   const seats = await txt('#seat-usage');
-  check('users: seat chips "x of N used"', /of 3 used/.test(seats) && /of 5 used/.test(seats) && /of 2 used/.test(seats), seats.replace(/\n/g, ' '));
+  check('users: seat chips "x of N used"', /of 3 used/.test(seats) && /of 5 used/.test(seats) && !/of 2 used/.test(seats), seats.replace(/\n/g, ' '));
   await shot('03-admin-users-seat-counts');
   await shot('03b-admin-users-seat-counts-full', true);
   await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Akuila/.test(b.innerText)).click()); await wait(500);
   const opts = await page.evaluate(() => [...document.querySelectorAll('#v3f-role option')].map(o => o.textContent + (o.disabled ? ' [disabled]' : '')));
-  check('edit: role options show "x of N" and full roles are disabled', opts.some(o => /Superadmin \(\d of 3/.test(o)) && opts.some(o => /Boat manager \(\d of 2 — full\) \[disabled\]/.test(o)), opts.join(' | '));
-  check('edit: "Also boat manager" ticked for HOD + boat', await page.evaluate(() => document.getElementById('v3f-boatManager').checked));
+  check('edit: role options show "x of N" and full roles are disabled', opts.some(o => /Superadmin \(\d of 3/.test(o)) && !opts.some(o => /Boat manager|Chef/.test(o)), opts.join(' | '));
+  check('edit: no "Also boat manager" (boat work is the Boat station now)', await page.evaluate(() => !document.getElementById('v3f-boatManager')));
   await shot('04-admin-edit-user-seats');
   await page.click('#v3f-cancel');
   // demo data has more boat managers than seats → another one is refused by the (shared V3.gs) server logic
   const r = await page.evaluate(() => api('setUserAccess', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', role: 'boat_manager' }));
-  check('server refuses a boat manager over the limit', !r.success && /Boat manager seats are full/.test(r.error), r.error);
+  check('server refuses the old boat manager role (station login instead)', !r.success && /station/i.test(r.error), r.error);
   const r1 = await page.evaluate(() => { state._demoPass = null; return api('setUserAccess', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', role: 'admin', passcode: '2025' }); });
   check('granting admin with 2025 refused', !r1.success && /password/i.test(r1.error), r1.error);
   const r2 = await page.evaluate(() => { state._demoPass = null; return api('deleteUser', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', passcode: '2025' }); });

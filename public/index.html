@@ -249,8 +249,8 @@ const LS_COACH_DONE = 'pcr_v2_coach_done';
 
       <form id="login-form" class="space-y-3">
         <div>
-          <label class="text-xs text-slate-400 mb-1 block">Email</label>
-          <input type="email" id="login-email" required class="ui-input" placeholder="you@paradisecoveresortfiji.com" autocomplete="username"/>
+          <label for="login-email" class="text-xs text-slate-400 mb-1 block">Email or station username</label>
+          <input type="text" inputmode="email" autocapitalize="none" spellcheck="false" id="login-email" required class="ui-input" placeholder="you@paradisecoveresortfiji.com or chef / boat" autocomplete="username"/>
         </div>
         <div>
           <label class="text-xs text-slate-400 mb-1 block">Password</label>
@@ -1735,7 +1735,7 @@ function demoApiCore(action, p) {
       db.boatRuns.push(run); saveDemo(db); return Promise.resolve(ok({ run }));
     }
     case 'dedupeBoatRuns': {
-      if (!(canFullAdmin() || passOk(p.passcode))) return Promise.resolve(fail('Admin required'));
+      if (!(canBoatManager() || passOk(p.passcode))) return Promise.resolve(fail('Boat station (or superadmin) required'));
       const normT = (t)=>{ t=String(t||''); const m=t.match(/(\d{1,2}):(\d{2})/); return m?((m[1].length===1?'0':'')+m[1]+':'+m[2]):t; };
       const groups={};
       (db.boatRuns||[]).forEach(r=>{
@@ -4247,7 +4247,7 @@ async function renderKitchen(){
       h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Time</th><th>Status</th><th></th></tr></thead><tbody>';
       (pack.orders||[]).forEach(o => {
         h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(orderDisplayName(o))+inlineNote(o)+'</td><td>'+esc(o.department)+'</td><td class="text-[10px] text-slate-400">'+esc(String(o.createdAt||'').slice(0,16))+'</td><td>'+statusBadge(o.status)+'</td>'+
-          '<td><button class="text-teal-400 mark-ord" data-id="'+o.id+'" data-meal="'+meal+'">'+(o.status==='prepared'||o.status==='served'?'✓':'Mark')+'</button></td></tr>';
+          '<td>'+(o.status==='served'?'<span class="text-emerald-300 text-[10px]">✓ Served</span>':'<button class="text-teal-400 mark-ord text-[11px]" data-id="'+o.id+'" data-meal="'+meal+'">Served</button>')+'</td></tr>';
       });
       if (!(pack.orders||[]).length) h += '<tr><td colspan="5" class="py-3 text-slate-500 text-center">0 counted — no headcount yet</td></tr>';
       h += '</tbody></table></div></div>';
@@ -4289,7 +4289,7 @@ async function renderKitchen(){
       h += '<div class="table-scroll"><table class="w-full text-xs"><thead><tr class="text-sand-200/50 text-left"><th class="py-1">Name</th><th>Dept</th><th>Meal</th><th>Status</th><th></th></tr></thead><tbody>';
       (pack.orders||[]).forEach(o => {
         h += '<tr class="border-t border-teal-500/10"><td class="py-1.5">'+esc(orderDisplayName(o))+'</td><td>'+esc(o.department)+'</td><td>'+esc(o.mealChoice)+inlineNote(o)+'</td><td>'+statusBadge(o.status)+'</td>'+
-          '<td><button class="text-teal-400 mark-ord" data-id="'+o.id+'" data-meal="'+meal+'">'+(o.status==='prepared'||o.status==='served'?'✓':'Mark')+'</button></td></tr>';
+          '<td>'+(o.status==='served'?'<span class="text-emerald-300 text-[10px]">✓ Served</span>':'<button class="text-teal-400 mark-ord text-[11px]" data-id="'+o.id+'" data-meal="'+meal+'">Served</button>')+'</td></tr>';
       });
       h += '</tbody></table></div>';
       if (meal==='dinner') {
@@ -4348,8 +4348,9 @@ async function renderKitchen(){
     }
     $$('.mark-ord').forEach(b=>b.onclick=async()=>{
       cacheInvalidate(['kitchenDashboard']);
-      await api('markOrderStatus',{ id:b.dataset.id, meal:b.dataset.meal, status:'prepared' });
-      toast('Marked','ok'); renderKitchen();
+      const res = await api('markOrderStatus',{ id:b.dataset.id, meal:b.dataset.meal, status:'served' });
+      if (!res || !res.success) { if (!(res && res.cancelled)) toast((res && res.error) || 'Could not mark served','error'); return; }
+      toast('Marked served','ok'); renderKitchen();
     });
     $$('.late-approve').forEach(b=>b.onclick=async()=>{
       // C67: no askPasscode — role-gated API via requesterEmail
