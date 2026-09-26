@@ -1781,7 +1781,7 @@ async function v3RenderChefHub(){
         v3Tile(v3Nav('chefcomments'),'fa-comment-dots','Food comments','From staff', c ? c.feedbackNew : 0)+
         v3Tile(v3Nav('chefreports'),'fa-chart-column','Reports','Range · roster compare')+
         v3Tile("v3OpenSpecialForm()",'fa-star','Special meal','Order for someone')+
-        v3Tile(v3Nav('snapshots'),'fa-box-archive','Saved summaries','Dinner lists saved at 8pm')+'</div>'+
+        v3Tile(v3Nav('snapshots'),'fa-box-archive','Meal summaries','Last 5 days · PDF / print')+'</div>'+
       (v3IsSuper() && !v3Station() ? '<p class="text-[11px] text-sky-200 px-1" id="chef-as-super"><i class="fa-solid fa-user-shield mr-1"></i>Viewing the Chef page as superadmin — actions are recorded in your name.</p>' : '')+
       v3ChefDashCard(c)+'<div id="chef-orders">'+(state._chefOrdersHtml||v3Card(v3Loading()))+'</div><div id="chef-notes">'+(state._chefNotesHtml||'')+'</div>', 'chef-root');
     v3BindChefOrders();
