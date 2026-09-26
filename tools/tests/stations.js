@@ -1,8 +1,8 @@
-// 3.0 station logins + saved order summaries (demo mode). Run: node tools/tests/stations.js [baseUrl] [shotDir]
+// v3-test: station logins (parallel with personal kitchen / boat roles) + meal summaries + switch-over preview (demo mode). Run: node tools/tests/stations.js [baseUrl] [shotDir]
 const { chromium } = require('playwright-core');
 const fs = require('fs');
 const BASE = process.argv[2] || 'http://127.0.0.1:8765/';
-const S = (process.argv[3] || '/workspace/redesign-3.0-shots/v3') + '/';
+const S = (process.argv[3] || '/workspace/v3-test-shots/stations') + '/';
 fs.mkdirSync(S, { recursive: true });
 let pass = 0, fail = 0; const errors = []; let cur = '';
 function check(n, c, x) { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + n + (x ? ' — ' + x : '')); }
@@ -46,7 +46,7 @@ const FJ = (d, hm) => new Date(d + 'T' + hm + ':00+12:00');
   await shot('st-02-chef-dashboard', true);
   check('chef dashboard has orders + allergies', /Allerg/i.test(await txt('#main-content')));
   for (const t of ['meals', 'leave', 'manage', 'stboat', 'usersv3', 'approvals', 'history']) { await nav(t); const tab = await page.evaluate(() => state.tab); check('Chef station blocked from ' + t, tab !== t, tab); }
-  const deny = await page.evaluate(async () => { const out = []; for (const [a, p] of [['placeDinnerOrder', { mealChoice: 'x' }], ['getUsers', {}], ['saveBoatRun', { date: '2026-09-28' }], ['submitLeave', {}], ['getMyHistory', {}], ['setUserAccess', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', role: 'admin' }]]) { const r = await api(a, p); out.push(a + ':' + !!r.success); } return out; });
+  const deny = await page.evaluate(async () => { const out = []; for (const [a, p] of [['placeDinnerOrder', { mealChoice: 'x' }], ['placeLunchOrder', {}], ['placeSpecialMeal', { guestName: 'x', meal: 'dinner' }], ['placeMealOnBehalf', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', meal: 'dinner' }], ['requestLateMeal', { meal: 'lunch' }], ['getUsers', {}], ['saveBoatRun', { date: '2026-09-28' }], ['submitLeave', {}], ['getMyHistory', {}], ['setUserAccess', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', role: 'admin' }]]) { const r = await api(a, p); out.push(a + ':' + !!r.success); } return out; });
   check('server refuses personal / admin / boat actions for the Chef station', deny.every(x => /:false$/.test(x)), deny.join(','));
   // picker: a write asks "Who's doing this?"
   await page.evaluate(() => v3ForgetActor());
@@ -62,30 +62,36 @@ const FJ = (d, hm) => new Date(d + 'T' + hm + ':00+12:00');
   await nav('kitchen'); await wait(1200); await shot('st-05-chef-orders', true);
   check('Chef orders page shows allergies card', !!(await page.$('#kit-notes-card')));
   await nav('chefmenu'); await shot('st-06-chef-menu');
-  // saved summaries (after the 8pm cutoff: the fallback saves tomorrow's dinner on first open)
-  await nav('snapshots'); await wait(1500);
+  // meal summaries (after the 8pm cutoff: the fallback saves tomorrow's dinner on first open)
+  await nav('snapshots'); await wait(1800);
   const list = await txt('#snap-list');
-  check('saved summaries list shows the auto 8pm dinner snapshot for tomorrow', /Auto 8pm/.test(list) && /2026-09-27/.test(list), list.replace(/\n/g, ' ').slice(0, 160));
-  check('date picker defaults to the last closed dinner', (await page.inputValue('#snap-date')) === '2026-09-27');
-  await page.click('.v3-snap'); await wait(1500);
+  check('meal summaries list shows the auto 8pm dinner snapshot for tomorrow', /Auto 8pm/.test(list) && /2026-09-27/.test(list), list.replace(/\n/g, ' ').slice(0, 160));
+  const days = await page.evaluate(() => [...document.querySelectorAll('.v3-snap-day')].map(b => b.dataset.d));
+  check('7 day chips: last 5 days + today + tomorrow', days.length === 7 && days[0] === '2026-09-21' && days[6] === '2026-09-27', days.join(','));
   const sheet = await txt('#snap-sheet');
-  check('preview = printable dinner list incl. allergies & special requests', /Allergies & special requests/i.test(sheet) && /Saved summary/.test(sheet), sheet.slice(0, 120).replace(/\n/g, ' '));
-  await shot('st-07-saved-summary-preview', true);
+  check('opens the last closed dinner = printable list incl. allergies & special requests', /Allergies & special requests/i.test(sheet) && /Saved summary/.test(sheet), sheet.slice(0, 120).replace(/\n/g, ' '));
+  await shot('st-07-meal-summary-preview', true);
   const dl = page.waitForEvent('download', { timeout: 20000 }).catch(() => null);
   await page.click('#snap-pdf'); const d = await dl;
   let pdfOk = false; if (d) { const p = await d.path(); const b = fs.readFileSync(p); pdfOk = b.slice(0, 4).toString() === '%PDF' && b.length > 3000; fs.copyFileSync(p, S + 'st-dinner-summary.pdf'); }
   check('Download PDF renders a real PDF', pdfOk, d && d.suggestedFilename());
-  await page.fill('#snap-date', '2026-09-20'); await page.click('#snap-go'); await wait(1500);
-  check('previous date without a snapshot builds from the order rows', /From order rows/.test(await txt('#snap-preview')));
-  await page.click('.v3-snap-meal[data-m="breakfast"]'); await wait(1200);
-  await page.fill('#snap-date', '2026-09-27'); await page.click('#snap-go'); await wait(1500);
-  check('breakfast summary preview works too', /Breakfast Order List/.test(await txt('#snap-sheet')));
-  await page.click('.v3-snap-meal[data-m="dinner"]'); await wait(1200);
-  await page.fill('#snap-date', '2026-09-20'); await page.click('#snap-go'); await wait(1500);
+  const popP = page.waitForEvent('popup', { timeout: 8000 }).catch(() => null);
+  await page.click('#snap-print'); const pop = await popP;
+  check('Print opens the print view with the list', !!pop && /Order List/.test(await pop.evaluate(() => document.body.innerText).catch(() => '')));
+  if (pop) await pop.close().catch(() => {});
+  await page.click('.v3-snap-day[data-d="2026-09-21"]'); await wait(1500);
+  check('5 days back without a snapshot builds from the order rows', /From order rows/.test(await txt('#snap-preview')));
+  await page.click('.v3-snap-meal[data-m="breakfast"]'); await wait(1800);
+  check('breakfast summary preview works (last closed breakfast)', /Breakfast Order List/.test(await txt('#snap-sheet')));
+  await shot('st-07b-breakfast-summary', true);
+  await page.click('.v3-snap-meal[data-m="lunch"]'); await wait(1800);
+  check('lunch summary preview works', /Lunch Order List/.test(await txt('#snap-sheet')));
+  await page.click('.v3-snap-meal[data-m="dinner"]'); await wait(1500);
+  await page.click('.v3-snap-day[data-d="2026-09-22"]'); await wait(1500);
   await page.evaluate(() => v3RememberActor('Vikash Chand'));
-  await page.click('#snap-save'); await wait(1500);
+  await page.click('#snap-save'); await wait(1800);
   check('"Save a copy now" adds a saved summary tagged with the name', /Vikash Chand \(Chef station\)/.test(await txt('#snap-list')));
-  await shot('st-08-saved-summaries-list', true);
+  await shot('st-08-meal-summaries-list', true);
 
   // ---- Boat station
   await login(page, 'boat', 'boatcrew2026');
@@ -116,7 +122,6 @@ const FJ = (d, hm) => new Date(d + 'T' + hm + ':00+12:00');
   await nav('stations'); await wait(800);
   await shot('st-13-station-logins', true);
   await page.click('.v3-st-gen[data-k="chef"]'); await wait(400);
-  if (await page.isVisible('#pass-ov-input')) { await page.fill('#pass-ov-input', '2026'); await page.click('#pass-ov-form button[type=submit]'); }
   await page.waitForSelector('#stl-pw', { timeout: 8000 }).catch(() => {});
   const newPw = await txt('#stl-pw');
   check('rotate shows a new generated password once', newPw.length >= 12, 'len=' + newPw.length);
@@ -130,17 +135,27 @@ const FJ = (d, hm) => new Date(d + 'T' + hm + ':00+12:00');
   const oldOk = await dev2.evaluate(() => api('login', { email: 'chef', password: 'kitchen2026' }).then(r => !!r.success));
   const newOk = await dev2.evaluate(p => api('login', { email: 'chef', password: p }).then(r => !!r.success), newPw);
   check('old station password no longer works; new one does', !oldOk && newOk, 'old=' + oldOk + ' new=' + newOk);
-  // users & roles: assignable roles only
-  await nav('usersv3'); await wait(900);
+  // users: live permission set (kitchen / boat still assignable in parallel), role counts, no seats
+  await nav('usersv3'); await wait(1200);
+  check('Users page shows role counts, no seats', !!(await page.$('#role-counts')) && !(await page.$('#seat-usage')));
   await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Ana/.test(b.innerText)).click()); await wait(500);
-  const opts = await page.evaluate(() => [...document.querySelectorAll('#v3f-role option')].map(o => o.textContent));
-  check('role dropdown = Staff / HOD / Admin / Superadmin only', opts.length === 4 && !opts.some(o => /chef|boat/i.test(o)), opts.join(' | '));
-  await shot('st-15-users-role-dropdown');
-  await page.click('#v3f-cancel').catch(() => {});
-  await nav('migrate'); await page.click('#mg-dry'); await wait(1200);
-  const mg = await txt('#mg-out');
-  check('migration preview shows stations + deactivation + seats', /STATION LOGINS/i.test(mg) && /PROPOSED DEACTIVATION/i.test(mg) && /of 5 used/.test(mg));
-  await shot('st-16-migration-preview', true);
+  const opts = await page.evaluate(() => [...document.querySelectorAll('.eu3-perm')].map(o => o.value));
+  check('permission choices = live set (staff, HOD, assistant HOD, kitchen, boat, admin, superadmin)', ['staff','hod','assistant_hod','chef','boat_manager','boat_captain','admin','super_admin'].every(v => opts.includes(v)), opts.join(','));
+  await shot('st-15-users-permissions');
+  await page.click('#eu3-cancel').catch(() => {});
+  // switch-over: preview only (NOT applied)
+  await nav('stations'); await wait(900);
+  check('Station logins page has the switch-over card (not run)', /Not run/.test(await txt('#switch-over')));
+  await page.click('#so-preview'); await wait(1200);
+  const so = await txt('#so-out');
+  check('switch-over preview lists kitchen / boat accounts, changes nothing', /Preview — nothing changed/.test(so) && /drops/.test(so), so.slice(0, 160).replace(/\n/g, ' '));
+  check('flag still OFF after preview', await page.evaluate(() => api('getAppSettings', {}).then(r => r.data.settings.stations_exclusive !== 'true')));
+  await shot('st-16-switch-over-preview', true);
+  // parallel: personal kitchen account keeps its Chef tools
+  await login(page, 'kitchen@paradisecoveresortfiji.com', 'staff123');
+  check('parallel: personal kitchen account still has the Chef tab', await page.evaluate(() => navItems().some(n => n.id === 'chef')));
+  await nav('snapshots'); await wait(1200);
+  check('parallel: kitchen role opens meal summaries', await page.evaluate(() => state.tab === 'snapshots') && !!(await page.$('#snap-days')));
   const sw = await page.evaluate(() => document.documentElement.scrollWidth);
   check('no sideways scroll at 390px', sw <= 391, String(sw));
   check('0 console errors', errors.length === 0, errors.join(' | '));

@@ -18,13 +18,13 @@ function check(n, c, x) { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL 
   const txt = (s) => page.evaluate(s => { const e = document.querySelector(s); return e ? e.innerText : ''; }, s);
   const shot = (n, full) => page.screenshot({ path: OUT + n + '.png', fullPage: !!full });
 
-  // live mode: a pre-3.0 session (no token) must sign in again; API is blocked here (never touches the real backend)
+  // live mode: a 2.10.0 session (no token) keeps working — live auth model kept (item 6 not chosen); API blocked here
   await page.route('**/script.google.com/**', r => r.abort());
   await page.route('**/script.googleusercontent.com/**', r => r.abort());
   await page.goto(BASE, { waitUntil: 'load' });
   await page.evaluate(() => { localStorage.clear(); localStorage.setItem('pcr_v2_coach_done', '1'); localStorage.setItem('pcr_v2_session', JSON.stringify({ email: 'ana.tui@paradisecoveresortfiji.com', role: 'staff', permissions: 'staff', firstName: 'Ana' })); });
   await page.reload({ waitUntil: 'load' }); await wait(1200);
-  check('live: pre-3.0 session without token → sign in again', await page.evaluate(() => !state.user && !document.getElementById('login-email').closest('.hidden')) && /sign in again/i.test(await txt('#login-error')), await txt('#login-error'));
+  check('live: existing 2.10.0 session stays signed in (no forced re-login)', await page.evaluate(() => !!(state.user && state.user.email === 'ana.tui@paradisecoveresortfiji.com')));
   await page.unrouteAll({ behavior: 'ignoreErrors' });
 
   // demo
@@ -33,6 +33,7 @@ function check(n, c, x) { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL 
   await page.reload({ waitUntil: 'load' }); await wait(600);
   // register → verify-by-email panel
   await page.click('#tab-register'); await wait(300);
+  check('register: no @pcr.com default email checkbox (item 1)', await page.evaluate(() => !document.getElementById('reg-use-default-email') && !/@pcr\.com/i.test(document.getElementById('register-form').innerText)));
   await page.fill('#reg-firstName', 'Salote'); await page.fill('#reg-lastName', 'Naqara');
   await page.selectOption('#reg-department', 'Housekeeping'); await page.fill('#reg-contact', '9123456');
   await page.evaluate(() => { const v = document.getElementById('reg-village'); v.value = v.options[1] ? v.options[1].value : v.value; });
@@ -50,41 +51,31 @@ function check(n, c, x) { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL 
   await page.clock.runFor(4000); await wait(300);
   await shot('02-reset-password-code-by-email');
   await page.fill('#forgot-code', rcode); await page.fill('#forgot-new-password', 'newpass1').catch(() => {});
-  // superadmin: users & roles with seats
+  // superadmin: users & roles — role counts (no seat limits, item 9 not chosen), live permissions
   await page.evaluate(() => { try { showLoginPanel && showLoginPanel(); } catch (e) {} });
   await page.reload({ waitUntil: 'load' }); await wait(500);
   await page.fill('#login-email', 'it@paradisecoveresortfiji.com'); await page.fill('#login-password', '21slands');
   await page.click('#login-form button[type=submit]'); await page.waitForFunction(() => state.user); await wait(1200);
   await page.evaluate(() => { try { closeModal(); } catch (e) {} });
   await page.evaluate(() => navigate('usersv3')); await wait(1200);
-  const seats = await txt('#seat-usage');
-  check('users: seat chips "x of N used"', /of 3 used/.test(seats) && /of 5 used/.test(seats) && !/of 2 used/.test(seats), seats.replace(/\n/g, ' '));
-  await shot('03-admin-users-seat-counts');
-  await shot('03b-admin-users-seat-counts-full', true);
+  const rc = await txt('#role-counts');
+  check('users: role count chips, no "x of N used"', /Superadmin/.test(rc) && /Admin/.test(rc) && /Kitchen|Chef/.test(rc) && !/of \d+ used/.test(rc), rc.replace(/\n/g, ' '));
+  await shot('03-admin-users-role-counts');
+  await shot('03b-admin-users-role-counts-full', true);
   await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Akuila/.test(b.innerText)).click()); await wait(500);
-  const opts = await page.evaluate(() => [...document.querySelectorAll('#v3f-role option')].map(o => o.textContent + (o.disabled ? ' [disabled]' : '')));
-  check('edit: role options show "x of N" and full roles are disabled', opts.some(o => /Superadmin \(\d of 3/.test(o)) && !opts.some(o => /Boat manager|Chef/.test(o)), opts.join(' | '));
-  check('edit: no "Also boat manager" (boat work is the Boat station now)', await page.evaluate(() => !document.getElementById('v3f-boatManager')));
-  await shot('04-admin-edit-user-seats');
-  await page.click('#v3f-cancel');
-  // demo data has more boat managers than seats → another one is refused by the (shared V3.gs) server logic
-  const r = await page.evaluate(() => api('setUserAccess', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', role: 'boat_manager' }));
-  check('server refuses the old boat manager role (station login instead)', !r.success && /station/i.test(r.error), r.error);
-  const r1 = await page.evaluate(() => { state._demoPass = null; return api('setUserAccess', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', role: 'admin', passcode: '2025' }); });
-  check('granting admin with 2025 refused', !r1.success && /password/i.test(r1.error), r1.error);
-  const r2 = await page.evaluate(() => { state._demoPass = null; return api('deleteUser', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', passcode: '2025' }); });
-  check('delete with 2025 refused', !r2.success);
-  // migration preview
-  await page.evaluate(() => navigate('migrate')); await wait(800);
-  await page.click('#mg-dry'); await wait(1200);
-  const mg = await txt('#mg-out');
-  check('migration: seats + warnings + per-user changes shown', /Seats after migration/i.test(mg) && /Check before applying/i.test(mg) && /Changes per user/i.test(mg) && /department "Other"/.test(mg));
-  await shot('05-migration-preview', true);
-  await page.evaluate(() => document.querySelector('.mg-seats').scrollIntoView()); await wait(300);
-  await shot('05b-migration-preview-seats-warnings');
+  const perms = await page.evaluate(() => [...document.querySelectorAll('.eu3-perm')].map(o => o.value));
+  check('edit: live permission checkboxes (incl. chef / boat manager while stations run in parallel)', ['admin', 'hod', 'assistant_hod', 'chef', 'boat_manager', 'staff'].every(x => perms.includes(x)), perms.join(','));
+  check('edit: superadmin sees Delete user', await page.evaluate(() => !!document.getElementById('v3-del-user')));
+  await shot('04-admin-edit-user-permissions');
+  await page.click('#eu3-cancel');
+  const r = await page.evaluate(() => api('setUserAccess', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', permissions: 'staff,boat_manager' }));
+  check('boat manager is still assignable as a personal role (parallel setup)', r.success, r.error);
+  await page.evaluate(() => api('setUserAccess', { targetEmail: 'ana.tui@paradisecoveresortfiji.com', permissions: 'staff' }));
+  await page.evaluate(() => navigate('migrate')); await wait(500);
+  check('no role migration page (item 10 not chosen)', await page.evaluate(() => !document.getElementById('mg-dry')));
   // settings: email only + sender
   await page.evaluate(() => navigate('settings')); await wait(1200);
-  check('settings: codes sent by email + sender fields', /sent by email/i.test(await txt('#settings-root')) && !!(await page.$('#st-from')));
+  check('settings: codes sent by email + sender provider (Google | Brevo)', /sent by email/i.test(await txt('#settings-root')) && !!(await page.$('#st-from')) && (await page.evaluate(() => [...document.querySelectorAll('#st-prov option')].map(o => o.value).join(','))) === 'mailapp,brevo');
   await shot('06-settings-email-sender', true);
   const sw = await page.evaluate(() => document.documentElement.scrollWidth);
   check('no sideways scroll', sw <= 391, String(sw));

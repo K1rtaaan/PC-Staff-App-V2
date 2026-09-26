@@ -19,3 +19,13 @@ node r3shots.js http://127.0.0.1:8765/ <outDir> # 3.0 review screenshots + check
 ```
 
 No test calls the live Apps Script backend or writes to the Sheet.
+
+## TEST environment (branch `v3-test`)
+
+```bash
+python3 tools/test-env/make-test-backend.py /workspace/pcr-test-backend   # TEST Apps Script build (folder must hold the TEST .clasp.json)
+python3 tools/test-env/make-test-site.py OUT_DIR TEST_SCRIPT_URL           # TEST frontend (banner, pcrtest- caches/keys)
+tools/test-env/run-e2e.sh [shotDir]                                         # emulator (real TEST backend code, in-memory TEST copy) + 390px end-to-end pass
+```
+
+`gas-emulator.js` never reads the real live sheet: its "live" sheet is a fake stand-in that is frozen (any write fails the run).

@@ -7,8 +7,9 @@
  *   or "Sign out all devices" bumps the station generation → every existing station session stops working.
  * - A station token may ONLY call that station's actions (STATION_ACTIONS). Mutating actions need the name of the
  *   person doing it (actorName, picked on the device) and are written to the "Station Log" sheet.
- * - Personal accounts: chef / boat tools are station-only; a superadmin can open both pages with their own account.
- *   Until a station has been set up (by the 3.0 migration) old chef / boat_manager permissions keep working.
+ * - A superadmin can open both pages with their own account (actions recorded under their email, no name picker).
+ * - The old setup runs IN PARALLEL: personal chef / kitchen / boat roles keep their tools. The prepared switch-over
+ *   (stationsSwitchOver, superadmin, preview first) removes those personal roles and turns on stations_exclusive.
  * This file is also bundled into the demo (tools/build-demo-server.js), so demo mode runs the same rules.
  */
 var STATION_DEFS = {
@@ -29,7 +30,7 @@ var STATION_ACTIONS = {
     getMealRequests: 1, getWeeklyMenu: 1, getChefFeedback: 1,
     markOrderStatus: 1, saveDinnerMenuItem: 1, deleteDinnerMenuItem: 1, approveLateDinnerOrder: 1, approveLateBreakfastOrder: 1,
     approveAllLateBreakfast: 1, processBreakfastWorkflow: 1, processDinnerWorkflow: 1, decideMealRequest: 1, decideAllMealRequests: 1,
-    markChefFeedback: 1, placeMealOnBehalf: 1, placeSpecialMeal: 1,
+    markChefFeedback: 1,
     getOrderSnapshots: 1, getOrderSnapshot: 1, saveOrderSnapshot: 1
   },
   boat: {
@@ -42,10 +43,10 @@ var STATION_ACTIONS = {
 var STATION_MUTATIONS = {
   markOrderStatus: 1, saveDinnerMenuItem: 1, deleteDinnerMenuItem: 1, approveLateDinnerOrder: 1, approveLateBreakfastOrder: 1,
   approveAllLateBreakfast: 1, processBreakfastWorkflow: 1, processDinnerWorkflow: 1, decideMealRequest: 1, decideAllMealRequests: 1,
-  markChefFeedback: 1, placeMealOnBehalf: 1, placeSpecialMeal: 1, saveOrderSnapshot: 1,
+  markChefFeedback: 1, saveOrderSnapshot: 1,
   saveBoatRun: 1, deleteBoatRun: 1, dedupeBoatRuns: 1, reviewEmergencyTravel: 1, cancelBoatBooking: 1
 };
-/* station-only tools: a personal account needs superadmin (or the legacy permission while that station is not set up yet) */
+/* station tools: after the switch-over (stations_exclusive) a personal account needs superadmin for these */
 var STATION_ONLY_PERSONAL = {
   getKitchenDashboard: 'chef', getDinnerPrepList: 'chef', getMealStatistics: 'chef', getBreakfastOrderSheet: 'chef', getLunchOrderSheet: 'chef',
   getChefDashboard: 'chef', getMealReport: 'chef', getChefFeedback: 'chef', markOrderStatus: 'chef', saveDinnerMenuItem: 'chef',
@@ -186,7 +187,7 @@ function stationBindRequest(action, p, key) {
   var u = stationUser(key, actor);
   p._stationUser = u; p._station = key; p._actor = actor;
   p.requesterEmail = u.email;
-  if (p.userEmail && action !== 'placeMealOnBehalf' && action !== 'cancelBoatBooking') delete p.userEmail; // stations never act "as" a staff member
+  if (p.userEmail && action !== 'cancelBoatBooking') delete p.userEmail; // stations never act "as" a staff member
   return '';
 }
 /** Gate for a personal account calling a station-only tool. '' = allowed. */
@@ -194,7 +195,7 @@ function stationPersonalGate(action, u) {
   var key = STATION_ONLY_PERSONAL[action];
   if (!key) return '';
   if (isSuperPerm(u)) return '';
-  if (!stationConfigured(key) && stationLegacyPerm(u, key)) return ''; // before the 3.0 migration created the station
+  if (!stationsExclusive()) return ''; // old setup in parallel: personal chef / boat / admin permissions still decide (in each action)
   return STATION_DEFS[key].label + ' tools moved to the ' + STATION_DEFS[key].label + ' station login (or ask a superadmin).';
 }
 function stationLegacyPerm(u, key) {
@@ -235,24 +236,24 @@ function stationStatus() {
 }
 /* ---------- routable actions ---------- */
 function routeStations(action, p) {
-  var map = { getStations: getStations, setStationPassword: setStationPassword, signOutStation: signOutStation, getStationPeople: getStationPeople, getStationHome: getStationHome };
+  var map = { getStations: getStations, setStationPassword: setStationPassword, signOutStation: signOutStation, getStationPeople: getStationPeople, getStationHome: getStationHome,
+    stationsSwitchOver: stationsSwitchOver, stationsSwitchBack: stationsSwitchBack };
   var fn = map[action];
   if (!fn) return null;
   try { return fn(p || {}); } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
 }
-function stationRequireSuper(p, needPassword) {
+function stationRequireSuper(p) {
   var r = getRequester(p);
   if (!r || p._stationUser || !isSuperPerm(r)) return { success: false, error: 'Superadmin only' };
-  if (needPassword && !isAdminPassword(p.passcode)) return { success: false, error: 'Admin password required (wrong or missing)', needsPassword: true };
   return null;
 }
 function getStations(p) {
-  var bad = stationRequireSuper(p, false); if (bad) return bad;
-  return { success: true, data: { stations: stationStatus() } };
+  var bad = stationRequireSuper(p); if (bad) return bad;
+  return { success: true, data: { stations: stationStatus(), exclusive: stationsExclusive() } };
 }
-/** Superadmin + admin password. generate=1 → a new random password is returned ONCE; else p.password is used. */
+/** Superadmin only. generate=1 → a new random password is returned ONCE; else p.password is used. */
 function setStationPassword(p) {
-  var bad = stationRequireSuper(p, true); if (bad) return bad;
+  var bad = stationRequireSuper(p); if (bad) return bad;
   var key = String(p.station || '');
   if (!STATION_DEFS[key]) return { success: false, error: 'Pick the Chef or Boat station' };
   var gen = truthy(p.generate);
@@ -263,7 +264,7 @@ function setStationPassword(p) {
     message: STATION_DEFS[key].label + ' station password ' + (gen ? 'rotated' : 'set') + ' — every device signed in as ' + STATION_DEFS[key].label + ' is signed out.' } };
 }
 function signOutStation(p) {
-  var bad = stationRequireSuper(p, true); if (bad) return bad;
+  var bad = stationRequireSuper(p); if (bad) return bad;
   var key = String(p.station || '');
   if (!STATION_DEFS[key]) return { success: false, error: 'Pick the Chef or Boat station' };
   stationSignOutAll(key, getRequester(p).email);
@@ -281,4 +282,65 @@ function getStationHome(p) {
   if (!STATION_DEFS[key]) return { success: false, error: 'station required' };
   if (!p._stationUser) { var r = getRequester(p); if (!r || !isSuperPerm(r)) return { success: false, error: 'Station or superadmin only' }; }
   return { success: true, data: { station: key, label: STATION_DEFS[key].label, fijiNow: nowIso(), version: APP_VERSION } };
+}
+
+/* ---------- switch-over (PREPARED, NOT RUN) ----------
+ * After testing is approved a superadmin runs this once: every personal chef / kitchen / boat_manager / boat_captain / boat
+ * permission is removed (HOD, assistant HOD, admin and superadmin rights are kept; nobody is deactivated), the old
+ * permissions are copied to the "Role Backup" tab first, and App Setting stations_exclusive = true hides the chef / boat
+ * tools from personal accounts (server-enforced by stationPersonalGate / isChefPerm / isBoatManagerPerm).
+ * dryRun (default) only previews. apply=1 needs both station logins set up. stationsSwitchBack undoes it from the backup. */
+var SWITCH_DROP = { chef: 1, kitchen: 1, boat_manager: 1, boat_captain: 1, boat: 1 };
+function switchTarget(u) {
+  var raw = String(u.permissions || u.role || '').toLowerCase();
+  var before = raw.split(/[,|\s]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+  if (!before.length) before = [String(u.role || 'staff')];
+  var dropped = before.filter(function (x) { return SWITCH_DROP[x]; });
+  var after = before.filter(function (x) { return !SWITCH_DROP[x]; });
+  if (after.indexOf('staff') < 0) after.unshift('staff');
+  return { before: before.join(','), after: after.join(','), role: primaryRoleFromPermissions(after), dropped: dropped };
+}
+function stationsSwitchOver(p) {
+  var bad = stationRequireSuper(p); if (bad) return bad;
+  var apply = truthy(p.apply) || p.dryRun === 'false' || p.dryRun === false;
+  var users = sheetToObjects('Users');
+  var changes = [];
+  users.forEach(function (u) {
+    var t = switchTarget(u);
+    if (!t.dropped.length) return;
+    changes.push({ email: String(u.email || '').toLowerCase(), name: v3Name(u), department: u.department || '', active: truthy(u.active),
+      from: t.before, to: t.after, newRole: t.role, dropped: t.dropped, keeps: t.after.split(',').filter(function (x) { return x !== 'staff'; }) });
+  });
+  var st = stationStatus();
+  var missing = Object.keys(st).filter(function (k) { return !st[k].configured; });
+  var out = { applied: false, exclusive: stationsExclusive(), changes: changes, changeCount: changes.length, stations: st, stationsMissing: missing,
+    summary: 'Removes personal chef / kitchen / boat roles from ' + changes.length + ' account(s) (HOD / assistant HOD / admin / superadmin kept), backs them up to "Role Backup", then chef / boat tools are station-only (superadmin can still open both pages).' };
+  if (!apply) return { success: true, data: out };
+  if (stationsExclusive()) return { success: false, error: 'Switch-over already done' };
+  if (missing.length) return { success: false, error: 'Set up the ' + missing.map(function (k) { return STATION_DEFS[k].label; }).join(' and ') + ' station login first' };
+  var r = getRequester(p);
+  var at = nowIso();
+  users.forEach(function (u) {
+    var t = switchTarget(u);
+    if (!t.dropped.length) return;
+    v3Append('Role Backup', { id: uid('rb'), at: at, by: r.email, userEmail: String(u.email).toLowerCase(), role: u.role || '', permissions: u.permissions || '', note: 'switch-over' });
+    updateRowById('Users', u.id, { permissions: t.after, role: t.role });
+  });
+  setSetting('stations_exclusive', 'true', r.email);
+  out.applied = true; out.exclusive = true;
+  return { success: true, data: out };
+}
+function stationsSwitchBack(p) {
+  var bad = stationRequireSuper(p); if (bad) return bad;
+  var r = getRequester(p);
+  var rows = sheetToObjects('Role Backup').filter(function (x) { return String(x.note) === 'switch-over'; });
+  var latest = {};
+  rows.forEach(function (x) { latest[String(x.userEmail).toLowerCase()] = x; });
+  var n = 0;
+  Object.keys(latest).forEach(function (em) {
+    var u = findUserByEmail(em); if (!u) return;
+    updateRowById('Users', u.id, { permissions: latest[em].permissions, role: latest[em].role }); n++;
+  });
+  setSetting('stations_exclusive', 'false', r.email);
+  return { success: true, data: { restored: n, exclusive: false } };
 }

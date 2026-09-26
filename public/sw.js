@@ -90,7 +90,7 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (isApiHost(url)) return;                     // API: network only, never cached here
-  if (url.origin !== self.location.origin) return; // other origins: browser default (3.0: Excel/PDF libs are self-hosted in assets/vendor)
+  if (url.origin !== self.location.origin) return; // other CDNs (PDF / Excel libs): browser default
   if (url.pathname.endsWith('/sw.js')) return;
   if (isDocumentRequest(e.request, url)) { e.respondWith(shellResponse(e)); return; }
   e.respondWith(assetResponse(e));

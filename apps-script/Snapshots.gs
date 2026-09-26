@@ -1,20 +1,23 @@
 /**
- * PCR Staff App 3.0 — saved order summaries ("Dinner Snapshots" tab).
+ * PCR Staff App 3.0 — meal summaries ("Meal Snapshots" tab).
  *
- * - At the dinner cutoff (8:00 PM Fiji) a snapshot of ALL dinner orders for tomorrow's service is saved automatically:
- *   a time-driven trigger calls dinnerSnapshotTick() ~8:05 PM Fiji (installDinnerSnapshotTrigger), and as a fallback
- *   the first kitchen read / list open after the cutoff creates it (idempotent — one "auto" snapshot per service date).
+ * - At each cutoff a snapshot of ALL orders for tomorrow's service is saved automatically: breakfast + lunch at 1:00 PM
+ *   Fiji, dinner at 8:00 PM Fiji. A time-driven trigger calls mealSnapshotTick() ~1:05 PM and ~8:05 PM Fiji
+ *   (installMealSnapshotTriggers), and as a fallback the first kitchen read / summary open after a cutoff creates it
+ *   (idempotent — one "auto" snapshot per meal + service date).
  * - The payload is the same data the printable dinner order list uses (prep tally + byItem + every order row with notes),
  *   so the saved summary prints exactly like the live list, including "Allergies & special requests".
  * - Any date can be generated later: the saved snapshot if there is one, else built from the order rows (still there
  *   for ~60 days; archiveOldRows never touches this tab). Orders added after a snapshot show as an addendum.
- * - Breakfast / lunch use the same tab (meal column) for manual summaries.
+ * - The Meal summaries page offers the last 5 days + today + tomorrow; archiveOldRows never touches this tab.
  * Also bundled into the demo (tools/build-demo-server.js).
  */
-var SNAP_SHEET = 'Dinner Snapshots';
+var SNAP_SHEET = 'Meal Snapshots';
 var SNAP_HEADERS = ['id', 'serviceDate', 'meal', 'kind', 'generatedAt', 'generatedBy', 'totalOrders', 'payloadJson'];
 var SNAP_MEAL_SHEETS = { dinner: 'Dinner Orders', breakfast: 'Breakfast Orders', lunch: 'Lunch Orders' };
-var SNAP_CUTOFF_HOUR = 20;
+var SNAP_CUTOFF_HOUR = 20; // dinner
+var SNAP_CUTOFF = { dinner: 20, breakfast: 13, lunch: 13 };
+var SNAP_DAYS_BACK = 5;
 
 function snapDate(v) { var s = String(v == null ? '' : v); var m = s.match(/^(\d{4}-\d{2}-\d{2})/); return m ? m[1] : ''; }
 function snapRows() { try { return sheetToObjects(SNAP_SHEET); } catch (e) { return []; } }
@@ -51,49 +54,64 @@ function snapSave(meal, serviceDate, kind, by) {
   appendRow(SNAP_SHEET, row, SNAP_HEADERS);
   return row;
 }
-/** The service date whose dinner books closed most recently (after 8pm → tomorrow, else today). */
-function snapLastClosedDinner(now) {
+function snapLastClosedDinner(now) { return snapLastClosed('dinner', now); }
+/** The service date whose books closed most recently for that meal (after the cutoff → tomorrow, else today). */
+function snapLastClosed(meal, now) {
   now = now || getFijiNow();
-  return now.getUTCHours() >= SNAP_CUTOFF_HOUR ? fijiDateString(addFijiDays(now, 1)) : fijiDateString(now);
+  return now.getUTCHours() >= SNAP_CUTOFF[meal] ? fijiDateString(addFijiDays(now, 1)) : fijiDateString(now);
 }
-/** Idempotent: one automatic snapshot per closed dinner service date. Returns the row (existing or new). */
-function snapEnsureAuto(serviceDate, by) {
-  var have = snapFind('dinner', serviceDate, 'auto');
+/** Idempotent: one automatic snapshot per meal + closed service date. Returns the row (existing or new). */
+function snapEnsureAuto(serviceDate, by, meal) {
+  meal = meal || 'dinner';
+  var have = snapFind(meal, serviceDate, 'auto');
   if (have.length) return { row: have[0], created: false };
   var lock = null;
   try { lock = LockService.getScriptLock(); if (!lock.tryLock(20000)) lock = null; } catch (e) { lock = null; }
   try {
-    have = snapFind('dinner', serviceDate, 'auto'); // re-check inside the lock
+    have = snapFind(meal, serviceDate, 'auto'); // re-check inside the lock
     if (have.length) return { row: have[0], created: false };
-    return { row: snapSave('dinner', serviceDate, 'auto', by || 'auto (8:05pm)'), created: true };
+    return { row: snapSave(meal, serviceDate, 'auto', by || ('auto (' + (meal === 'dinner' ? '8:05pm' : '1:05pm') + ')')), created: true };
   } finally { try { if (lock) lock.releaseLock(); } catch (e2) {} }
 }
-/** Time-driven trigger (~8:05 PM Fiji daily). Safe to run any number of times. */
-function dinnerSnapshotTick() {
+function dinnerSnapshotTick() { return mealSnapshotTick(); }
+/** Time-driven trigger (~1:05 PM and ~8:05 PM Fiji). Saves every meal whose cutoff has passed. Safe to run any number of times. */
+function mealSnapshotTick() {
   var now = getFijiNow();
-  if (now.getUTCHours() < SNAP_CUTOFF_HOUR) return { skipped: 'before the 8pm cutoff', serviceDate: fijiDateString(now) };
-  var d = snapLastClosedDinner(now);
-  var r = snapEnsureAuto(d, 'auto (8:05pm trigger)');
-  return { serviceDate: d, created: r.created, id: r.row.id };
+  var out = {};
+  ['breakfast', 'lunch', 'dinner'].forEach(function (meal) {
+    if (now.getUTCHours() < SNAP_CUTOFF[meal]) { out[meal] = 'before cutoff'; return; }
+    var d = snapLastClosed(meal, now);
+    var r = snapEnsureAuto(d, 'auto (' + (meal === 'dinner' ? '8:05pm' : '1:05pm') + ' trigger)', meal);
+    out[meal] = { serviceDate: d, created: r.created, id: r.row.id };
+  });
+  return out;
 }
-/** Run once from the Apps Script editor (needs the script.scriptapp scope): daily trigger at ~8:05 PM Fiji. */
-function installDinnerSnapshotTrigger() {
-  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'dinnerSnapshotTick') ScriptApp.deleteTrigger(t); });
-  ScriptApp.newTrigger('dinnerSnapshotTick').timeBased().everyDays(1).atHour(20).nearMinute(5).inTimezone('Pacific/Fiji').create();
-  return 'dinnerSnapshotTick trigger installed (daily ~8:05 PM Fiji)';
+function installDinnerSnapshotTrigger() { return installMealSnapshotTriggers(); }
+/** Run once from the Apps Script editor (needs the script.scriptapp scope): daily triggers ~1:05 PM and ~8:05 PM Fiji. */
+function installMealSnapshotTriggers() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    var h = t.getHandlerFunction();
+    if (h === 'dinnerSnapshotTick' || h === 'mealSnapshotTick') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('mealSnapshotTick').timeBased().everyDays(1).atHour(13).nearMinute(5).inTimezone('Pacific/Fiji').create();
+  ScriptApp.newTrigger('mealSnapshotTick').timeBased().everyDays(1).atHour(20).nearMinute(5).inTimezone('Pacific/Fiji').create();
+  return 'mealSnapshotTick triggers installed (daily ~1:05 PM and ~8:05 PM Fiji)';
 }
-/** Fallback used on kitchen reads: after the cutoff, make sure tonight's auto snapshot exists. Never throws. */
+/** Fallback used on kitchen reads: after each cutoff, make sure that meal's auto snapshot exists. Never throws. */
 function snapFallback() {
+  var created = false;
   try {
     var now = getFijiNow();
-    var d = snapLastClosedDinner(now);
-    if (now.getUTCHours() < SNAP_CUTOFF_HOUR && !snapFind('dinner', d, 'auto').length) {
-      // before 8pm the most recent closed service is today's dinner — only back-fill when orders exist for it
-      if (!sheetToObjects('Dinner Orders').some(function (o) { return snapDate(o.serviceDate) === d; })) return null;
-      return snapEnsureAuto(d, 'auto (on open)');
-    }
-    return snapEnsureAuto(d, now.getUTCHours() === SNAP_CUTOFF_HOUR && now.getUTCMinutes() < 15 ? 'auto (8:05pm)' : 'auto (on open)');
-  } catch (e) { return null; }
+    ['breakfast', 'lunch', 'dinner'].forEach(function (meal) {
+      var d = snapLastClosed(meal, now);
+      if (snapFind(meal, d, 'auto').length) return;
+      // the most recent closed service: only back-fill when orders exist for it
+      if (!sheetToObjects(SNAP_MEAL_SHEETS[meal]).some(function (o) { return snapDate(o.serviceDate) === d; })) return;
+      var r = snapEnsureAuto(d, 'auto (on open)', meal);
+      if (r && r.created) created = true;
+    });
+  } catch (e) {}
+  return { created: created };
 }
 
 function snapCaller(p) {
@@ -115,7 +133,7 @@ function snapAddendum(payload, meal, serviceDate) {
     .map(function (o) { return Object.assign({ was: had[String(o.id)] }, o); });
   return { added: added, changed: changed };
 }
-/** List (latest first). Opening it also creates tonight's auto dinner snapshot if the trigger has not yet. */
+/** List (latest first) + the pickable days. Opening it also creates any missing auto snapshot for a closed meal. */
 function getOrderSnapshots(p) {
   var u = snapCaller(p); if (!u) return { success: false, error: 'Chef station, admin or superadmin only' };
   var fb = snapFallback();
@@ -123,7 +141,17 @@ function getOrderSnapshots(p) {
   var list = snapRows().filter(function (s) { return !meal || String(s.meal || 'dinner') === meal; }).map(function (s) { return snapOut(s, false); })
     .sort(function (a, b) { return (b.serviceDate + b.generatedAt).localeCompare(a.serviceDate + a.generatedAt); });
   var lim = Math.min(Number(p.limit || 60), 200);
-  return { success: true, data: { snapshots: list.slice(0, lim), total: list.length, lastClosedDinner: snapLastClosedDinner(), autoCreated: !!(fb && fb.created), fijiNow: nowIso() } };
+  // the pickable days: last 5 days + today + tomorrow (service dates), with what exists for each meal
+  var now = getFijiNow(), days = [];
+  for (var i = -SNAP_DAYS_BACK; i <= 1; i++) {
+    var dd = fijiDateString(addFijiDays(now, i));
+    var saved = {};
+    ['breakfast', 'lunch', 'dinner'].forEach(function (m) { saved[m] = snapFind(m, dd, '').length > 0; });
+    days.push({ date: dd, offset: i, saved: saved });
+  }
+  return { success: true, data: { snapshots: list.slice(0, lim), total: list.length, lastClosedDinner: snapLastClosedDinner(), lastClosed: {
+    breakfast: snapLastClosed('breakfast'), lunch: snapLastClosed('lunch'), dinner: snapLastClosed('dinner') }, days: days,
+    autoCreated: !!(fb && fb.created), fijiNow: nowIso() } };
 }
 /**
  * One summary: by id, or by serviceDate (+ meal). Uses the original auto snapshot (else the newest saved one) and adds an

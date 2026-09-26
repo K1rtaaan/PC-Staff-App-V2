@@ -127,12 +127,13 @@
 .fa-inverse{color: var(--fa-inverse, #fff);}
 .fa-calendar-days::before{content: "\f073";}
 .fa-right-from-bracket::before{content: "\f2f5";}
+.fa-file-csv::before{content: "\f6dd";}
+.fa-address-book::before{content: "\f2b9";}
 .fa-clipboard-list::before{content: "\f46d";}
 .fa-box-archive::before{content: "\f187";}
 .fa-table::before{content: "\f0ce";}
 .fa-people-group::before{content: "\e533";}
 .fa-lightbulb::before{content: "\f0eb";}
-.fa-circle-exclamation::before{content: "\f06a";}
 .fa-arrow-right-from-bracket::before{content: "\f08b";}
 .fa-fire-burner::before{content: "\e4f1";}
 .fa-list::before{content: "\f03a";}
@@ -146,13 +147,12 @@
 .fa-bullhorn::before{content: "\f0a1";}
 .fa-ban::before{content: "\f05e";}
 .fa-star::before{content: "\f005";}
-.fa-shuffle::before{content: "\f074";}
 .fa-right-to-bracket::before{content: "\f2f6";}
 .fa-heart-pulse::before{content: "\f21e";}
 .fa-toggle-on::before{content: "\f205";}
 .fa-file-arrow-up::before{content: "\f574";}
 .fa-user-pen::before{content: "\f4ff";}
-.fa-chair::before{content: "\f6c0";}
+.fa-rotate-left::before{content: "\f2ea";}
 .fa-circle-check::before{content: "\f058";}
 .fa-cloud-arrow-up::before{content: "\f0ee";}
 .fa-bowl-food::before{content: "\e4c6";}
@@ -177,6 +177,7 @@
 .fa-comment::before{content: "\f075";}
 .fa-envelope::before{content: "\f0e0";}
 .fa-circle-info::before{content: "\f05a";}
+.fa-water::before{content: "\f773";}
 .fa-calendar-check::before{content: "\f274";}
 .fa-check-double::before{content: "\f560";}
 .fa-minus::before{content: "\f068";}
@@ -215,15 +216,18 @@
 .fa-magic::before{content: "\f0d0";}
 .fa-moon::before{content: "\f186";}
 .fa-chart-column::before{content: "\e0e3";}
+.fa-calendar::before{content: "\f133";}
 .fa-clone::before{content: "\f24d";}
 .fa-anchor::before{content: "\f13d";}
 .fa-table-list::before{content: "\f00b";}
 .fa-user-plus::before{content: "\f234";}
 .fa-check::before{content: "\f00c";}
 .fa-triangle-exclamation::before{content: "\f071";}
+.fa-right-left::before{content: "\f362";}
 .fa-calendar-day::before{content: "\f783";}
 .fa-circle-xmark::before{content: "\f057";}
 .fa-thumbs-up::before{content: "\f164";}
+.fa-user-clock::before{content: "\f4fd";}
 .fa-mug-saucer::before{content: "\f0f4";}
 .fa-note-sticky::before{content: "\f249";}
 .fa-print::before{content: "\f02f";}

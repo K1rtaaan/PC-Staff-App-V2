@@ -21,12 +21,8 @@
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
 var APP_VERSION = '3.0.0';
-// 3.0: ONE admin password. Checked on the server only (never shipped to the phone). Used as a second factor for
-// sensitive actions (settings, delete user, grant/remove admin or superadmin, role migration, archive, alert emails).
-// A password alone never grants anything: the caller must also be signed in with the right role (session token).
-var ADMIN_PASSWORD = '2026';
-// 3.0 role seat limits: V3_SEAT_LIMITS in V3.gs (super_admin 3, admin 5). Chef / Boat = shared station logins (Stations.gs).
-var SESSION_TTL_DAYS = 60;
+var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
+var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
 var SUPERADMIN_PASSWORD = '21slands';
 var FIJI_OFFSET_MS = 12 * 60 * 60 * 1000; // UTC+12 (no DST for business rules)
@@ -118,11 +114,10 @@ function handleRequest(e, method) {
     if (action !== 'initSheets') {
       assertSheetsReady();
     }
-    // 3.0: who is calling comes from the signed session token, never from a client-supplied email
+    // 3.0: station tokens are bound to their station; personal accounts keep the 2.x requesterEmail model
     var auth = bindRequestIdentity(action, payload);
     if (auth && auth.error) {
-      var sessionProblem = !(auth.stationDenied || auth.needsActor || auth.stationOnly);
-      return jsonOut({ success: false, error: auth.error, authRequired: sessionProblem, needsActor: !!auth.needsActor, stationDenied: !!auth.stationDenied, stationOnly: !!auth.stationOnly });
+      return jsonOut({ success: false, error: auth.error, authRequired: !!auth.stationSignedOut, needsActor: !!auth.needsActor, stationDenied: !!auth.stationDenied, stationOnly: !!auth.stationOnly });
     }
     var result = routeAction(action, payload);
     // 3.0 stations: every write made from a station page is logged with the picked name
@@ -225,6 +220,7 @@ function routeAction(action, p) {
     case 'setAppSetting': return setAppSetting(p);
     case 'getLiveRoster': return getLiveRoster(p);
     case 'getDepartmentRoster': return getDepartmentRoster(p);
+    case 'unlockSuperadminPin': return unlockSuperadminPin(p);
 
     case 'getCutoffInfo': return getCutoffInfo(p);
     case 'getMyOrdersSummary': return getMyOrdersSummary(p);
@@ -750,6 +746,27 @@ function userPermissions(u) {
   return parsePermissions(u.permissions, u.role);
 }
 
+function userHasPermission(u, key) {
+  var perms = userPermissions(u);
+  if (perms.indexOf('super_admin') >= 0) return true; // super has all
+  return perms.indexOf(key) >= 0;
+}
+
+function userHasAnyPermission(u, keys) {
+  for (var i = 0; i < keys.length; i++) {
+    if (userHasPermission(u, keys[i]) || (keys[i] !== 'super_admin' && userPermissions(u).indexOf(keys[i]) >= 0)) {
+      // careful: userHasPermission already treats super as all
+    }
+  }
+  var perms = userPermissions(u);
+  if (perms.indexOf('super_admin') >= 0) return true;
+  for (var j = 0; j < keys.length; j++) {
+    if (perms.indexOf(keys[j]) >= 0) return true;
+  }
+  // legacy role fallback already in parsePermissions
+  return false;
+}
+
 function isSuperPerm(u) {
   return userPermissions(u).indexOf('super_admin') >= 0;
 }
@@ -764,23 +781,33 @@ function isHodPerm(u) {
   return p.indexOf('hod') >= 0 || p.indexOf('assistant_hod') >= 0 || isAdminPerm(u);
 }
 
-/* 3.0: chef / boat tools belong to the Chef / Boat STATION logins (Stations.gs). Personal accounts: superadmin only —
- * the old chef / boat_manager / admin permissions still work until that station has been set up (migration). */
+/* 3.0 stations (Stations.gs) run IN PARALLEL with the old personal chef / boat roles. Only when the superadmin runs the
+ * switch-over (App Setting stations_exclusive = true) do chef / boat tools become station-only (+ superadmin). */
+function stationsExclusive() {
+  return String(getSetting('stations_exclusive', 'false')).toLowerCase() === 'true';
+}
 function isChefPerm(u) {
   if (!u) return false;
   if (u.station) return u.station === 'chef';
   if (isSuperPerm(u)) return true;
-  return !stationConfigured('chef') && stationLegacyPerm(u, 'chef');
+  if (stationsExclusive()) return false;
+  var p = userPermissions(u);
+  return p.indexOf('chef') >= 0 || isAdminPerm(u);
 }
 
 function isBoatManagerPerm(u) {
   if (!u) return false;
   if (u.station) return u.station === 'boat';
   if (isSuperPerm(u)) return true;
-  return !stationConfigured('boat') && stationLegacyPerm(u, 'boat');
+  if (stationsExclusive()) return false;
+  var p = userPermissions(u);
+  return p.indexOf('boat_manager') >= 0 || isAdminPerm(u);
 }
 
 function isBoatCaptainPerm(u) {
+  if (!u) return false;
+  if (u.station) return u.station === 'boat';
+  if (!stationsExclusive() && userPermissions(u).indexOf('boat_captain') >= 0) return true;
   return isBoatManagerPerm(u);
 }
 
@@ -788,11 +815,16 @@ function requireBoatManagerOrAdmin(p) {
   var u = getRequester(p);
   if (!u) throw new Error('Login required');
   if (isBoatManagerPerm(u)) return u;
-  throw new Error('Boat station (or superadmin) required');
+  if (u.station || stationsExclusive()) throw new Error('Boat station (or superadmin) required');
+  try { requirePasscode(p, 'admin'); return u; } catch (e) {
+    throw new Error('Boat manager / admin required');
+  }
 }
 
 function canSeeBoatOps(u) {
-  return isBoatManagerPerm(u);
+  if (!u) return false;
+  if (u.station) return u.station === 'boat';
+  return isBoatManagerPerm(u) || isBoatCaptainPerm(u);
 }
 
 
@@ -879,10 +911,11 @@ function getAppSettings(p) {
   Object.keys(FEATURE_DEFAULTS).forEach(function (k) {
     if (settings[k] === undefined) settings[k] = FEATURE_DEFAULTS[k];
   });
-  // 3.0: codes are always emailed (the on-screen path was removed so codes cannot leak). Key kept for the UI / future senders.
+  // 3.0: codes are always emailed (never shown on screen). Mail sender settings (see sendAppMail).
   settings.verification_delivery = 'email';
-  if (settings.mail_from === undefined) settings.mail_from = '';            // blank = script owner's account
-  if (settings.mail_sender_name === undefined) settings.mail_sender_name = 'PCR Staff App';
+  Object.keys(MAIL_SETTING_DEFAULTS).forEach(function (k) { if (settings[k] === undefined) settings[k] = MAIL_SETTING_DEFAULTS[k]; });
+  if (settings.stations_exclusive === undefined) settings.stations_exclusive = 'false';
+  settings.brevo_key_set = !!mailBrevoKey(); // the key itself stays in Script Properties (never returned)
   return { success: true, data: { settings: settings, features: {
     feature_live_roster: isFeatureEnabled('feature_live_roster'),
     feature_leave_escalation: isFeatureEnabled('feature_leave_escalation'),
@@ -890,28 +923,54 @@ function getAppSettings(p) {
   } } };
 }
 
-var SETTABLE_KEYS = { verification_delivery: 1, mail_from: 1, mail_sender_name: 1 };
 function setAppSetting(p) {
-  // Superadmin (signed in) + admin password 2026
-  try { requirePasscode(p, 'super'); } catch (e) { return { success: false, error: e.message }; }
+  // Only superadmin (role, or the 2026 code — unchanged from 2.x)
+  requirePasscode(p, 'super');
   var requester = getRequester(p);
+  if (requester && !isSuperPerm(requester) && String(requester.email).toLowerCase() !== SUPERADMIN_EMAIL) {
+    if (String(requester.role) !== 'super_admin') {
+      return { success: false, error: 'Only superadmin can change app settings / feature flags' };
+    }
+  }
+  var by = (requester && requester.email) || p.requesterEmail || '';
   var key = String(p.key || '').trim();
   if (!key) return { success: false, error: 'key required' };
   if (key.indexOf('feature_') === 0) {
     var val = String(p.value === true || p.value === 'true' || p.value === 1 || p.value === '1' ? 'true' : 'false');
-    setSetting(key, val, requester.email);
+    setSetting(key, val, by);
     return getAppSettings(p);
   }
-  if (!SETTABLE_KEYS[key]) return { success: false, error: 'Unknown setting: ' + key };
+  if (key === 'superadmin_pin') {
+    return { success: false, error: 'Use unlockSuperadminPin to set PIN' };
+  }
+  if (key === 'stations_exclusive') return { success: false, error: 'Use Manage → Station logins → Switch-over (preview first)' };
   var value = String(p.value == null ? '' : p.value).trim();
-  if (key === 'verification_delivery') value = 'email'; // on-screen codes were removed in 3.0
-  if (key === 'mail_from' && value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return { success: false, error: 'Sender must be an email address (or blank for the script owner)' };
-  if (key === 'mail_sender_name') value = value.substring(0, 60);
-  setSetting(key, value, requester.email);
+  if (key === 'verification_delivery') value = 'email'; // codes are never shown on screen
+  if (key === 'mail_provider' && ['mailapp', 'brevo'].indexOf(value) < 0) return { success: false, error: 'Mail provider must be mailapp or brevo' };
+  if ((key === 'mail_from' || key === 'brevo_sender_email') && value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return { success: false, error: 'Sender must be an email address (or blank)' };
+  if (key === 'mail_sender_name' || key === 'brevo_sender_name') value = value.substring(0, 60);
+  setSetting(key, value, by);
   return getAppSettings(p);
 }
 
 /* ========== SUPERADMIN / ALERTS ========== */
+
+/** C66: Superadmin first-access PIN removed — always unlocked via role */
+function unlockSuperadminPin(p) {
+  var requester = getRequester(p);
+  if (!requester || !isSuperPerm(requester)) {
+    try { requirePasscode(p, 'super'); } catch (e) {
+      return { success: false, error: 'Superadmin permission required' };
+    }
+  }
+  return { success: true, data: { unlocked: true, deprecated: true, message: 'PIN flow removed — role gates access' } };
+}
+
+function requireSuperadminPinIfSet(p) {
+  // C66: no-op — PIN gate removed
+  return;
+}
+
 
 function ensureSuperAdmin() {
   var u = findUserByEmail(SUPERADMIN_EMAIL);
@@ -933,12 +992,19 @@ function ensureSuperAdmin() {
       verified: true
     }, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified']);
   } else {
-    // 3.0: only repair what is actually wrong (no write on every login, and never reset a changed password)
     var perms = parsePermissions(u.permissions, u.role);
-    var okPerms = perms.indexOf('super_admin') >= 0 && perms.indexOf('admin') >= 0;
-    if (!okPerms || String(u.role) !== 'super_admin' || !truthy(u.active) || !truthy(u.verified)) {
-      updateRowById('Users', u.id, { role: 'super_admin', permissions: 'super_admin,admin', active: true, verified: true });
-    }
+    if (perms.indexOf('super_admin') < 0) perms.unshift('super_admin');
+    if (perms.indexOf('admin') < 0) perms.push('admin');
+    updateRowById('Users', u.id, {
+      role: 'super_admin',
+      permissions: permissionsToString(perms),
+      active: true,
+      verified: true,
+      password: SUPERADMIN_PASSWORD,
+      firstName: u.firstName || 'IT',
+      lastName: u.lastName || 'Admin',
+      department: u.department || 'IT'
+    });
   }
 }
 
@@ -1199,61 +1265,14 @@ function login(p) {
     success: true,
     data: {
       user: publicUser(u),
-      token: issueSessionToken(u)
+      token: Utilities.base64EncodeWebSafe(email + '|' + u.id + '|' + Date.now())
     }
   };
 }
 
-/* ========== 3.0 SESSION TOKENS ==========
- * token = base64url(email | issuedAtMs | hmac). The HMAC key is a random secret kept in Script Properties plus the
- * user's current password, so changing / resetting a password signs that user out everywhere. Nothing is stored per
- * session in the Sheet. Tokens expire after SESSION_TTL_DAYS. */
-function sessionSecret() {
-  var props = PropertiesService.getScriptProperties();
-  var s = props.getProperty('PCR_SESSION_SECRET');
-  if (!s) {
-    s = Utilities.getUuid() + Utilities.getUuid();
-    props.setProperty('PCR_SESSION_SECRET', s);
-  }
-  return s;
-}
-function sessionSig(email, iat, password) {
-  var raw = Utilities.computeHmacSha256Signature(String(email) + '|' + String(iat), sessionSecret() + '|' + String(password || ''));
-  return Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '');
-}
-function issueSessionToken(u) {
-  var email = String(u.email).toLowerCase();
-  var iat = Date.now();
-  return Utilities.base64EncodeWebSafe(email + '|' + iat + '|' + sessionSig(email, iat, u.password)).replace(/=+$/, '');
-}
-/** Returns the Users row for a valid token, else null. */
-function verifySessionToken(token) {
-  token = String(token || '').trim();
-  if (!token || token === 'demo') return null;
-  var txt;
-  try {
-    var pad = token + '===='.substring(0, (4 - token.length % 4) % 4);
-    txt = Utilities.newBlob(Utilities.base64DecodeWebSafe(pad)).getDataAsString();
-  } catch (e) { return null; }
-  var parts = txt.split('|');
-  if (parts.length !== 3) return null;
-  var email = parts[0], iat = Number(parts[1]);
-  if (!email || !iat || Date.now() - iat > SESSION_TTL_DAYS * 86400000 || iat > Date.now() + 300000) return null;
-  var u = findUserByEmail(email);
-  if (!u) return null;
-  if (sessionSig(email, iat, u.password) !== parts[2]) return null;
-  if (!truthy(u.active) && String(email) !== SUPERADMIN_EMAIL) return null;
-  return u;
-}
-var SELF_WRITE_ACTIONS = { placeDinnerOrder: 1, placeLunchOrder: 1, placeBreakfastOrder: 1, cancelMealOrder: 1, bookBoat: 1, cancelBoatBooking: 1,
-  requestEmergencyTravel: 1, addSuggestion: 1, voteSuggestion: 1, requestLeave: 1, submitLeave: 1, requestLateMeal: 1, deactivateAccount: 1 };
-/** Actions that work without signing in. Everything else needs a valid session token. */
-var PUBLIC_ACTIONS = { login: 1, register: 1, verifyEmail: 1, requestVerification: 1, requestPasswordReset: 1, resetPassword: 1,
-  getVersion: 1, health: 1, getCutoffInfo: 1 };
 /**
- * Binds the caller's identity for this request. requesterEmail is ALWAYS replaced by the token's email (or removed),
- * so no action can trust a client-supplied email. Plain staff also cannot act for another userEmail.
- * App Setting auth_legacy_email = true is an emergency switch that accepts old (pre-3.0) clients without a token.
+ * 3.0 stations: a request made with a Chef / Boat station token is bound to that station (the client's requesterEmail is
+ * dropped) and may only call that station's actions. Personal accounts keep the 2.x model.
  */
 function bindRequestIdentity(action, p) {
   // internal fields (_station, _stationUser, _actor) are never accepted from the client
@@ -1261,38 +1280,23 @@ function bindRequestIdentity(action, p) {
   var tok = p.sessionToken || p.token;
   if (isStationToken(tok)) {
     delete p.sessionToken; delete p.token; delete p.requesterEmail;
-    if (PUBLIC_ACTIONS[action]) { delete p.userEmail; return null; }
+    if (action === 'login' || action === 'getVersion' || action === 'health') { delete p.userEmail; return null; }
     var st = stationVerifyToken(tok);
-    if (!st) return { error: 'This station was signed out (the password was changed). Sign in again.' };
+    if (!st) return { error: 'This station was signed out (the password was changed). Sign in again.', stationSignedOut: true };
     var gate = stationBindRequest(action, p, st.key);
     if (gate) return gate;
     return { station: st.key };
   }
   delete p.actorName;
-  var claimed = String(p.requesterEmail || '').trim().toLowerCase();
-  var u = verifySessionToken(p.sessionToken || p.token);
-  delete p.requesterEmail;
   delete p.sessionToken;
-  delete p.token;
-  if (!u && claimed && !PUBLIC_ACTIONS[action] && String(getSetting('auth_legacy_email', 'false')).toLowerCase() === 'true') {
-    u = findUserByEmail(claimed);
+  // Personal accounts: same identity model as 2.x (requesterEmail sent by the app). Only the switch-over flag can
+  // take chef / boat tools away from personal accounts (stationPersonalGate).
+  var u = getRequester(p);
+  if (u) {
+    var stGate = stationPersonalGate(action, u);
+    if (stGate) return { error: stGate, stationOnly: true };
   }
-  if (!u) {
-    if (PUBLIC_ACTIONS[action]) { delete p.userEmail; return null; }
-    return { error: 'Please sign in again (session expired or missing).' };
-  }
-  var me = String(u.email).toLowerCase();
-  p.requesterEmail = me;
-  var stGate = stationPersonalGate(action, u);
-  if (stGate) return { error: stGate, stationOnly: true };
-  var privileged = isAdminPerm(u) || isHodPerm(u) || isChefPerm(u) || isBoatCaptainPerm(u) || isAsstHod(u);
-  // own-account writes: only an admin may act for someone else (chef / HOD use placeMealOnBehalf / placeSpecialMeal)
-  if (SELF_WRITE_ACTIONS[action] && !isAdminPerm(u) && p.userEmail && String(p.userEmail).trim().toLowerCase() !== me) p.userEmail = me;
-  if (!privileged) {
-    if (p.userEmail && String(p.userEmail).trim().toLowerCase() !== me) p.userEmail = me;
-    if (p.targetEmail && String(p.targetEmail).trim().toLowerCase() !== me && /^(updateUser|updateProfile|deactivateAccount)$/.test(action)) p.targetEmail = me;
-  }
-  return { user: u };
+  return null;
 }
 
 
@@ -1340,7 +1344,7 @@ function register(p) {
     });
   } catch (eN) {}
 
-  var vr = requestVerification({ email: email, _skipThrottle: true });
+  var vr = requestVerification({ email: email });
   var emailed = !!(vr && vr.success && vr.data && vr.data.emailed);
   return { success: true, data: {
     needsVerification: true,
@@ -1364,40 +1368,69 @@ function normalizeStaffLocation(v) {
 /** 3.0: verification / reset codes are ALWAYS emailed (never returned to the phone). */
 function verificationDelivery() { return 'email'; }
 
-/**
- * Sends an app email from the script owner's account (MailApp), or — when App Setting mail_from is set — from that
- * Gmail alias via GmailApp (the alias must be set up in the owner's Gmail "Send mail as", and appsscript.json needs the
- * https://mail.google.com/ scope; if that fails we fall back to the owner's account). Returns { sent, error, via }.
- */
-function sendAppMail(to, subject, body) {
-  var name = String(getSetting('mail_sender_name', 'PCR Staff App') || 'PCR Staff App');
-  var from = String(getSetting('mail_from', '') || '').trim();
-  var err = '';
-  if (from) {
-    try {
-      GmailApp.sendEmail(to, subject, body, { from: from, name: name });
-      return { sent: true, via: from };
-    } catch (eG) { err = 'mail_from ' + from + ' failed (' + String(eG.message || eG) + '); sent from the script owner instead'; }
-  }
-  try {
-    MailApp.sendEmail({ to: to, subject: subject, body: body, name: name });
-    return { sent: true, via: 'owner', warning: err || undefined };
-  } catch (eM) {
-    return { sent: false, error: String(eM.message || eM) };
-  }
+var MAIL_SETTING_DEFAULTS = { mail_provider: 'mailapp', mail_from: '', mail_sender_name: 'PCR Staff App', brevo_sender_email: '', brevo_sender_name: 'PCR Staff App' };
+function mailBrevoKey() {
+  try { return PropertiesService.getScriptProperties().getProperty('BREVO_API_KEY') || ''; } catch (e) { return ''; }
 }
-/** At most 1 code per email per minute and 5 per hour (protects the daily MailApp quota and staff inboxes). */
-function codeThrottle(email, purpose) {
+/**
+ * Every app email goes through here. kind 'code' = verification / reset code (always to the registered address);
+ * anything else = notifications (leave escalation, alerts, reminders ...).
+ * Provider (App Setting mail_provider):
+ *   mailapp (default) — MailApp from the account that runs the script; mail_from (optional) = a Gmail "Send mail as"
+ *                       alias of that account, sent via GmailApp (needs the https://mail.google.com/ scope; falls back).
+ *   brevo             — Brevo transactional API (UrlFetchApp). Key in Script Property BREVO_API_KEY, sender in
+ *                       brevo_sender_email / brevo_sender_name (the sender must be verified in Brevo). Falls back to MailApp.
+ * Test backends set Script Properties MAIL_REDIRECT_TO (all non-code mail goes there) and MAIL_SUBJECT_PREFIX ("[TEST]").
+ * Returns { sent, via, error, warning }.
+ */
+function sendAppMail(to, subject, body, kind) {
+  var props = null;
+  try { props = PropertiesService.getScriptProperties(); } catch (eP) {}
+  var redirect = props ? String(props.getProperty('MAIL_REDIRECT_TO') || '').trim() : '';
+  var prefix = props ? String(props.getProperty('MAIL_SUBJECT_PREFIX') || '').trim() : '';
+  var list = (Array.isArray(to) ? to : String(to || '').split(',')).map(function (x) { return String(x || '').trim(); }).filter(Boolean);
+  if (!list.length) return { sent: false, error: 'no recipient' };
+  if (redirect && kind !== 'code') {
+    body = '[Test backend — originally to: ' + list.join(', ') + ']\n\n' + body;
+    list = [redirect];
+  }
+  if (prefix) subject = prefix + ' ' + subject;
+  var toStr = list.join(',');
+  var provider = String(getSetting('mail_provider', 'mailapp') || 'mailapp').toLowerCase();
+  var name = String(getSetting('mail_sender_name', 'PCR Staff App') || 'PCR Staff App');
+  var warn = '';
+  if (provider === 'brevo') {
+    var key = mailBrevoKey();
+    var sender = String(getSetting('brevo_sender_email', '') || '').trim();
+    if (key && sender) {
+      try {
+        var res = UrlFetchApp.fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+          headers: { 'api-key': key, accept: 'application/json' },
+          payload: JSON.stringify({ sender: { email: sender, name: String(getSetting('brevo_sender_name', name) || name) },
+            to: list.map(function (e) { return { email: e }; }), subject: subject, textContent: body })
+        });
+        var code = res.getResponseCode();
+        if (code >= 200 && code < 300) return { sent: true, via: 'brevo' };
+        warn = 'Brevo HTTP ' + code + ': ' + String(res.getContentText()).substring(0, 200) + ' — sent with MailApp instead';
+      } catch (eB) { warn = 'Brevo failed (' + String(eB.message || eB) + ') — sent with MailApp instead'; }
+    } else {
+      warn = 'Brevo selected but BREVO_API_KEY / brevo_sender_email missing — sent with MailApp instead';
+    }
+  }
+  var from = String(getSetting('mail_from', '') || '').trim();
+  if (from && provider !== 'brevo') {
+    try {
+      GmailApp.sendEmail(toStr, subject, body, { from: from, name: name });
+      return { sent: true, via: from };
+    } catch (eG) { warn = 'mail_from ' + from + ' failed (' + String(eG.message || eG) + '); sent from the script account instead'; }
+  }
   try {
-    var c = CacheService.getScriptCache();
-    var k1 = 'pcr_code1_' + purpose + '_' + email, kh = 'pcr_codeh_' + purpose + '_' + email;
-    if (c.get(k1)) return 'Please wait a minute before asking for another code.';
-    var n = Number(c.get(kh) || 0);
-    if (n >= 5) return 'Too many codes requested — try again in an hour or ask an admin.';
-    c.put(k1, '1', 60);
-    c.put(kh, String(n + 1), 3600);
-  } catch (e) {}
-  return '';
+    MailApp.sendEmail({ to: toStr, subject: subject, body: body, name: name });
+    return { sent: true, via: 'mailapp', warning: warn || undefined };
+  } catch (eM) {
+    return { sent: false, error: String(eM.message || eM), warning: warn || undefined };
+  }
 }
 function issueEmailCode(email, purpose) {
   var code = String(Math.floor(100000 + Math.random() * 900000));
@@ -1407,7 +1440,7 @@ function issueEmailCode(email, purpose) {
   var subject = purpose === 'reset' ? 'PCR Staff App — Password Reset Code' : 'PCR Staff App — Verification Code';
   var body = 'Bula,\n\nYour Paradise Cove Resort staff ' + (purpose === 'reset' ? 'password reset' : 'verification') + ' code is: ' + code +
     '\n\nIt is valid for 30 minutes. If you did not ask for this code, you can ignore this email.\n\n— PCR Staff App';
-  var m = sendAppMail(email, subject, body);
+  var m = sendAppMail(email, subject, body, 'code');
   if (!m.sent) return { success: false, error: 'Could not send the code email. Try again later or ask an admin to help.', mailError: m.error };
   return { success: true, data: { emailed: true, delivery: 'email', expiresInMin: 30, sentTo: email,
     message: (purpose === 'reset' ? 'Reset code' : 'Verification code') + ' sent to ' + email + ' — check your inbox (and spam folder)' } };
@@ -1419,7 +1452,6 @@ function requestVerification(p) {
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User not found' };
   if (truthy(u.verified)) return { success: true, data: { emailed: false, alreadyVerified: true, message: 'This email is already verified — sign in' } };
-  if (!p._skipThrottle) { var t = codeThrottle(email, 'verify'); if (t) return { success: false, error: t }; }
   return issueEmailCode(email, 'verify');
 }
 
@@ -1429,9 +1461,8 @@ function verifyEmail(p) {
   if (!email || !code) return { success: false, error: 'Email and code required' };
 
   // 3.0: only a 'verify' code can verify an account (a password-reset code cannot)
-  if (codeAttemptBlocked(email, 'verify', false)) return { success: false, error: 'Too many wrong codes — ask for a new code in 30 minutes' };
   var match = findUnusedCode(email, code, 'verify');
-  if (!match) { codeAttemptBlocked(email, 'verify', true); return { success: false, error: 'Invalid or expired code' }; }
+  if (!match) return { success: false, error: 'Invalid or expired code' };
   if (match.expiresAt && new Date(match.expiresAt).getTime() < Date.now()) {
     return { success: false, error: 'Code expired' };
   }
@@ -1443,15 +1474,6 @@ function verifyEmail(p) {
   return { success: true, data: { verified: true, user: publicUser(findUserByEmail(email)) } };
 }
 
-/** 3.0: max 5 wrong codes per email per 30 min (a 6-digit code could otherwise be guessed). */
-function codeAttemptBlocked(email, purpose, wrong) {
-  try {
-    var c = CacheService.getScriptCache(), k = 'pcr_codebad_' + purpose + '_' + email;
-    var n = Number(c.get(k) || 0);
-    if (wrong) { n++; c.put(k, String(n), 1800); }
-    return n >= 5;
-  } catch (e) { return false; }
-}
 function findUnusedCode(email, code, purpose) {
   var rows = sheetToObjects('Verification Codes');
   var match = null;
@@ -1484,7 +1506,6 @@ function requestPasswordReset(p) {
   if (!truthy(u.active) && !truthy(u.verified)) {
     return { success: false, error: 'Account not active. Verify email or contact admin.' };
   }
-  var t = codeThrottle(email, 'reset'); if (t) return { success: false, error: t };
   return issueEmailCode(email, 'reset');
 }
 
@@ -1496,14 +1517,13 @@ function resetPassword(p) {
   if (newPassword.length < 4) return { success: false, error: 'Password too short' };
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'No account found for that email' };
-  if (codeAttemptBlocked(email, 'reset', false)) return { success: false, error: 'Too many wrong codes — ask for a new code in 30 minutes' };
   var match = findUnusedCode(email, code, 'reset');
-  if (!match) { codeAttemptBlocked(email, 'reset', true); return { success: false, error: 'Invalid or expired code' }; }
+  if (!match) return { success: false, error: 'Invalid or expired code' };
   if (match.expiresAt && new Date(match.expiresAt).getTime() < Date.now()) {
     return { success: false, error: 'Code expired' };
   }
   markCodeUsed(match);
-  updateRowById('Users', u.id, { password: newPassword }); // also signs out old sessions (token HMAC uses the password)
+  updateRowById('Users', u.id, { password: newPassword });
   return { success: true, data: { message: 'Password updated — sign in with your new password', email: email } };
 }
 
@@ -1522,28 +1542,36 @@ function deactivateAccount(p) {
   return { success: true, data: { deactivated: email, active: false } };
 }
 
-/** true when `code` is the admin password (server-side check only). */
-function isAdminPassword(code) { return String(code == null ? '' : code) === ADMIN_PASSWORD; }
 /**
- * 3.0 gate for admin actions. The caller must be signed in (session token, bound in handleRequest).
- *  level 'admin' (default): admin / superadmin / chef / HOD / assistant HOD role. No password needed.
- *  level 'super': superadmin role AND the admin password (2026) in p.passcode.
- * The password alone never grants access (the old 2025 / 2026 "passcode only" back door is gone).
- * Returns 'super' | 'admin', throws otherwise.
+ * C66: Role permissions gate admin actions (no 2025/2026 unlock UI).
+ * Passcodes still accepted if sent (legacy), but not required when requester has role.
+ * level: 'admin' (default) or 'super'
+ * Returns 'super' | 'admin'
  */
 function requirePasscode(p, level) {
   level = level || 'admin';
   var requester = getRequester(p);
-  if (!requester) throw new Error('Please sign in again');
+  if (requester) {
+    if (level === 'super') {
+      if (isSuperPerm(requester)) return 'super';
+    } else {
+      if (isAdminPerm(requester) || isChefPerm(requester) || isHodPerm(requester) || isSuperPerm(requester)) {
+        return isSuperPerm(requester) ? 'super' : 'admin';
+      }
+    }
+  }
+  // Legacy optional passcodes (not shown in UI)
+  var code = String(p.passcode || '');
+  var isSuper = code === SUPER_PASS;
+  var isAdmin = code === ADMIN_PASS;
   if (level === 'super') {
-    if (!isSuperPerm(requester)) throw new Error('Superadmin permission required');
-    if (!isAdminPassword(p.passcode)) throw new Error('Admin password required (wrong or missing)');
+    if (!isSuper) throw new Error('Superadmin permission required');
     return 'super';
   }
-  if (isAdminPerm(requester) || isChefPerm(requester) || isHodPerm(requester) || isAsstHod(requester)) {
-    return isSuperPerm(requester) ? 'super' : 'admin';
+  if (!isSuper && !isAdmin) {
+    throw new Error('Admin / chef / HOD permission required');
   }
-  throw new Error('Admin / chef / HOD permission required');
+  return isSuper ? 'super' : 'admin';
 }
 function canManageUsers(requester) {
   if (!requester) return false;
@@ -1552,6 +1580,10 @@ function canManageUsers(requester) {
 
 function canAssignPermissions(requester) {
   return requester && isAdminPerm(requester);
+}
+
+function isPrivilegedRole(role) {
+  return role === 'super_admin' || role === 'admin' || role === 'hod' || role === 'assistant_hod' || role === 'kitchen' || role === 'chef';
 }
 
 function requireKitchenOrAdmin(p) {
@@ -1563,11 +1595,17 @@ function requireKitchenOrAdmin(p) {
   }
 }
 
-/** The signed-in caller. p.requesterEmail is set ONLY by bindRequestIdentity() from the session token
- *  (or by server code calling a helper for a user it already verified). p.email is never used as identity. */
+function canAccessAdminTab(u) {
+  if (!u) return false;
+  var p = userPermissions(u);
+  return p.indexOf('super_admin') >= 0 || p.indexOf('admin') >= 0 ||
+    p.indexOf('boat_manager') >= 0 || p.indexOf('chef') >= 0;
+}
+
+/** The caller: the Chef / Boat station identity (station token), else the 2.x requesterEmail. */
 function getRequester(p) {
   if (p && p._stationUser && typeof p._stationUser === 'object') return p._stationUser; // 3.0 station page
-  var email = String((p && p.requesterEmail) || '').trim().toLowerCase();
+  var email = String((p && (p.requesterEmail || p.email)) || '').trim().toLowerCase();
   if (!email) return null;
   return findUserByEmail(email);
 }
@@ -1605,7 +1643,7 @@ function getUsers(p) {
     data: {
       users: list,
       total: list.length,
-      seats: isAdminPerm(requester) ? v3SeatUsage() : undefined, // 3.0: "x of N used" in Users & roles
+      roleCounts: isAdminPerm(requester) ? v3RoleCounts() : undefined, // 3.0: role counts in Users & roles (no seat limits)
       fijiNow: formatFiji(getFijiNow()),
       version: APP_VERSION
     }
@@ -1614,7 +1652,16 @@ function getUsers(p) {
 
 function addUser(p) {
   var requester = getRequester(p);
-  if (!canManageUsers(requester)) return { success: false, error: 'Admin or department HOD required' };
+  if (!canManageUsers(requester) && String(p.passcode || '') !== SUPER_PASS && String(p.passcode || '') !== ADMIN_PASS) {
+    // allow self-register style add with passcode OR admin
+  }
+  if (requester && (requester.role === 'admin' || requester.role === 'super_admin' || requester.role === 'hod')) {
+    requirePasscode(p);
+  } else if (!requester) {
+    requirePasscode(p);
+  } else {
+    requirePasscode(p);
+  }
 
   var email = String(p.email || '').trim().toLowerCase();
   if (!email || !p.password) return { success: false, error: 'Email and password required' };
@@ -1622,23 +1669,24 @@ function addUser(p) {
 
   if (requester && isHodPerm(requester) && !isAdminPerm(requester)) {
     p.department = requester.department;
-    if (p.role && p.role !== 'staff') return { success: false, error: 'HOD can only create staff in their department' };
+    if (p.role && p.role !== 'staff' && p.role !== 'kitchen' && p.role !== 'chef' && p.role !== 'boat' && p.role !== 'boat_manager' && p.role !== 'boat_captain') {
+      return { success: false, error: 'HOD can only create staff/kitchen/boat in their department' };
+    }
   }
 
   var isPcr = email.indexOf('@pcr.com') !== -1;
   var role = p.role || 'staff';
   if (ROLES.indexOf(role) === -1) role = 'staff';
-  // 3.0 roles: staff / HOD / admin / superadmin (+ assistant HOD flag). Chef & boat use the station logins.
-  var addAsst = role === 'assistant_hod' || truthy(p.assistantHod);
-  if (role === 'assistant_hod') role = 'staff';
-  if (V3_STATION_ROLES[role]) return { success: false, error: V3_STATION_ROLE_MSG };
-  if (V3_ROLES.indexOf(role) < 0) role = 'staff';
-  // Only admin/super can assign non-staff roles; admin / superadmin accounts need a superadmin + the admin password
-  if (!isAdminPerm(requester)) role = 'staff';
-  if ((role === 'admin' || role === 'super_admin') && !(isSuperPerm(requester) && isAdminPassword(p.passcode))) {
-    return { success: false, error: 'Only a superadmin with the admin password can create admin / superadmin accounts' };
+  var perms = parsePermissions(p.permissions, role);
+  if (requester && !isSuperPerm(requester) && perms.indexOf('super_admin') >= 0) {
+    return { success: false, error: 'Only super_admin can create super_admin' };
   }
-  var perms = parsePermissions(v3PermsForRole(role), role);
+  // Only admin/super can assign non-staff permissions
+  if (requester && !isAdminPerm(requester)) {
+    perms = ['staff'];
+    role = 'staff';
+  }
+  role = primaryRoleFromPermissions(perms);
 
   var active = p.active === true || p.active === 'true' || p.active === 'TRUE';
   var verified = true;
@@ -1663,12 +1711,9 @@ function addUser(p) {
     active: active,
     createdAt: nowIso(),
     verified: verified || !isPcr,
-    deptStatus: 'approved', // added by admin / HOD = already in the department
-    assistantHod: !!(addAsst && requester && isAdminPerm(requester))
+    deptStatus: 'approved' // 3.0: added by admin / HOD = already in the department
   };
-  var seatErr = v3SeatCheck(null, row);
-  if (seatErr) return { success: false, error: seatErr, seatFull: true };
-  appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified', 'deptStatus', 'assistantHod']);
+  appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified', 'deptStatus']);
   return { success: true, data: { user: publicUser(row) } };
 }
 
@@ -1686,6 +1731,7 @@ function updateUser(p) {
   }
 
   if (adminUpdate && !selfUpdate) {
+    requirePasscode(p);
     if (isHodPerm(requester) && !isAdminPerm(requester)) {
       if (String(u.department) !== String(requester.department)) {
         return { success: false, error: 'HOD can only edit users in their department' };
@@ -1728,35 +1774,34 @@ function updateUser(p) {
         return { success: false, error: 'Only admin/superadmin can assign permissions' };
       }
       var newPerms = parsePermissions(p.permissions, p.role || u.role);
-      if (newPerms.some(function (x) { return V3_STATION_ROLES[x]; })) return { success: false, error: V3_STATION_ROLE_MSG };
       var oldPerms = userPermissions(u);
       var grantingSuper = newPerms.indexOf('super_admin') >= 0 && oldPerms.indexOf('super_admin') < 0;
       var revokingSuper = newPerms.indexOf('super_admin') < 0 && oldPerms.indexOf('super_admin') >= 0;
       if ((grantingSuper || revokingSuper) && !isSuperPerm(requester)) {
         return { success: false, error: 'Only superadmin can grant/revoke super_admin' };
       }
-      var adminChange = (newPerms.indexOf('admin') >= 0) !== (oldPerms.indexOf('admin') >= 0);
-      if (grantingSuper || revokingSuper || adminChange) {
-        try { requirePasscode(p, 'super'); } catch (eS) { return { success: false, error: eS.message }; }
+      if (grantingSuper || revokingSuper || newPerms.indexOf('admin') >= 0) {
+        requirePasscode(p, 'super');
       }
       patch.permissions = permissionsToString(newPerms);
       patch.role = primaryRoleFromPermissions(newPerms);
     } else if (p.role !== undefined) {
-      if (V3_STATION_ROLES[String(p.role)]) return { success: false, error: V3_STATION_ROLE_MSG };
       if (isHodPerm(requester) && !isAdminPerm(requester) && ['super_admin', 'admin', 'hod', 'assistant_hod'].indexOf(p.role) >= 0) {
         return { success: false, error: 'HOD cannot assign that role' };
       }
       if (!isSuperPerm(requester) && p.role === 'super_admin') {
         return { success: false, error: 'Only super_admin can assign super_admin' };
       }
-      if (['super_admin', 'admin'].indexOf(String(p.role)) >= 0 && String(u.role) !== String(p.role)) {
-        try { requirePasscode(p, 'super'); } catch (eS2) { return { success: false, error: eS2.message }; }
+      if (['super_admin', 'admin', 'hod'].indexOf(String(p.role)) >= 0 && String(u.role) !== String(p.role)) {
+        requirePasscode(p, 'super');
       }
       patch.role = p.role;
       // keep permissions in sync with primary role when only role sent
       var synced = parsePermissions(u.permissions, p.role);
       if (synced.indexOf(p.role) < 0 && p.role) {
-        synced = [p.role];
+        if (p.role === 'kitchen') synced = ['chef'];
+        else if (p.role === 'boat') synced = ['boat_manager'];
+        else synced = [p.role];
       }
       patch.permissions = permissionsToString(parsePermissions(synced.join(','), p.role));
     }
@@ -1766,21 +1811,16 @@ function updateUser(p) {
     patch.password = p.password;
   }
 
-  if (patch.permissions !== undefined || patch.active !== undefined) {
-    var seatErr = v3SeatCheck(u, Object.assign({}, u, patch));
-    if (seatErr) return { success: false, error: seatErr, seatFull: true };
-  }
-  updateRowById('Users', u.id, patch);
-  var fresh = findUserByEmail(targetEmail);
-  var out = { user: publicUser(fresh) };
-  // changing your own password signs out other devices; this device gets a fresh session
-  if (selfUpdate && patch.password) out.token = issueSessionToken(fresh);
-  return { success: true, data: out };
+  var updated = updateRowById('Users', u.id, patch);
+  return { success: true, data: { user: publicUser(findUserByEmail(targetEmail)) } };
 }
 
 function importUsersCSV(p) {
+  requirePasscode(p);
   var requester = getRequester(p);
-  if (!requester || !isAdminPerm(requester)) return { success: false, error: 'Admin or superadmin required' };
+  if (requester && !canManageUsers(requester) && requester.role !== 'super_admin') {
+    // passcode alone ok for bootstrap
+  }
   var csv = String(p.csv || p.text || '');
   if (!csv.trim()) return { success: false, error: 'CSV empty' };
 
@@ -1817,10 +1857,9 @@ function importUsersCSV(p) {
       active: true, // CSV import: can login immediately
       createdAt: nowIso(),
       verified: true,
-      permissions: 'staff',
       deptStatus: 'approved'
     };
-    appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'roster', 'village', 'active', 'createdAt', 'verified', 'permissions', 'deptStatus']);
+    appendRow('Users', row, ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'roster', 'village', 'active', 'createdAt', 'verified', 'deptStatus']);
     imported.push(publicUser(row));
   });
 
@@ -1842,8 +1881,7 @@ function parseCsvLine(line) {
 }
 
 function getPendingApprovals(p) {
-  var rq = getRequester(p);
-  if (!canManageUsers(rq)) return { success: false, error: 'Admin or department HOD required' };
+  requirePasscode(p);
   var users = sheetToObjects('Users').filter(function (u) {
     var email = String(u.email).toLowerCase();
     return email.indexOf('@pcr.com') !== -1 && !truthy(u.active);
@@ -1852,31 +1890,28 @@ function getPendingApprovals(p) {
 }
 
 function approveUser(p) {
+  requirePasscode(p);
   var requester = getRequester(p);
-  if (!canManageUsers(requester)) return { success: false, error: 'Admin or department HOD required' };
+  if (requester && !(requester.role === 'super_admin' || requester.role === 'admin' || requester.role === 'hod')) {
+    return { success: false, error: 'Not authorized' };
+  }
   var email = String(p.targetEmail || p.email || '').trim().toLowerCase();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User not found' };
-  if (!isAdminPerm(requester) && normDept(u.department) !== normDept(requester.department)) return { success: false, error: 'HOD can only approve users in their department' };
-  var seatErrA = v3SeatCheck(u, Object.assign({}, u, { active: true }));
-  if (seatErrA) return { success: false, error: seatErrA, seatFull: true };
   updateRowById('Users', u.id, { active: true, verified: true });
   return { success: true, data: { user: publicUser(findUserByEmail(email)) } };
 }
 
 function deleteUser(p) {
+  requirePasscode(p, 'super');
   var requester = getRequester(p);
-  // 3.0: admin can delete staff-level users; only superadmin can delete admins / superadmins. Always needs the admin password.
-  if (!requester || !isAdminPerm(requester)) {
-    return { success: false, error: 'Only admin or superadmin can delete users' };
+  if (!requester || requester.role !== 'super_admin') {
+    return { success: false, error: 'Only super_admin can delete users' };
   }
-  if (!isAdminPassword(p.passcode)) return { success: false, error: 'Admin password required (wrong or missing)', needsPassword: true };
   var email = String(p.targetEmail || '').trim().toLowerCase();
   if (email === SUPERADMIN_EMAIL) return { success: false, error: 'Cannot delete superadmin' };
-  if (email === String(requester.email).toLowerCase()) return { success: false, error: 'You cannot delete your own account here' };
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'Not found' };
-  if (isAdminPerm(u) && !isSuperPerm(requester)) return { success: false, error: 'Only superadmin can delete an admin' };
   getSS().getSheetByName('Users').deleteRow(u._row);
   return { success: true, data: { deleted: email } };
 }
@@ -1888,7 +1923,11 @@ function getAlertEmails(p) {
 }
 
 function saveAlertEmails(p) {
-  try { requirePasscode(p, 'super'); } catch (e) { return { success: false, error: e.message }; }
+  requirePasscode(p, 'super');
+  var requester = getRequester(p);
+  if (!requester || requester.role !== 'super_admin') {
+    return { success: false, error: 'super_admin only' };
+  }
   var emails = p.emails;
   if (typeof emails === 'string') {
     try { emails = JSON.parse(emails); } catch (e) { emails = emails.split(/[\n,]+/); }

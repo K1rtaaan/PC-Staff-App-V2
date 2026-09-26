@@ -17,11 +17,8 @@ const { chromium } = require('playwright-core');
   await page.click('#arch-run'); await page.waitForTimeout(400);
   console.log('confirm disabled before tick:', await page.locator('#arch-go').isDisabled());
   await page.check('#arch-ok'); await page.click('#arch-go'); await page.waitForTimeout(500);
-  // 3.0: the real move asks for the admin password (wrong one first)
-  await page.waitForSelector('#pass-ov-input', { state: 'visible' });
-  await page.fill('#pass-ov-input', '2025'); await page.click('#pass-ov-ok'); await page.waitForTimeout(400);
-  console.log('2025 rejected:', await page.locator('#pass-ov-err').isVisible());
-  await page.fill('#pass-ov-input', '2026'); await page.click('#pass-ov-ok'); await page.waitForTimeout(900);
+  // live model (2.10.0): superadmin role is enough, no password prompt
+  await page.waitForTimeout(900);
   console.log('result:', (await page.locator('#arch-out').innerText()).replace(/\n/g, ' | '));
   const after = await page.evaluate(() => { const d = loadDemo(); return { dinner: d.dinnerOrders.length, arch: Object.fromEntries(Object.entries(d.archive||{}).map(([k,v]) => [k, v.length])) }; });
   console.log('dinner rows', before, '->', after.dinner, 'archive', JSON.stringify(after.arch));

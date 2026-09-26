@@ -6,16 +6,21 @@
 'use strict';
 
 /* ============ A. roles & small helpers ============ */
-const V3_ROLE_LABEL = { super_admin:'Superadmin', admin:'Admin', hod:'HOD', staff:'Staff', chef:'Chef (old role)', boat_manager:'Boat manager (old role)' };
-/** 3.0 promotion model: personal accounts are staff / HOD / admin / superadmin (+ assistant HOD flag). Chef and Boat are shared STATION logins. */
-const V3_ASSIGNABLE_ROLES = ['staff','hod','admin','super_admin'];
+/* Live role set (same as 2.10): super_admin, admin, hod, kitchen, boat, staff (+ assistant HOD). Shared Chef / Boat STATION
+ * logins run in parallel; only the superadmin switch-over (stations_exclusive) makes chef / boat tools station-only. */
+const V3_ROLE_LABEL = { super_admin:'Superadmin', admin:'Admin', hod:'HOD', kitchen:'Kitchen', boat:'Boat', staff:'Staff', chef:'Kitchen', boat_manager:'Boat' };
+const V3_ROLE_FILTERS = ['super_admin','admin','hod','kitchen','boat','staff'];
+/** Assignable permissions (same values the live 2.x Users screen writes). */
+const V3_PERM_OPTIONS = [['staff','Staff'],['hod','HOD'],['assistant_hod','Assistant HOD'],['chef','Kitchen (chef)'],['boat_manager','Boat manager'],['boat_captain','Boat captain'],['admin','Admin'],['super_admin','Superadmin']];
 const V3_STATION_LABEL = { chef:'Chef', boat:'Boat' };
 const V3_STATION_TABS = { chef:['chef','kitchen','chefreq','chefmenu','chefcomments','chefreports','special','station','snapshots'], boat:['stboat','boat','station'] };
 const V3_STATION_LANDING = { chef:'chef', boat:'stboat' };
 /** '' for a personal account, else 'chef' / 'boat' (signed in with the shared station login on this device). */
 function v3Station(u){ u = u || state.user; return (u && u.station && V3_STATION_LABEL[u.station]) ? u.station : ''; }
-/** Stations set up yet? Until the migration creates them, old chef / boat permissions keep their tools (same rule as the server). */
+/** Station set up yet (password saved by the superadmin)? */
 function v3StationReady(k){ const r = v3Home().stationsReady; return !!(r && r[k]); }
+/** After the superadmin switch-over, chef / boat tools are station-only (+ superadmin). Default OFF: old setup in parallel. */
+function v3Exclusive(){ return !!v3Home().stationsExclusive; }
 function v3LegacyStation(u){
   u = u || state.user; if (!u || v3Station(u)) return '';
   const p = userPerms(u);
@@ -35,20 +40,22 @@ function v3RoleOf(u){
   if (p.includes('super_admin')) return 'super_admin';
   if (p.includes('admin')) return 'admin';
   if (p.includes('hod')) return 'hod';
-  return 'staff'; // old chef / boat manager / captain values count as staff (they moved to the station logins)
+  if (p.includes('chef') || p.includes('kitchen')) return 'kitchen';
+  if (p.includes('boat_manager') || p.includes('boat_captain') || p.includes('boat')) return 'boat';
+  return 'staff';
 }
 function v3Home(){ return cachePeek('v3home') || {}; }
 function v3IsAsst(u){ u = u || state.user; return !!u && (v3Truthy(u.assistantHod) || userPerms(u).includes('assistant_hod')); }
 function v3IsAdmin(){ const r = v3RoleOf(); return r === 'admin' || r === 'super_admin'; }
 function v3IsSuper(){ return v3RoleOf() === 'super_admin'; }
 function v3IsLead(){ return v3RoleOf() === 'hod' || v3IsAsst(); }
-/** Signed in as the Chef station, or an old personal chef account before the Chef station exists. */
-function v3IsChef(){ return v3Station() === 'chef' || (!v3Station() && !v3StationReady('chef') && v3LegacyStation() === 'chef'); }
-/** Chef page access: Chef station, superadmin, or (until the Chef station is set up) old chef / admin permissions. */
+/** Signed in as the Chef station, or a personal kitchen account (until the switch-over). */
+function v3IsChef(){ return v3Station() === 'chef' || (!v3Station() && !v3Exclusive() && v3LegacyStation() === 'chef'); }
+/** Chef page access: Chef station, superadmin, or (until the switch-over) personal kitchen / admin accounts. */
 function v3CanChef(){
   const st = v3Station(); if (st) return st === 'chef';
   if (v3IsSuper()) return true;
-  return !v3StationReady('chef') && (v3LegacyStation() === 'chef' || v3IsAdmin());
+  return !v3Exclusive() && (v3LegacyStation() === 'chef' || v3IsAdmin());
 }
 function v3CanDept(){ return v3IsLead() || v3IsAdmin(); }
 function v3DeptStatus(){
@@ -58,11 +65,11 @@ function v3DeptStatus(){
   return s || 'approved';
 }
 function v3DeptOk(){ return v3IsAdmin() || v3DeptStatus() === 'approved'; }
-/** Boat page access: Boat station, superadmin, or (until the Boat station is set up) old boat manager / captain / admin permissions. */
+/** Boat page access: Boat station, superadmin, or (until the switch-over) personal boat / admin accounts. */
 function v3HasBoat(){
   const st = v3Station(); if (st) return st === 'boat';
   if (v3IsSuper()) return true;
-  return !v3StationReady('boat') && (v3LegacyStation() === 'boat' || v3IsAdmin());
+  return !v3Exclusive() && (v3LegacyStation() === 'boat' || v3IsAdmin());
 }
 function v3RoleLabel(u){
   u = u || state.user;
@@ -70,15 +77,12 @@ function v3RoleLabel(u){
   const r = v3RoleOf(u);
   return (V3_ROLE_LABEL[r] || 'Staff') + (r !== 'hod' && r !== 'admin' && r !== 'super_admin' && v3IsAsst(u) ? ' · Assistant HOD' : '');
 }
-/** "Admin 2 of 5 used" chips (3.0 seat limits: admin 5, superadmin 3 — Chef / Boat are station logins, no seats). */
-const V3_SEAT_ORDER = ['super_admin','admin'];
-function v3SeatChips(seats){
-  if (!seats) return '';
-  return '<div class="grid grid-cols-2 gap-2" id="seat-usage">'+V3_SEAT_ORDER.filter(function(k){ return seats[k]; }).map(function(k){
-    const x = seats[k], full = x.used >= x.limit, over = x.used > x.limit;
-    return '<div class="rounded-xl border p-2 min-w-0 '+(over?'border-rose-500/60 bg-rose-900/20':full?'border-amber-500/50 bg-amber-900/10':'border-slate-700/60 bg-slate-900/50')+'" data-seat="'+k+'">'+
-      '<p class="text-[10px] text-slate-400 truncate">'+esc(x.label)+'</p><p class="text-sm font-semibold text-slate-100">'+x.used+' of '+x.limit+' used</p>'+
-      '<p class="text-[10px] '+(over?'text-rose-300':full?'text-amber-200':'text-slate-500')+'">'+(over ? (x.used-x.limit)+' over the limit' : full ? 'Full' : (x.limit-x.used)+' free')+'</p></div>';
+/** Role counts chips on the Users page (from getUsers roleCounts; no seat limits — people can hold more than one permission). */
+const V3_ROLE_COUNT_KEYS = [['super_admin','Superadmin'],['admin','Admin'],['hod','HOD'],['assistant_hod','Assistant HOD'],['chef','Kitchen'],['boat_manager','Boat manager'],['boat_captain','Boat captain'],['staff','Staff only'],['inactive','Inactive']];
+function v3RoleCountChips(rc){
+  if (!rc) return '';
+  return '<div class="grid grid-cols-3 gap-2" id="role-counts">'+V3_ROLE_COUNT_KEYS.map(function(k){
+    return '<div class="rounded-xl border border-slate-700/60 bg-slate-900/50 p-2 min-w-0" data-rolecount="'+k[0]+'"><p class="text-[10px] text-slate-400 truncate">'+esc(k[1])+'</p><p class="text-sm font-semibold text-slate-100">'+(rc[k[0]]||0)+'</p></div>';
   }).join('')+'</div>';
 }
 
@@ -212,7 +216,7 @@ function v3Form(title, fields, submitLabel, onSubmit, intro){
 const V3_SHEET_KEYS = { 'Users':'users', 'Breakfast Orders':'breakfastOrders', 'Lunch Orders':'lunchOrders', 'Dinner Orders':'dinnerOrders', 'Leave Requests':'leaveRequests',
   'Menu Votes':'menuVotes', 'Chef Feedback':'chefFeedback', 'Dept Updates':'deptUpdates', 'Dept Update Activity':'deptActivity', 'Boat Runs':'boatRuns',
   'Boat Bookings':'boatBookings', 'Suggestions':'suggestions', 'Reminders':'reminders', 'Notifications':'notifications', 'Dinner Menus':'dinnerMenus',
-  'Station Log':'stationLog', 'Emergency Travel':'emergencyTravel', 'Dinner Snapshots':'orderSnapshots' };
+  'Station Log':'stationLog', 'Emergency Travel':'emergencyTravel', 'Meal Snapshots':'orderSnapshots', 'Role Backup':'roleBackup' };
 /* demo crypto: synchronous SHA-256 / HMAC-SHA256 (same results as Apps Script Utilities) so station passwords are hashed in demo too */
 const V3Crypto = (function(){
   const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
@@ -278,8 +282,13 @@ function v3DemoShim(){
     findOrder: function(n, id){ return copy(v3DemoRows(n).find(function(x){ return String(x.id) === String(id); }) || null); },
     findUserByEmail: function(e){ e = String(e||'').trim().toLowerCase(); return copy(v3DemoRows('Users').find(function(u){ return String(u.email).toLowerCase() === e; }) || null); },
     getRequester: function(p){ if (p && p._stationUser) return p._stationUser; const e = String(p.requesterEmail || '').trim().toLowerCase(); return e ? S.findUserByEmail(e) : null; },
-    isAdminPassword: function(c){ return typeof demoPassOk === 'function' && demoPassOk(String(c == null ? '' : c).trim()); },
     getSetting: function(k, fb){ const v = (V3DB.db.appSettings||{})[k]; return v === undefined || v === '' ? (fb === undefined ? '' : String(fb)) : String(v); },
+    setSetting: function(k, v){ const db = V3DB.db; if (!db.appSettings) db.appSettings = {}; db.appSettings[k] = String(v); },
+    stationsExclusive: function(){ return String(S.getSetting('stations_exclusive', 'false')).toLowerCase() === 'true'; },
+    ALL_PERMISSIONS: ['super_admin','admin','hod','assistant_hod','chef','boat_manager','boat_captain','staff'],
+    permissionsToString: function(list){ return (list||[]).join(','); },
+    primaryRoleFromPermissions: function(list){ list = list || []; const o = ['super_admin','admin','hod','assistant_hod','chef','boat_manager','boat_captain','staff']; for (const r of o) if (list.includes(r)) return r; return 'staff'; },
+    sendAppMail: function(to, subject, body){ (V3DB.db.demoMail = V3DB.db.demoMail || []).push({ to:to, subject:subject, body:body, at: formatFiji() }); return true; },
     getDinnerMenus: function(p){
       const parts = String(p.serviceDate).split('-'); const wd = new Date(Date.UTC(+parts[0], +parts[1]-1, +parts[2])).getUTCDay();
       return { success:true, data:{ items: v3DemoRows('Dinner Menus').filter(function(m){ return Number(m.weekday) === wd && m.active !== false; }).map(copy) } };
@@ -308,7 +317,7 @@ function v3DemoShim(){
     truthy: v3Truthy, uid: uid, userPermissions: v3ParsePerms,
     isAdminPerm: function(u){ const p = v3ParsePerms(u); return p.includes('super_admin') || p.includes('admin'); },
     isSuperPerm: function(u){ return v3ParsePerms(u).includes('super_admin'); },
-    isChefPerm: function(u){ const p = v3ParsePerms(u); return p.includes('chef') || p.includes('kitchen') || p.includes('super_admin') || p.includes('admin'); },
+    isChefPerm: function(u){ if (!u) return false; if (u.station) return u.station === 'chef'; const p = v3ParsePerms(u); if (p.includes('super_admin')) return true; if (S.stationsExclusive()) return false; return p.includes('chef') || p.includes('kitchen') || p.includes('admin'); },
     scKey: function(a,b){ return a+'|'+b; }, scGetJson: function(){ return null; }, scPutJson: function(){}, scBump: function(){},
     withIdempotency: function(a, p, fn){ return fn(p); },
     getSS: function(){ return { getSheetByName: function(){ return {}; } }; }, ensureSheet: function(){}, ensureColumns: function(){},
@@ -425,13 +434,13 @@ demoApiCore = async function(action, p){
       const r = await _v2DemoApiCore(action, p);
       if (r && r.success && !isAdm) { r.data.users = r.data.users.filter(function(u){ return String(u.department).toLowerCase() === String(meU.department).toLowerCase(); }); r.data.total = r.data.users.length; }
       if (r && r.success) {
-        // same extra fields as the live server (v3UserOut + seat usage for admins)
+        // same extra fields as the live server (v3UserOut + role counts for admins)
         const extra = await v3DemoRun(function(srv, d){
           const by = {}; d.users.forEach(function(u){ const o = srv.v3UserOut(Object.assign({}, u)); by[u.email] = { legacyStation: o.legacyStation, warnings: o.warnings }; });
-          return { by: by, seats: srv.v3SeatUsage(d.users.map(function(u){ return Object.assign({}, u); })) };
+          return { by: by, roleCounts: srv.v3RoleCounts(d.users.map(function(u){ return Object.assign({}, u); })) };
         });
         r.data.users = r.data.users.map(function(u){ return Object.assign({}, u, extra.by[u.email] || {}); });
-        if (isAdm) r.data.seats = extra.seats;
+        if (isAdm) r.data.roleCounts = extra.roleCounts;
       }
       return r;
     }
@@ -443,8 +452,7 @@ demoApiCore = async function(action, p){
       return _v2DemoApiCore(action, p);
     }
     case 'deleteUser': {
-      if (!isAdm) return { success:false, error:'Admin only' };
-      if (!demoPassOk(p.passcode)) return { success:false, error:'Admin password required (wrong or missing)', needsPassword:true };
+      if (!meU || !v3ParsePerms(meU).includes('super_admin')) return { success:false, error:'Only super_admin can delete users' }; // same as live deleteUser
       const t = db.users.find(function(u){ return u.email === String(p.targetEmail||'').toLowerCase(); });
       if (!t) return { success:false, error:'User not found' };
       if (t.email === me) return { success:false, error:'You cannot delete yourself' };
@@ -663,7 +671,7 @@ navItems = function(){
     { id:'home', icon:'fa-gauge-high', label:'Dashboard' }, { id:'approvals', icon:'fa-inbox', label:'Approvals' },
     { id:'manage', icon:'fa-sliders', label:'Manage' }, { id:'more', icon:'fa-ellipsis', label:'More' }];
   const items = [{ id:'home', icon:'fa-house', label:'Home' }, { id:'meals', icon:'fa-utensils', label:'Meals' }];
-  if (v3IsChef()) items.push({ id:'chef', icon:'fa-fire-burner', label:'Chef' }); // old chef account, only until the Chef station is set up
+  if (v3IsChef()) items.push({ id:'chef', icon:'fa-fire-burner', label:'Chef' }); // personal kitchen account (old setup, until the switch-over)
   items.push({ id:'boat', icon:'fa-ship', label:'Boat' });
   if (r === 'admin') items.push({ id:'manage', icon:'fa-sliders', label:'Manage' });
   items.push({ id:'more', icon:'fa-ellipsis', label:'More' });
@@ -671,7 +679,7 @@ navItems = function(){
 };
 const V3_TAB_PARENT = { breakfast:'meals', lunch:'meals', dinner:'meals', myorders:'more', history:'more', leave:'more', profile:'more', notifications:'more', bookings:'more',
   deptstaff:'more', deptupdates:'more', chefreq:'chef', chefcomments:'chef', chefreports:'chef', chefmenu:'chef', kitchen:'chef', usersv3:'manage', reminders:'manage',
-  adminstatus:'manage', migrate:'manage', settings:'manage', admin:'manage', suggestions:'manage', users:'manage', special:'meals', approvals:'approvals', stations:'manage', snapshots: 'manage' };
+  adminstatus:'manage', leavecal:'more', settings:'manage', admin:'manage', suggestions:'manage', users:'manage', special:'meals', approvals:'approvals', stations:'manage', snapshots: 'manage' };
 renderNav = function(targetSel){
   const items = navItems(), ids = items.map(function(n){ return n.id; });
   let active = ids.includes(state.tab) ? state.tab : (V3_TAB_PARENT[state.tab] || 'more');
@@ -699,7 +707,7 @@ canPrivilegedTab = function(tab){
     stboat: v3HasBoat, stations: v3IsSuper, snapshots: function(){ return v3CanChef() || v3IsAdmin(); },
     kitchen: v3CanChef, chef: v3CanChef, chefreq: function(){ return v3CanChef() || v3IsLead(); }, chefcomments: v3CanChef, chefreports: v3CanChef, chefmenu: v3CanChef,
     deptstaff: v3CanDept, special: function(){ return v3CanDept() || v3CanChef(); },
-    manage: v3IsAdmin, usersv3: v3IsAdmin, users: v3IsAdmin, reminders: v3IsAdmin, adminstatus: v3IsAdmin, migrate: v3IsAdmin, suggestions: v3IsAdmin,
+    manage: v3IsAdmin, usersv3: v3IsAdmin, users: v3IsAdmin, reminders: v3IsAdmin, adminstatus: v3IsAdmin, suggestions: v3IsAdmin, leavecal: v3CanDept,
     settings: v3IsSuper, approvals: function(){ return v3IsAdmin() || v3IsLead() || v3CanChef(); },
     admin: v3IsSuper
   }[tab];
@@ -719,11 +727,10 @@ roleLandingTab = function(){
 const V3_TITLES = { home:'Home', meals:'Meals', boat:'Boat', more:'More', bookings:'My boat bookings', profile:'My profile', history:'My history', leave:'Leave requests',
   notifications:'Notifications', deptstaff:'Department staff', deptupdates:'Department updates', chef:'Chef', chefreq:'Late & special requests', chefcomments:'Food comments',
   chefreports:'Meal reports', chefmenu:'Edit menu', kitchen:'Kitchen lists', manage:'Manage', usersv3:'Users', reminders:'Reminders', adminstatus:'Admin status & reports',
-  migrate:'Role migration', settings:'App settings', admin:'Classic admin tools', suggestions:'Suggestions', approvals:'Approvals', special:'Special meal order', schedule:'My schedule',
-  station:'Station', stboat:'Boat — bookings & passengers', stations:'Station logins', snapshots:'Saved order summaries' };
+  leavecal:'Leave calendar', users:'Staff directory (classic)', settings:'App settings', admin:'Classic admin tools', suggestions:'Suggestions', approvals:'Approvals', special:'Special meal order', schedule:'My schedule',
+  station:'Station', stboat:'Boat — bookings & passengers', stations:'Station logins', snapshots:'Meal summaries' };
 navigate = function(tab){
   if (tab === 'myorders') tab = 'history';
-  if (tab === 'users') tab = 'usersv3';
   if (tab === 'breakfast' || tab === 'lunch' || tab === 'dinner') { state.mealFocus = tab; tab = 'meals'; }
   if (!canPrivilegedTab(tab)) { toast(v3Station() ? 'The '+V3_STATION_LABEL[v3Station()]+' station login only opens the '+V3_STATION_LABEL[v3Station()]+' page' : 'That area is not part of your role','error'); tab = v3Station() ? V3_STATION_LANDING[v3Station()] : 'home'; }
   if (tab === 'schedule' && !featureOn('feature_my_schedule')) { toast('My Schedule is off for now.','error'); tab = 'more'; }
@@ -736,7 +743,7 @@ navigate = function(tab){
     home: renderHome, meals: renderMeals, boat: renderBoat, more: renderMore, bookings: renderMyBookings, profile: renderMyProfile, schedule: renderSchedule,
     history: v3RenderHistory, leave: v3RenderLeave, notifications: v3RenderNotifications, deptstaff: v3RenderDeptStaff, deptupdates: v3RenderDeptUpdates,
     chef: v3RenderChefHub, chefreq: v3RenderChefRequests, chefcomments: v3RenderChefComments, chefreports: v3RenderChefReports, chefmenu: v3RenderMenuEditor,
-    kitchen: renderKitchen, manage: v3RenderManage, usersv3: v3RenderUsers, reminders: v3RenderReminders, adminstatus: v3RenderAdminStatus, migrate: v3RenderMigrate,
+    kitchen: renderKitchen, manage: v3RenderManage, usersv3: v3RenderUsers, users: renderUsers, reminders: v3RenderReminders, adminstatus: v3RenderAdminStatus, leavecal: v3RenderLeaveCalendar,
     settings: v3RenderSettings, admin: renderAdmin, suggestions: renderSuggestions, approvals: v3RenderApprovals, special: v3RenderSpecialPage,
     station: v3RenderStationMore, stboat: v3RenderBoatStation, stations: v3RenderStationLogins, snapshots: v3RenderSnapshots
   };
@@ -775,6 +782,7 @@ function v3TickCountdowns(){
     else el.textContent = v3Countdown(left);
   });
   const ck = $('#v3-clock'); if (ck) ck.textContent = formatFiji();
+  if (!state._v3BannerAt || Date.now() - state._v3BannerAt > 20000) { state._v3BannerAt = Date.now(); try { v3RefreshCutoffBanner(); } catch (e) {} }
 }
 function v3StartTicker(){
   if (state._v3Timer) clearInterval(state._v3Timer);
@@ -794,6 +802,34 @@ function v3MyMeal(meal, date){
   const active = rows.filter(function(o){ return !isInactiveMealStatus(o.status); });
   const pick = (active.length ? active : rows);
   return pick[pick.length - 1];
+}
+/** 39: meals that close within the next hour and that I have not ordered (client clock, plus the server's list from getV3Home). */
+function v3CutoffReminderList(){
+  if (v3Station()) return [];
+  const tom = fijiDateString(addFijiDays(getFijiNow(),1)), now = getFijiNow().getTime(), out = [];
+  V3_MEALS.forEach(function(m){
+    const cd = v3CutoffTarget(m); if (!cd || cd.late) return;
+    const left = cd.t.getTime() - now; if (left <= 0 || left > 60*60000) return;
+    const o = v3MyMeal(m, tom); if (o && !isInactiveMealStatus(o.status)) return;
+    out.push({ meal: m, t: cd.t.getTime(), label: cd.label });
+  });
+  if (!out.length) (v3Home().cutoffReminders || []).forEach(function(r){
+    const cd = v3CutoffTarget(r.meal); const o = v3MyMeal(r.meal, tom);
+    if (cd && !cd.late && cd.t.getTime() > now && !(o && !isInactiveMealStatus(o.status))) out.push({ meal: r.meal, t: cd.t.getTime(), label: cd.label });
+  });
+  return out;
+}
+function v3CutoffBanner(){
+  const list = v3CutoffReminderList();
+  if (!list.length) return '<div id="v3-cutoff-banner" class="hidden"></div>';
+  return '<button type="button" id="v3-cutoff-banner" onclick="navigate(\''+list[0].meal+'\')" class="w-full text-left rounded-2xl border border-amber-400/60 bg-amber-500/15 p-3 text-xs text-amber-100 min-w-0" data-meals="'+list.map(function(x){ return x.meal; }).join(',')+'">'+
+    '<i class="fa-solid fa-bell mr-1 text-amber-300"></i><strong>Order soon:</strong> '+list.map(function(x){ return esc(V3_MEAL_LABEL[x.meal])+' for tomorrow closes in <span data-cd="'+x.t+'" class="v3-countdown font-semibold">'+v3Countdown(x.t-getFijiNow().getTime())+'</span>'; }).join(' · ')+
+    ' — you have not ordered yet. <span class="underline">Order now</span></button>';
+}
+function v3RefreshCutoffBanner(){
+  const el = $('#v3-cutoff-banner'); if (!el) return;
+  const want = v3CutoffReminderList().map(function(x){ return x.meal; }).join(',');
+  if ((el.getAttribute('data-meals') || '') !== want) { el.outerHTML = v3CutoffBanner(); if (state.tab === 'home') { const g = $('#home-meal-grid'); if (g) { const n = $('#home-myorders'); if (n) n.outerHTML = v3OrdersGrid(); } } }
 }
 function v3CancelsUsed(meal){
   const tom = fijiDateString(addFijiDays(getFijiNow(),1));
@@ -849,11 +885,12 @@ function v3GreetingCard(){
 function v3OrdersGrid(){
   const tom = fijiDateString(addFijiDays(getFijiNow(),1));
   let anyClosed = false;
+  const soon = v3CutoffReminderList().map(function(x){ return x.meal; });
   const cards = V3_MEALS.map(function(m){
     const o = v3MyMeal(m, tom), cd = v3CutoffTarget(m);
     if (!cd) anyClosed = true;
-    const open = !!cd && !cd.late;
-    return '<button type="button" id="home-card-'+m+'" onclick="navigate(\''+m+'\')" class="meal-card-btn glass rounded-xl p-2.5 text-left min-w-0 '+(open?'meal-open-glow border-teal-600/40':'')+'">'+
+    const open = !!cd && !cd.late, hl = soon.indexOf(m) >= 0;
+    return '<button type="button" id="home-card-'+m+'" onclick="navigate(\''+m+'\')" class="meal-card-btn glass rounded-xl p-2.5 text-left min-w-0 '+(hl?'border-2 border-amber-400 v3-cutoff-soon':(open?'meal-open-glow border-teal-600/40':''))+'"'+(hl?' data-cutoff-soon="1"':'')+'>'+
       '<p class="text-[10px] uppercase tracking-wide text-slate-400"><i class="fa-solid '+V3_MEAL_ICON[m]+' mr-1"></i>'+V3_MEAL_LABEL[m]+'</p>'+
       '<p class="text-[11px] mt-1 min-w-0 truncate">'+(o ? (m==='dinner'&&o.mealChoice&&!isInactiveMealStatus(o.status) ? '<span class="font-medium text-slate-100">'+esc(o.mealChoice)+'</span>' : '') : '')+'</p>'+
       '<p class="mt-0.5">'+(o ? v3Status(o.status) : '<span class="text-[11px] text-slate-400">Not ordered</span>')+'</p>'+
@@ -1002,7 +1039,7 @@ function renderHome(){
   if (v3IsSuper()) return v3RenderSuperHome();
   const h = v3Home();
   $('#main-content').innerHTML = v3Page(
-    v3GreetingCard() + v3DeptBanner() + queueHostHtml('*') +
+    v3GreetingCard() + v3CutoffBanner() + v3DeptBanner() + queueHostHtml('*') +
     (v3CanDept() ? v3HodBar() : '') +
     (v3IsChef() ? v3ChefDashCard(h.chef) : '') +
     v3OrdersGrid() + v3DoThisNow() +
@@ -1100,7 +1137,7 @@ async function v3RenderLeave(){
   state.leaveTab = cur;
   $('#main-content').innerHTML = v3Page(v3Back('more','More') +
     (tabs.length > 1 ? '<div class="grid gap-1 rounded-xl bg-slate-900/60 p-1" style="grid-template-columns:repeat('+tabs.length+',1fr)">'+tabs.map(function(t){ return '<button type="button" class="v3-seg rounded-lg py-2 text-xs '+(t.id===cur?'bg-teal-600 text-white font-semibold':'text-slate-300')+'" data-t="'+t.id+'">'+t.label+'</button>'; }).join('')+'</div>' : '')+
-    (cur === 'mine' ? '<button type="button" id="lv-new" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white"><i class="fa-solid fa-plus mr-1"></i>New leave request</button>' : '')+
+    (cur === 'mine' ? '<button type="button" id="lv-new" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white"><i class="fa-solid fa-plus mr-1"></i>New leave request</button>' : '<button type="button" onclick="navigate(\'leavecal\')" class="w-full rounded-xl py-2.5 text-sm border border-teal-500/40 text-teal-200"><i class="fa-solid fa-calendar-days mr-1"></i>Leave calendar</button>')+
     '<div id="lv-list" class="space-y-2">'+v3Loading()+'</div>', 'leave-root');
   $$('.v3-seg').forEach(function(b){ b.onclick = function(){ state.leaveTab = b.dataset.t; v3RenderLeave(); }; });
   const nb = $('#lv-new'); if (nb) nb.onclick = v3OpenLeaveForm;
@@ -1117,6 +1154,50 @@ async function v3RenderLeave(){
   list.innerHTML = (cur !== 'mine' ? '<p class="text-[11px] text-slate-400">'+pendingN+' waiting for your decision'+(cur==='final'?' (already approved by the HOD)':'')+'</p>' : '') +
     (rows.length ? rows.map(function(l){ return v3LeaveCard(l, cur === 'mine' ? 'mine' : 'review'); }).join('') : v3Empty(cur === 'mine' ? 'You have no leave requests yet.' : 'Nothing here.'));
   v3BindLeaveCards(list, v3RenderLeave);
+}
+
+/** 38: leave calendar — HOD / assistant HOD see their department, admin / superadmin see everyone (or one department). */
+async function v3RenderLeaveCalendar(){
+  const now = getFijiNow();
+  const month = state.lcMonth || fijiDateString(now).slice(0,7);
+  state.lcMonth = month;
+  const y = +month.slice(0,4), m = +month.slice(5,7);
+  const shift = function(k){ const d = new Date(Date.UTC(y, m-1+k, 1)); return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0'); };
+  const MN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  $('#main-content').innerHTML = v3Page(v3Back(v3IsAdmin()?'manage':'more', v3IsAdmin()?'Manage':'More') +
+    '<section class="glass rounded-2xl p-3 space-y-3 min-w-0" id="leavecal-root"><div class="v3-row"><button type="button" id="lc-prev" class="rounded-lg px-3 py-2 border border-slate-600 text-slate-200" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>'+
+    '<h3 class="text-sm font-semibold text-slate-100" id="lc-title">'+MN[m-1]+' '+y+'</h3><button type="button" id="lc-next" class="rounded-lg px-3 py-2 border border-slate-600 text-slate-200" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></button></div>'+
+    '<div id="lc-dept"></div><div id="lc-grid">'+v3Loading()+'</div>'+
+    '<div class="flex gap-3 text-[10px] text-slate-400"><span><span class="inline-block w-2 h-2 rounded-full bg-teal-400 mr-1"></span>Approved</span><span><span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span>Waiting (HOD or management)</span></div></section>'+
+    '<div id="lc-list" class="space-y-2"></div>', 'leavecal');
+  $('#lc-prev').onclick = function(){ state.lcMonth = shift(-1); v3RenderLeaveCalendar(); };
+  $('#lc-next').onclick = function(){ state.lcMonth = shift(1); v3RenderLeaveCalendar(); };
+  const d = await v3Call('getLeaveCalendar', { month: month, department: state.lcDept || '' });
+  if (state.tab !== 'leavecal' || !d) return;
+  if (d.allDepartments) {
+    $('#lc-dept').innerHTML = '<select id="lc-dsel" class="ui-input w-full"><option value="">All departments</option>'+(d.departments||[]).map(function(x){ return '<option'+(x===(state.lcDept||'')?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select>';
+    $('#lc-dsel').onchange = function(){ state.lcDept = this.value; v3RenderLeaveCalendar(); };
+  } else $('#lc-dept').innerHTML = '<p class="text-[11px] text-slate-400">Department: '+esc(d.department||'')+'</p>';
+  const rows = d.leave || [];
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate(), startWd = new Date(Date.UTC(y, m-1, 1)).getUTCDay();
+  const today = fijiDateString();
+  const on = function(ds){ return rows.filter(function(l){ return l.startDate <= ds && l.endDate >= ds; }); };
+  let cells = ['Su','Mo','Tu','We','Th','Fr','Sa'].map(function(w){ return '<div class="text-[10px] text-slate-500 text-center">'+w+'</div>'; }).join('');
+  for (let i = 0; i < startWd; i++) cells += '<div></div>';
+  for (let dd = 1; dd <= days; dd++) {
+    const ds = month+'-'+String(dd).padStart(2,'0'), list = on(ds);
+    const ap = list.filter(function(l){ return l.status === 'approved'; }).length, pe = list.length - ap;
+    cells += '<button type="button" class="lc-day rounded-lg border p-1 min-h-[44px] text-left min-w-0 '+(ds===today?'border-teal-400':'border-slate-700/60')+(list.length?' bg-slate-800/70':'')+'" data-ds="'+ds+'">'+
+      '<span class="block text-[11px] text-slate-200">'+dd+'</span><span class="flex gap-0.5 flex-wrap">'+(ap?'<span class="text-[9px] rounded bg-teal-500/30 text-teal-100 px-1">'+ap+'</span>':'')+(pe?'<span class="text-[9px] rounded bg-amber-500/30 text-amber-100 px-1">'+pe+'</span>':'')+'</span></button>';
+  }
+  $('#lc-grid').innerHTML = '<div class="grid grid-cols-7 gap-1">'+cells+'</div>';
+  const listHtml = function(list, title){
+    return v3Card(v3Title('fa-list', title, v3Chip(String(list.length), list.length?'info':'mute'))+(list.length ? list.map(function(l){
+      return '<div class="v3-row py-1.5 border-b border-slate-700/40 last:border-0 text-xs min-w-0"><div class="min-w-0"><p class="text-slate-100 truncate">'+esc(l.userName)+' <span class="text-slate-400">· '+esc(l.department)+'</span></p><p class="text-[11px] text-slate-400">'+esc(l.leaveType||'')+' · '+esc(v3DateLabel(l.startDate))+(l.endDate!==l.startDate?' → '+esc(v3DateLabel(l.endDate)):'')+'</p></div>'+v3Status(l.status)+'</div>';
+    }).join('') : v3Empty('No approved or waiting leave.')));
+  };
+  $('#lc-list').innerHTML = listHtml(rows, 'This month');
+  $$('.lc-day').forEach(function(b){ b.onclick = function(){ $('#lc-list').innerHTML = listHtml(on(b.dataset.ds), v3DateLabel(b.dataset.ds)) + '<button type="button" id="lc-all" class="text-xs text-teal-300">Show the whole month</button>'; $('#lc-all').onclick = function(){ $('#lc-list').innerHTML = listHtml(rows, 'This month'); }; }; });
 }
 
 /* ============ G. Meals (one page) ============ */
@@ -1368,7 +1449,7 @@ function v3SpecialEntry(){
 function v3PaintMeals(){
   const focus = state.mealFocus; state.mealFocus = null;
   const keepLate = $('#late-reason') ? $('#late-reason').value : '';
-  $('#main-content').innerHTML = v3Page(queueHostHtml('breakfast,lunch,dinner') + v3StatusBlock() +
+  $('#main-content').innerHTML = v3Page(v3CutoffBanner() + queueHostHtml('breakfast,lunch,dinner') + v3StatusBlock() +
     V3_MEALS.map(v3MealCard).join('') + v3LateCard() + v3SpecialEntry() + v3WeeklyMenuHtml(cachePeek('weeklyMenu')) + v3FeedbackCard(), 'meals-root');
   bindQueueButtons(); v3BindMealCards(); v3BindLateCard(); v3BindVotes(); v3BindFeedback(); v3StartTicker();
   if (keepLate && $('#late-reason')) $('#late-reason').value = keepLate;
@@ -1450,6 +1531,15 @@ function v3BindRequestCards(root, after){
   }; });
 }
 async function v3RenderSpecialPage(){
+  if (v3Station()) { // Chef station: HOD special meal orders to accept / decline (stations never place orders)
+    $('#main-content').innerHTML = v3Page(v3Back('chef','Chef') + '<section class="glass rounded-2xl p-4 space-y-2 min-w-0">'+v3Title('fa-star','Special meal orders from HODs (last 3 days)')+'<div id="sp-list">'+v3Loading()+'</div></section>', 'special-root');
+    const d0 = await v3Call('getMealRequests', { days: 3 });
+    if (state.tab !== 'special') return;
+    const rows0 = ((d0 && d0.requests) || []).filter(function(x){ return x.kind === 'special'; });
+    $('#sp-list').innerHTML = rows0.length ? '<div class="space-y-2">'+rows0.map(function(x){ return v3RequestCard(x, true); }).join('')+'</div>' : v3Empty('None yet.');
+    v3BindRequestCards($('#sp-list'), v3RenderSpecialPage);
+    return;
+  }
   $('#main-content').innerHTML = v3Page(v3Back('meals','Meals') + v3SpecialEntry() + '<section class="glass rounded-2xl p-4 space-y-2 min-w-0">'+v3Title('fa-list','Special orders I sent (last 3 days)')+'<div id="sp-list">'+v3Loading()+'</div></section>', 'special-root');
   const d = await v3Call('getMealRequests', { days: 3 });
   if (state.tab !== 'special') return;
@@ -1475,15 +1565,15 @@ async function v3RenderApprovals(){
     const hodStep = rows.filter(function(l){ return l.status === 'pending_hod'; }).map(function(l){ l.canDecide = true; return l; });
     const mgmt = v3IsAdmin() ? rows.filter(function(l){ return l.status === 'pending_manager'; }).map(function(l){ l.canDecide = true; return l; }) : [];
     html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-leave">'+v3Title('fa-plane-departure','Leave — HOD step', v3Chip(String(hodStep.length), hodStep.length?'warn':'mute'))+
-      (hodStep.length ? hodStep.map(function(l){ return v3LeaveCard(l, 'review'); }).join('') : v3Empty('No leave waiting for the HOD step.'))+'</section>';
+      (hodStep.length ? v3ApproveAllBtn('leave', hodStep.length) + hodStep.map(function(l){ return v3LeaveCard(l, 'review'); }).join('') : v3Empty('No leave waiting for the HOD step.'))+'</section>';
     if (v3IsAdmin()) html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-final">'+v3Title('fa-stamp','Leave — final approval (management)', v3Chip(String(mgmt.length), mgmt.length?'warn':'mute'))+
-      (mgmt.length ? mgmt.map(function(l){ return v3LeaveCard(l, 'review'); }).join('') : v3Empty('Nothing waiting for final approval.'))+'</section>';
+      (mgmt.length ? v3ApproveAllBtn('final', mgmt.length) + mgmt.map(function(l){ return v3LeaveCard(l, 'review'); }).join('') : v3Empty('Nothing waiting for final approval.'))+'</section>';
   }
   if (wantMeals) {
     const reqs = ((mr && mr.data && mr.data.requests) || []).filter(function(x){ return x.canDecide; });
     const late = reqs.filter(function(x){ return x.kind === 'late'; }), sp = reqs.filter(function(x){ return x.kind === 'special'; });
     html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-late">'+v3Title('fa-clock-rotate-left','Late meal requests', v3Chip(String(late.length), late.length?'warn':'mute'))+
-      (late.length ? late.map(function(x){ return v3RequestCard(x, true); }).join('') : v3Empty('No late meal requests waiting.'))+'</section>';
+      (late.length ? v3ApproveAllBtn('late', late.length) + late.map(function(x){ return v3RequestCard(x, true); }).join('') : v3Empty('No late meal requests waiting.'))+'</section>';
     if (v3CanChef()) html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-special">'+v3Title('fa-star','Special meal requests', v3Chip(String(sp.length), sp.length?'warn':'mute'))+
       (sp.length ? sp.map(function(x){ return v3RequestCard(x, true); }).join('') : v3Empty('No special requests waiting.'))+'</section>';
   }
@@ -1491,12 +1581,24 @@ async function v3RenderApprovals(){
     let pend = [];
     if (js && js.success) pend = v3IsAdmin() ? (js.data.users||[]).filter(function(u){ return u.deptStatus === 'pending' && (u.active || u.verified); }) : (js.data.pending||[]);
     html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-joins">'+v3Title('fa-user-plus','Department join requests', v3Chip(String(pend.length), pend.length?'warn':'mute'))+
-      (pend.length ? pend.map(v3JoinCard).join('') : v3Empty('No one is waiting to join.'))+'</section>';
+      (pend.length ? v3ApproveAllBtn('joins', pend.length) + pend.map(v3JoinCard).join('') : v3Empty('No one is waiting to join.'))+'</section>';
   }
   $('#ap-body').innerHTML = html || v3Empty('Nothing needs your approval.');
   const root = $('#ap-body');
   const again = function(){ cacheInvalidate(['v3home']); v3RefreshHome().then(function(){ renderNav('#bottom-nav'); }); v3RenderApprovals(); };
   v3BindLeaveCards(root, again); v3BindRequestCards(root, again); v3BindJoinCards(root, again);
+  root.querySelectorAll('.v3-ap-all').forEach(function(b){ b.onclick = async function(){
+    const what = { leave:'leave requests (HOD step)', final:'leave requests (final approval)', late:'late meal requests', joins:'join requests' }[b.dataset.k];
+    if (!confirm('Approve all '+b.dataset.n+' '+what+'?')) return;
+    b.disabled = true;
+    const d = await v3Call('approveAllPending', { kind: b.dataset.k });
+    b.disabled = false;
+    if (d) { toast('Approved '+d.approved+(d.skipped ? ' · '+d.skipped+' skipped (not yours to decide)' : ''), 'ok'); cacheInvalidate(['v3home','mealRequests','kitchenDashboard']); again(); }
+  }; });
+}
+/** Item 37: one "Approve all" button per approvals section (the server re-checks every item). */
+function v3ApproveAllBtn(kind, n){
+  return '<button type="button" class="v3-ap-all w-full rounded-xl py-2 text-xs font-semibold border border-emerald-500/50 text-emerald-200 bg-emerald-500/10" data-k="'+kind+'" data-n="'+n+'" id="ap-all-'+kind+'"><i class="fa-solid fa-check-double mr-1"></i>Approve all ('+n+')</button>';
 }
 function v3JoinCard(u){
   return '<article class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-2 min-w-0"><div class="v3-row"><div class="min-w-0"><p class="text-sm text-slate-100 truncate">'+esc(fullDisplayName(u))+'</p>'+
@@ -1597,6 +1699,7 @@ function renderMore(){
     if (v3CanDept()) html += group(v3IsAdmin() ? 'Departments' : 'My department · '+esc(u.department||''),
       v3Row(v3Nav('approvals'),'fa-inbox','Approvals inbox','Leave, late meals, join requests', (hb.leave||0)+(hb.late||0)+(hb.joins||0)+(hb.leaveMgmt||0)) +
       v3Row("state.leaveTabForce='"+(v3IsAdmin()?'final':'dept')+"';navigate('leave')",'fa-calendar-check','Leave requests','View all · approve or decline') +
+      v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view · approved and waiting') +
       v3Row(v3Nav('deptstaff'),'fa-users','Department staff','Join requests, edit, remove', hb.joins||0) +
       v3Row(v3Nav('deptupdates'),'fa-bullhorn','Department updates','Post, comments, likes') +
       v3Row(v3Nav('special'),'fa-star','Special meal orders','For staff without a phone or contractors'));
@@ -1605,11 +1708,12 @@ function renderMore(){
       v3Row(v3Nav('kitchen'),'fa-list-ol','Kitchen lists','Calculate, view, print, download') +
       v3Row(v3Nav('chefmenu'),'fa-pen-to-square','Edit menu','With like / dislike counts') +
       v3Row(v3Nav('chefcomments'),'fa-comment-dots','Food comments','Chef feedback from staff', h.chef ? h.chef.feedbackNew : 0) +
-      v3Row(v3Nav('chefreports'),'fa-chart-column','Reports & roster','Daily / weekly / monthly, roster compare'));
+      v3Row(v3Nav('chefreports'),'fa-chart-column','Reports & roster','Daily / weekly / monthly, roster compare') +
+      v3Row(v3Nav('snapshots'),'fa-box-archive','Meal summaries','Last 5 days · preview, PDF, print'));
     if (v3IsAdmin()) html += group('Admin', v3Row(v3Nav('manage'),'fa-sliders','Manage','All admin tools') + v3Row(v3Nav('usersv3'),'fa-users-gear','Users & roles','') +
       v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') +
       v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Admin status & reports','Download everything'));
-    if (v3HasBoat()) html += group('Boat', v3Row(v3Nav('stboat'),'fa-ship','Boat page','Until the Boat station login is set up'));
+    if (v3HasBoat()) html += group('Boat', v3Row(v3Nav('stboat'),'fa-ship','Boat page','Bookings, passengers, runs, boat tools'));
   }
   html += '<section class="glass rounded-2xl overflow-hidden">'+v3Row('doLogout()','fa-right-from-bracket','Sign out','')+'</section>'+
     '<p class="text-center text-[10px] text-slate-500">PCR Staff App '+esc(APP_VERSION)+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>';
@@ -1908,15 +2012,16 @@ function v3ManageGroups(){
     v3Row("state.leaveTabForce='final';navigate('leave')",'fa-stamp','Leave — final approval','After the HOD step', hb.leaveMgmt||sd.leaveMgmt||0));
   html += g('People', v3Row(v3Nav('usersv3'),'fa-users-gear','Users & roles','Edit, delete, roles, departments, assistant HOD') +
     v3Row(v3Nav('deptstaff'),'fa-people-group','Departments','Join requests and staff per department', hb.joins||0) +
-    v3Row(v3Nav('migrate'),'fa-shuffle','Role migration (3.0)','Preview, then apply'));
+    v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view · approved and waiting') +
+    v3Row(v3Nav('users'),'fa-address-book','Staff directory (classic)','2.x list · add user, import CSV, pending sign-ups'));
   if (v3IsSuper()) html += g('Stations', v3Row(v3Nav('chef'),'fa-fire-burner','Chef page','Open as superadmin — actions are in your name', h.chef ? h.chef.pending.late + h.chef.pending.special : 0) +
     v3Row(v3Nav('stboat'),'fa-ship','Boat page','Bookings, passengers, runs, boat tools') +
     v3Row(v3Nav('stations'),'fa-key','Station logins','Chef & Boat usernames, passwords, sign out devices'));
-  else if (v3CanChef() || v3HasBoat()) html += g('Until the station logins are set up', (v3CanChef() ? v3Row(v3Nav('chef'),'fa-fire-burner','Chef page','') : '') + (v3HasBoat() ? v3Row(v3Nav('stboat'),'fa-ship','Boat page','') : ''));
+  else if (v3CanChef() || v3HasBoat()) html += g('Kitchen & boat tools', (v3CanChef() ? v3Row(v3Nav('chef'),'fa-fire-burner','Chef page','') : '') + (v3HasBoat() ? v3Row(v3Nav('stboat'),'fa-ship','Boat page','') : ''));
   html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject') +
     v3Row(v3Nav('deptupdates'),'fa-bullhorn','Department updates',''));
   html += g('Reports & system', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Admin status & reports','Download all app data') +
-    v3Row(v3Nav('snapshots'),'fa-box-archive','Saved order summaries','Dinner lists saved at the 8pm cutoff · PDF / print') +
+    v3Row(v3Nav('snapshots'),'fa-box-archive','Meal summaries','Breakfast, lunch & dinner · last 5 days · PDF / print') +
     (v3IsSuper() ? v3Row(v3Nav('settings'),'fa-gear','App settings','Email sender, features, alert emails') : ''));
   return html;
 }
@@ -1925,16 +2030,15 @@ async function v3RenderUsers(){
   const f = state.uf || { q:'', role:'', dept:'' }; state.uf = f;
   $('#main-content').innerHTML = v3Page(v3Back('manage','Manage') +
     '<section class="glass rounded-2xl p-3 space-y-2 min-w-0"><input id="uf-q" class="ui-input w-full" placeholder="Search name or email" value="'+esc(f.q)+'"/>'+
-    '<div class="grid grid-cols-2 gap-2"><select id="uf-role" class="ui-input w-full min-w-0"><option value="">All roles</option>'+V3_ASSIGNABLE_ROLES.map(function(r){ return '<option value="'+r+'"'+(f.role===r?' selected':'')+'>'+V3_ROLE_LABEL[r]+'</option>'; }).join('')+'<option value="legacy"'+(f.role==='legacy'?' selected':'')+'>Old chef / boat permission</option><option value="asst"'+(f.role==='asst'?' selected':'')+'>Assistant HOD</option><option value="pending"'+(f.role==='pending'?' selected':'')+'>Waiting to join</option></select>'+
+    '<div class="grid grid-cols-2 gap-2"><select id="uf-role" class="ui-input w-full min-w-0"><option value="">All roles</option>'+V3_ROLE_FILTERS.map(function(r){ return '<option value="'+r+'"'+(f.role===r?' selected':'')+'>'+V3_ROLE_LABEL[r]+'</option>'; }).join('')+'<option value="asst"'+(f.role==='asst'?' selected':'')+'>Assistant HOD</option><option value="pending"'+(f.role==='pending'?' selected':'')+'>Waiting to join</option></select>'+
     '<select id="uf-dept" class="ui-input w-full min-w-0"><option value="">All departments</option>'+PCR_DEPARTMENTS.map(function(d){ return '<option'+(f.dept===d?' selected':'')+'>'+esc(d)+'</option>'; }).join('')+'</select></div></section>'+
     '<div id="uf-list" class="space-y-2">'+v3Loading()+'</div>', 'users-root');
   const r = await api('getUsers', { activeOnly:false }).catch(function(){ return null; });
   if (state.tab !== 'usersv3') return;
   if (!r || !r.success) { $('#uf-list').innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load users')+'</p>'); return; }
   const all = r.data.users || [];
-  state._v3Seats = r.data.seats || null;
-  const seatBox = r.data.seats ? '<section class="glass rounded-2xl p-3 space-y-2 min-w-0">'+v3Title('fa-chair','Role seats')+v3SeatChips(r.data.seats)+
-    '<p class="text-[10px] text-slate-500">Active accounts only. Chef and Boat are shared station logins (Manage → Station logins) — they use no seats.</p></section>' : '';
+  const countBox = r.data.roleCounts ? '<section class="glass rounded-2xl p-3 space-y-2 min-w-0">'+v3Title('fa-users','Role counts')+v3RoleCountChips(r.data.roleCounts)+
+    '<p class="text-[10px] text-slate-500">Active accounts. Someone with two permissions (e.g. admin + HOD) counts in both. No limits.</p></section>' : '';
   const paint = function(){
     const q = f.q.toLowerCase();
     const list = all.filter(function(u){
@@ -1942,14 +2046,13 @@ async function v3RenderUsers(){
       if (f.dept && u.department !== f.dept) return false;
       if (f.role === 'asst') return !!u.assistantHod || userPerms(u).includes('assistant_hod');
       if (f.role === 'pending') return u.deptStatus === 'pending';
-      if (f.role === 'legacy') return !!v3LegacyStation(u);
       if (f.role && v3RoleOf(u) !== f.role) return false;
       return true;
     });
-    $('#uf-list').innerHTML = seatBox + '<p class="text-[11px] text-slate-400 px-1">'+list.length+' of '+all.length+' users</p>'+list.slice(0, 200).map(function(u){
+    $('#uf-list').innerHTML = countBox + '<p class="text-[11px] text-slate-400 px-1">'+list.length+' of '+all.length+' users</p>'+list.slice(0, 200).map(function(u){
       const ro = v3RoleOf(u), warn = (u.warnings||[]);
       return '<button type="button" class="v3-user w-full text-left glass rounded-xl p-3 min-w-0" data-email="'+esc(u.email)+'"><div class="v3-row"><p class="text-sm text-slate-100 truncate min-w-0">'+esc(fullDisplayName(u))+'</p>'+
-        '<span class="flex gap-1 shrink-0">'+v3Chip(esc(V3_ROLE_LABEL[ro]), ro==='staff'?'mute':'ok')+(v3LegacyStation(u)?v3Chip('old '+v3LegacyStation(u)+' perm','warn'):'')+(ro!=='hod'&&ro!=='admin'&&ro!=='super_admin'&&(u.assistantHod||userPerms(u).includes('assistant_hod'))?v3Chip('Asst HOD','info'):'')+(!u.active?v3Chip('inactive','bad'):'')+'</span></div>'+
+        '<span class="flex gap-1 shrink-0">'+v3Chip(esc(V3_ROLE_LABEL[ro]||ro), ro==='staff'?'mute':'ok')+(ro!=='hod'&&ro!=='admin'&&ro!=='super_admin'&&(u.assistantHod||userPerms(u).includes('assistant_hod'))?v3Chip('Asst HOD','info'):'')+(!u.active?v3Chip('inactive','bad'):'')+'</span></div>'+
         '<p class="text-[11px] text-slate-400 truncate">'+esc(u.email)+' · '+esc(u.department||'—')+(u.deptStatus && u.deptStatus!=='approved'?' · <span class="text-amber-300">'+esc(u.deptStatus)+'</span>':'')+'</p>'+
         (warn.length ? '<p class="text-[10px] text-amber-200 mt-1 break-words"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+esc(warn.join(' · '))+'</p>' : '')+'</button>';
     }).join('');
@@ -1962,36 +2065,41 @@ async function v3RenderUsers(){
 }
 function v3EditUser(u){
   if (!u) return;
-  const cur = v3RoleOf(u), seats = state._v3Seats || {};
-  const roles = V3_ASSIGNABLE_ROLES.filter(function(r){ return v3IsSuper() || (r !== 'admin' && r !== 'super_admin') || r === cur; });
-  const seatFull = function(r){ const x = seats[r]; return !!x && r !== cur && x.used >= x.limit; };
-  const roleOpt = function(r){ const x = seats[r]; return { value:r, label: V3_ROLE_LABEL[r] + (x ? ' ('+x.used+' of '+x.limit+(seatFull(r)?' — full':'')+')' : ''), disabled: seatFull(r) }; };
-  const warn = (u.warnings||[]).length ? '<br><span class="text-amber-200 text-[11px]"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+esc(u.warnings.join(' · '))+'</span>' : '';
-  v3Form('Edit '+fullDisplayName(u), [
-    { id:'role', label:'Role', type:'select', options: roles.map(roleOpt), value: cur },
-    { id:'department', label:'Department', type:'select', options: PCR_DEPARTMENTS.indexOf(u.department) >= 0 || !u.department ? PCR_DEPARTMENTS : [u.department].concat(PCR_DEPARTMENTS), value: u.department },
-    { id:'deptStatus', label:'Department status', type:'select', options:[{value:'approved',label:'Accepted'},{value:'pending',label:'Waiting for HOD'},{value:'declined',label:'Declined'},{value:'removed',label:'Removed'}], value: u.deptStatus || 'approved' },
-    { id:'assistantHod', label:'Assistant HOD of this department (HOD approval rights for leave & late meals; not needed for HOD / admin)', type:'checkbox', value: !!u.assistantHod || userPerms(u).includes('assistant_hod') },
-    { id:'active', label:'Account active', type:'checkbox', value: !!u.active }
-  ], 'Save changes', async function(v){
-    const p = { targetEmail: u.email, assistantHod: v.assistantHod ? 'true' : 'false', active: v.active ? 'true' : 'false' };
-    if (v.role !== cur || v3LegacyStation(u)) p.role = v.role; // saving an old chef / boat account drops that permission
-    if (v.department !== u.department) p.department = v.department;
-    else if (v.deptStatus !== (u.deptStatus || 'approved')) p.deptStatus = v.deptStatus;
-    const top = ['admin','super_admin'];
-    if (v.role !== cur && (top.indexOf(v.role) >= 0 || top.indexOf(cur) >= 0)) {
-      const pass = await askPasscode('super', 'Granting or removing admin / superadmin needs the admin password.'); if (!pass) return false;
-      p.passcode = pass;
-    }
+  const cur = userPerms(u).map(function(x){ return x === 'kitchen' ? 'chef' : x === 'boat' ? 'boat_manager' : x; });
+  if (v3Truthy(u.assistantHod) && cur.indexOf('assistant_hod') < 0) cur.push('assistant_hod');
+  const excl = v3Exclusive();
+  const opts = V3_PERM_OPTIONS.filter(function(o){ return !(excl && ['chef','boat_manager','boat_captain'].indexOf(o[0]) >= 0 && cur.indexOf(o[0]) < 0); });
+  const warn = (u.warnings||[]).length ? '<p class="text-amber-200 text-[11px]"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+esc(u.warnings.join(' · '))+'</p>' : '';
+  const permBox = '<div class="space-y-1 min-w-0"><p class="text-[11px] text-slate-400">Permissions (same as the live app — tick all that apply)</p><div class="grid grid-cols-2 gap-1" id="eu3-perms">'+opts.map(function(o){
+    const top = o[0] === 'admin' || o[0] === 'super_admin', lock = top && !v3IsSuper();
+    return '<label class="flex items-center gap-2 text-xs text-slate-200 rounded-lg border border-slate-700/60 px-2 py-1.5 min-w-0'+(lock?' opacity-50':'')+'"><input type="checkbox" class="eu3-perm" value="'+o[0]+'"'+(cur.indexOf(o[0])>=0?' checked':'')+(lock||o[0]==='staff'?' disabled':'')+'/> <span class="truncate">'+esc(o[1])+'</span></label>';
+  }).join('')+'</div><p class="text-[10px] text-slate-500">Only a superadmin can grant or remove Admin / Superadmin. Assistant HOD = HOD approval rights for their own department.</p></div>';
+  const html = '<div class="space-y-3 min-w-0"><h3 class="font-semibold text-slate-100">Edit '+esc(fullDisplayName(u))+'</h3><p class="text-xs text-slate-400 break-all">'+esc(u.email)+'</p>'+warn+permBox+
+    '<div class="space-y-1 min-w-0"><label for="eu3-dept" class="text-[11px] text-slate-400">Department</label><select id="eu3-dept" class="ui-input w-full">'+(PCR_DEPARTMENTS.indexOf(u.department) >= 0 || !u.department ? PCR_DEPARTMENTS : [u.department].concat(PCR_DEPARTMENTS)).map(function(d){ return '<option'+(d===u.department?' selected':'')+'>'+esc(d)+'</option>'; }).join('')+'</select></div>'+
+    '<div class="space-y-1 min-w-0"><label for="eu3-ds" class="text-[11px] text-slate-400">Department status</label><select id="eu3-ds" class="ui-input w-full">'+[['approved','Accepted'],['pending','Waiting for HOD'],['declined','Declined'],['removed','Removed']].map(function(o){ return '<option value="'+o[0]+'"'+((u.deptStatus||'approved')===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')+'</select></div>'+
+    '<label class="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" id="eu3-active"'+(u.active?' checked':'')+'/> Account active</label>'+
+    '<div class="flex gap-2 pt-1"><button type="button" id="eu3-cancel" class="flex-1 rounded-xl py-2.5 text-sm border border-slate-600 text-slate-300">Close</button><button type="button" id="eu3-save" class="flex-1 btn-primary rounded-xl py-2.5 text-sm font-semibold text-white">Save changes</button></div>'+
+    (v3IsSuper() ? '<button type="button" id="v3-del-user" class="text-rose-300 text-xs"><i class="fa-solid fa-trash mr-1"></i>Delete this user</button>' : '')+'</div>';
+  openModal(html);
+  $('#eu3-cancel').onclick = closeModal;
+  $('#eu3-save').onclick = async function(){
+    const perms = $$('.eu3-perm').filter(function(b){ return b.checked || b.value === 'staff'; }).map(function(b){ return b.value; });
+    const p = { targetEmail: u.email, active: $('#eu3-active').checked ? 'true' : 'false' };
+    const same = perms.slice().sort().join(',') === cur.filter(function(x){ return opts.some(function(o){ return o[0] === x; }); }).concat(cur.indexOf('staff')<0?['staff']:[]).sort().join(',');
+    if (!same) p.permissions = perms.join(',');
+    const dept = $('#eu3-dept').value, ds = $('#eu3-ds').value;
+    if (dept !== u.department) p.department = dept;
+    else if (ds !== (u.deptStatus || 'approved')) p.deptStatus = ds;
+    this.disabled = true;
     const r = await v3Call('setUserAccess', p, 'Saved');
+    this.disabled = false;
     if (r && r.warnings && r.warnings.length) toast(r.warnings[0], 'info');
-    if (r) { v3RenderUsers(); }
-    return !!r;
-  }, esc(u.email)+warn+(v3LegacyStation(u)?'<br><span class="text-[11px] text-sky-200"><i class="fa-solid fa-circle-info mr-1"></i>Chef / Boat work is done with the shared station login now — saving turns this account into '+esc(V3_ROLE_LABEL[cur])+'.</span>':'')+'<br><button type="button" id="v3-del-user" class="mt-2 text-rose-300 text-xs"><i class="fa-solid fa-trash mr-1"></i>Delete this user</button>');
+    if (r) { closeModal(); v3RenderUsers(); }
+  };
   const del = $('#v3-del-user');
   if (del) del.onclick = async function(){
     if (!confirm('Delete '+u.email+' permanently? Their past orders stay in the sheets.')) return;
-    const pass = await askPasscode('password', 'Deleting a user needs the admin password.'); if (!pass) return;
+    const pass = await askPasscode('super'); if (!pass) return;
     const r = await v3Call('deleteUser', { targetEmail: u.email, passcode: pass }, 'User deleted');
     if (r) { closeModal(); v3RenderUsers(); }
   };
@@ -2052,84 +2160,32 @@ async function v3RenderAdminStatus(){
     $('#ex-all').onclick = function(){ sets.forEach(function(s, i){ if ((s[2]||[]).length) setTimeout(function(){ one(i); }, i*350); }); };
   };
 }
-async function v3RenderMigrate(){
-  $('#main-content').innerHTML = v3Page(v3Back('manage','Manage') + v3Card(v3Title('fa-shuffle','3.0 role migration')+
-    '<p class="text-xs text-slate-300">Personal accounts become <strong>staff, HOD, admin or superadmin</strong> (+ assistant HOD flag). Chef and boat manager / captain move to two shared <strong>station logins</strong> (Chef, Boat) — the people keep their other roles (e.g. admin + HOD) and old chef / boat values become staff. Assistant HOD → staff + assistant HOD flag. Test accounts are proposed for deactivation (rows kept).</p>'+
-    '<p class="text-[11px] text-slate-400">Seat limits: admin 5 · superadmin 3. Apply needs a superadmin, the admin password, no seat problems, and — the first time — the Chef and Boat station passwords you choose.</p>'+
-    '<div class="grid grid-cols-2 gap-2"><button type="button" id="mg-dry" class="rounded-xl py-2.5 text-sm border border-teal-500/40 text-teal-200">Preview</button><button type="button" id="mg-apply" class="rounded-xl py-2.5 text-sm border border-rose-500/40 text-rose-200">Apply…</button></div>')+'<div id="mg-out" class="space-y-3"></div>', 'migrate-root');
-  const row = function(l, r2){ return '<div class="v3-row text-xs py-1 border-b border-slate-700/40 last:border-0"><span class="min-w-0 break-words text-slate-200">'+l+'</span><span class="text-slate-100 font-semibold shrink-0">'+r2+'</span></div>'; };
-  const who = function(x){ return '<span class="text-slate-100">'+esc(x.name||x.email)+'</span> <span class="text-slate-400">· '+esc(x.department||'—')+(x.active===false?' · inactive':'')+'</span>'; };
-  const toText = function(x){
-    if (x.deactivate) return 'deactivate (test account · rows kept)';
-    return (x.to === 'admin' && x.keepHod ? 'Admin + HOD' : (V3_ROLE_LABEL[x.to]||x.to)) + (x.assistantHod ? ' + assistant HOD flag' : '') + (x.active === false ? ' (inactive)' : '') + (x.toStation ? ' · ' + V3_STATION_LABEL[x.toStation] + ' work → station login' : '');
-  };
-  const show = function(d){
-    const probs = d.seatProblems || [], lost = d.lostRights || [], warns = (d.warnings || []).filter(function(w){ return w.kind !== 'deactivate'; }), ch = d.changes || [], st = d.stations || {};
-    let html = v3Card(v3Title('fa-table', d.applied ? 'Applied' : 'Preview (nothing changed)')+'<p class="text-xs text-slate-300">'+d.totalUsers+' users · '+d.changeCount+' need a change · '+d.assistantHodFlags+' assistant HOD flag(s)</p>'+
-      Object.keys(d.mapping).sort().map(function(k){ return row(esc(k), d.mapping[k]); }).join('')+
-      '<p class="v3-section-title pt-2">Active accounts after migration</p>'+Object.keys(d.byRole).map(function(r){ return row(esc(V3_ROLE_LABEL[r]||r), d.byRole[r]); }).join(''), 'mg-summary');
-    html += v3Card(v3Title('fa-chair','Seats after migration')+v3SeatChips(d.seats)+
-      (probs.length ? probs.map(function(t){ return '<p class="text-xs text-rose-300"><i class="fa-solid fa-circle-exclamation mr-1"></i>'+esc(t)+'</p>'; }).join('') : '<p class="text-xs text-emerald-300"><i class="fa-solid fa-check mr-1"></i>Admin and superadmin fit their seat limits</p>')+
-      (lost.length ? lost.map(function(x){ return '<p class="text-xs text-rose-300">'+who(x)+' would lose: '+esc(x.lost.join(', '))+'</p>'; }).join('') : '<p class="text-xs text-emerald-300"><i class="fa-solid fa-check mr-1"></i>Nobody loses rights (chef / boat work moves to the station logins)</p>'), 'mg-seats');
-    html += v3Card(v3Title('fa-key','Station logins')+['chef','boat'].map(function(k){ const x = st[k] || {};
-      return row(esc(V3_STATION_LABEL[k])+' station', x.configured ? '<span class="text-emerald-300">set up · '+esc(x.username)+'</span>' : '<span class="text-amber-200">created on apply</span>'); }).join('')+
-      ((d.stationsNeeded||[]).length ? '<p class="text-[11px] text-slate-400">On Apply you type a username + password for each new station (never hard-coded). Share them with the kitchen / boat crew in person.</p>' : '')+
-      ((d.toStation||[]).length ? '<p class="v3-section-title pt-2">Old chef / boat permissions → station ('+d.toStation.length+')</p>'+d.toStation.map(function(x){ return '<div class="text-xs py-0.5">'+who(x)+' <span class="text-slate-400">· '+esc(V3_STATION_LABEL[x.station])+'</span></div>'; }).join('') : ''), 'mg-stations');
-    if ((d.deactivate||[]).length) html += v3Card(v3Title('fa-user-slash','Proposed deactivation', v3Chip(String(d.deactivate.length),'bad'))+
-      d.deactivate.map(function(x){ return '<div class="text-xs py-1">'+who(x)+'<br><span class="text-slate-400">'+esc(x.email)+' · '+esc(x.reason||'')+' — account set inactive, data kept</span></div>'; }).join(''), 'mg-deact');
-    if (warns.length) html += v3Card(v3Title('fa-triangle-exclamation','Check before applying', v3Chip(String(warns.length),'warn'))+
-      warns.map(function(w){ return '<div class="text-xs py-1 border-b border-slate-700/40 last:border-0">'+who(w)+'<br><span class="text-amber-200">'+esc(w.text)+'</span></div>'; }).join(''), 'mg-warn');
-    if (ch.length) html += v3Card(v3Title('fa-list','Changes per user', v3Chip(String(d.changeCount),'info'))+
-      ch.map(function(x){ return '<div class="text-xs py-1 border-b border-slate-700/40 last:border-0">'+who(x)+'<br><span class="text-slate-300">'+esc(x.from)+' → '+esc(toText(x))+'</span></div>'; }).join(''), 'mg-changes');
-    $('#mg-out').innerHTML = html;
-  };
-  const stationForm = function(needed){
-    return new Promise(function(res){
-      const fields = [];
-      needed.forEach(function(k){
-        fields.push({ id: k+'Username', label: V3_STATION_LABEL[k]+' station username', value: k, required:true, max:30 });
-        fields.push({ id: k+'Password', label: V3_STATION_LABEL[k]+' station password (8+ characters)', type:'password', required:true, max:64 });
-      });
-      let done = false;
-      v3Form('Create the station logins', fields, 'Continue', async function(v){
-        for (const k of needed) { if (String(v[k+'Password']||'').length < 8) { toast(V3_STATION_LABEL[k]+' password: at least 8 characters','error'); return false; } }
-        if (needed.length > 1 && v.chefUsername && v.chefUsername === v.boatUsername) { toast('Use a different username for each station','error'); return false; }
-        done = true; res(v); return true;
-      }, 'You choose these now (nothing is hard-coded). The passwords are stored hashed on the server — write them down for the kitchen and boat crew.');
-      const cancel = $('#v3f-cancel'); if (cancel) cancel.addEventListener('click', function(){ if (!done) res(null); });
-    });
-  };
-  $('#mg-dry').onclick = async function(){ const d = await v3Call('migrateRoles', { dryRun: 'true' }); if (d) show(d); };
-  $('#mg-apply').onclick = async function(){
-    if (!v3IsSuper()) { toast('Only a superadmin can apply the migration','error'); return; }
-    const pv = await v3Call('migrateRoles', { dryRun: 'true' }); if (!pv) return; show(pv);
-    if ((pv.seatProblems||[]).length || (pv.lostRights||[]).length) { toast('Fix the seat / rights problems shown below first','error'); return; }
-    let extra = {};
-    if ((pv.stationsNeeded||[]).length) { const v = await stationForm(pv.stationsNeeded); if (!v) return; extra = v; }
-    if (!confirm('Apply the role migration to '+pv.changeCount+' user(s) now?')) return;
-    const pass = await askPasscode('super', 'Applying the migration changes every user row — enter the admin password.'); if (!pass) return;
-    const d = await v3Call('migrateRoles', Object.assign({ apply: 1, passcode: pass }, extra), 'Migration applied'); if (d) { show(d); cacheInvalidate(['v3home']); v3RefreshHome(); }
-  };
-}
 async function v3RenderSettings(){
   const s = state.appSettings || {};
+  const prov = s.mail_provider === 'brevo' ? 'brevo' : 'mailapp';
   $('#main-content').innerHTML = v3Page(v3Back('manage','Manage') +
-    v3Card(v3Title('fa-key','Verification & reset codes')+
-      '<p class="text-xs text-slate-300"><i class="fa-solid fa-envelope text-teal-300 mr-1"></i>Sign-up and forgot-password codes are <strong>sent by email</strong> only — they are never shown on screen.</p>'+
-      '<div class="space-y-1"><label for="st-from" class="text-[11px] text-slate-400">Send from (Gmail “send as” alias · blank = the script owner account)</label><input id="st-from" type="email" class="ui-input w-full" placeholder="blank = script owner" value="'+esc(s.mail_from||'')+'"/></div>'+
+    v3Card(v3Title('fa-key','Verification & reset codes · email sender')+
+      '<p class="text-xs text-slate-300"><i class="fa-solid fa-envelope text-teal-300 mr-1"></i>Sign-up and forgot-password codes are <strong>sent by email</strong> to the registered address only — never shown on screen.</p>'+
+      '<div class="space-y-1"><label for="st-prov" class="text-[11px] text-slate-400">Send with</label><select id="st-prov" class="ui-input w-full"><option value="mailapp"'+(prov==='mailapp'?' selected':'')+'>Google (the account that runs the script) — default</option><option value="brevo"'+(prov==='brevo'?' selected':'')+'>Brevo email service (API key in Script Properties)</option></select></div>'+
+      '<div id="st-g" class="space-y-2'+(prov==='brevo'?' hidden':'')+'"><div class="space-y-1"><label for="st-from" class="text-[11px] text-slate-400">Send from (Gmail “send as” alias · blank = the script account)</label><input id="st-from" type="email" class="ui-input w-full" placeholder="blank = script account" value="'+esc(s.mail_from||'')+'"/></div>'+
+      '<p class="text-[10px] text-slate-500">An alias must first be added in that Gmail (Settings → Accounts → Send mail as). If it fails, mail goes from the script account.</p></div>'+
+      '<div id="st-b" class="space-y-2'+(prov==='brevo'?'':' hidden')+'"><div class="space-y-1"><label for="st-bmail" class="text-[11px] text-slate-400">Brevo sender address (verified in Brevo)</label><input id="st-bmail" type="email" class="ui-input w-full" value="'+esc(s.brevo_sender_email||'')+'"/></div>'+
+      '<p class="text-[11px] '+(s.brevo_key_set?'text-emerald-300':'text-amber-200')+'"><i class="fa-solid '+(s.brevo_key_set?'fa-check':'fa-triangle-exclamation')+' mr-1"></i>'+(s.brevo_key_set?'Brevo API key is set (Script Properties → BREVO_API_KEY)':'No Brevo API key yet — add BREVO_API_KEY in Apps Script → Project settings → Script properties. Until then mail falls back to Google.')+'</p></div>'+
       '<div class="space-y-1"><label for="st-name" class="text-[11px] text-slate-400">Sender name</label><input id="st-name" class="ui-input w-full" maxlength="60" value="'+esc(s.mail_sender_name||'PCR Staff App')+'"/></div>'+
-      '<button type="button" id="st-save" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white font-semibold">Save sender</button>'+
-      '<p class="text-[10px] text-slate-500">A “send as” address must first be added to the script owner’s Gmail (Settings → Accounts). If it fails, mail goes from the owner account.</p>', '', )+
+      '<button type="button" id="st-save" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white font-semibold">Save sender</button>')+
     v3Card(v3Title('fa-toggle-on','Feature flags')+'<div id="admin-body"></div>')+
     v3Card(v3Title('fa-envelope','Alert emails & other tools')+'<button type="button" onclick="openAlertEmails()" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Manage alert emails</button>'+
       '<button type="button" onclick="navigate(\'admin\')" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Classic admin tools (boat, kitchen, archive)</button>'), 'settings-root');
+  $('#st-prov').onchange = function(){ const b = this.value === 'brevo'; $('#st-g').classList.toggle('hidden', b); $('#st-b').classList.toggle('hidden', !b); };
   $('#st-save').onclick = async function(){
-    const from = String($('#st-from').value||'').trim(), name = String($('#st-name').value||'').trim() || 'PCR Staff App';
-    if (from && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(from)) { toast('Enter a valid email or leave it blank','error'); return; }
-    const passcode = await askPasscode('super', 'Changing the email sender needs the admin password.'); if (!passcode) return;
-    const a1 = await v3Call('setAppSetting', { key:'mail_from', value: from, passcode: passcode }); if (!a1) return;
-    const a2 = await v3Call('setAppSetting', { key:'mail_sender_name', value: name, passcode: passcode }, 'Sender saved'); if (!a2) return;
-    state.appSettings = Object.assign({}, state.appSettings, { mail_from: from, mail_sender_name: name }); cacheInvalidate(['featureFlags','v3home']);
+    const pv = $('#st-prov').value, from = String($('#st-from').value||'').trim(), bm = String($('#st-bmail').value||'').trim(), name = String($('#st-name').value||'').trim() || 'PCR Staff App';
+    const okMail = function(x){ return !x || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); };
+    if (!okMail(from) || !okMail(bm)) { toast('Enter a valid email or leave it blank','error'); return; }
+    if (pv === 'brevo' && !bm) { toast('Brevo needs a sender address','error'); return; }
+    const passcode = await askPasscode('super'); if (!passcode) return;
+    const sets = [['mail_provider', pv], ['mail_from', from], ['brevo_sender_email', bm], ['mail_sender_name', name], ['brevo_sender_name', name]];
+    for (let i = 0; i < sets.length; i++) { const a = await v3Call('setAppSetting', { key: sets[i][0], value: sets[i][1], passcode: passcode }, i === sets.length-1 ? 'Sender saved' : null); if (!a) return; }
+    state.appSettings = Object.assign({}, state.appSettings, { mail_provider: pv, mail_from: from, brevo_sender_email: bm, mail_sender_name: name, brevo_sender_name: name }); cacheInvalidate(['featureFlags','v3home']);
   };
   try { await renderAdminFeaturesTab(); } catch (e) {}
 }
@@ -2154,7 +2210,7 @@ async function v3RenderSuperHome(){
     const people = '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="sa-users">'+v3Title('fa-users','People & app health')+
       '<div class="grid grid-cols-3 gap-2">'+stat('Users', users.total||0, (users.active||0)+' active', 'usersv3')+stat('New this week', users.newThisWeek||0, '', 'usersv3')+stat('Version', esc(String(hl.version||APP_VERSION).replace('-demo','')), state.demo?'demo':'live', 'settings')+'</div>'+
       '<p class="text-[11px] text-slate-400">'+Object.keys(users.byRole||{}).map(function(r){ return esc(V3_ROLE_LABEL[r]||r)+' '+users.byRole[r]; }).join(' · ')+'</p>'+
-      '<p class="text-[11px] text-slate-400">Codes: sent by email'+(hl.mailFrom?' from '+esc(hl.mailFrom):'')+' · server time '+esc(v3Ts(hl.fijiNow))+'</p></section>';
+      '<p class="text-[11px] text-slate-400">Codes: sent by email · '+(hl.mailProvider === 'brevo' ? 'Brevo' : 'Google'+(hl.mailFrom?' ('+esc(hl.mailFrom)+')':''))+(hl.stationsExclusive?' · stations only':' · old kitchen/boat roles in parallel')+' · server time '+esc(v3Ts(hl.fijiNow))+'</p></section>';
     $('#main-content').innerHTML = v3Page(head + pend + meals + boat + people + '<p class="text-center text-[10px] text-slate-500" id="home-ver">UI '+APP_VERSION+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>', 'home');
     v3StartTicker();
   };
@@ -2185,7 +2241,7 @@ async function v3StationPeople(){
 }
 const V3_ACTION_TEXT = { markOrderStatus:'Mark an order', saveDinnerMenuItem:'Edit the menu', deleteDinnerMenuItem:'Delete a dish', approveLateDinnerOrder:'Approve a late dinner',
   approveLateBreakfastOrder:'Decide a late breakfast', approveAllLateBreakfast:'Approve all late breakfasts', processBreakfastWorkflow:'Run the breakfast workflow', processDinnerWorkflow:'Generate the prep list',
-  decideMealRequest:'Accept / decline a request', decideAllMealRequests:'Accept / decline all requests', markChefFeedback:'Answer a food comment', placeMealOnBehalf:'Order for someone', placeSpecialMeal:'Special meal order',
+  decideMealRequest:'Accept / decline a request', decideAllMealRequests:'Accept / decline all requests', markChefFeedback:'Answer a food comment',
   saveBoatRun:'Change a boat run', deleteBoatRun:'Remove a boat run', dedupeBoatRuns:'Remove duplicate runs', reviewEmergencyTravel:'Decide emergency travel', cancelBoatBooking:'Cancel a booking' };
 /** "Who's doing this?" — names of active staff in the station's department (+ Other). Resolves the name, or null when closed. */
 function v3PickActor(action){
@@ -2264,9 +2320,9 @@ function v3RenderStationMore(){
     '<div class="grid grid-cols-2 gap-2"><button type="button" id="stm-pick" class="rounded-xl py-2 text-xs border border-teal-500/40 text-teal-200">Pick my name</button><button type="button" id="stm-clear" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-300">Clear name</button></div>', '');
   if (st === 'chef') html += group('Chef', v3Row(v3Nav('chefcomments'),'fa-comment-dots','Food comments','Chef feedback from staff') +
     v3Row(v3Nav('chefreports'),'fa-chart-column','Reports & roster','Daily / weekly / monthly, roster compare') +
-    v3Row(v3Nav('special'),'fa-star','Special meal orders','From HODs, or order for someone') +
+    v3Row(v3Nav('special'),'fa-star','Special meal orders','From HODs · accept / decline') +
     v3Row(v3Nav('kitchen'),'fa-print','Kitchen lists & PDF','Prep list, checklists, print') +
-    v3Row(v3Nav('snapshots'),'fa-box-archive','Saved order summaries','Saved at the 8pm cutoff · any past date'));
+    v3Row(v3Nav('snapshots'),'fa-box-archive','Meal summaries','Breakfast, lunch, dinner · last 5 days · PDF / print'));
   else html += group('Boat', v3Row(v3Nav('stboat'),'fa-users','Bookings & passenger lists','PDF, Dive PDF') + v3Row(v3Nav('boat'),'fa-calendar-days','Runs & Soso Express timetable','Add, edit, capacity'));
   if (st === 'boat') html += '<div id="stm-emerg"></div>';
   html += '<section class="glass rounded-2xl overflow-hidden">'+v3Row('doLogout()','fa-right-from-bracket','Sign out this device','A superadmin can also sign out every device')+'</section>'+
@@ -2384,7 +2440,8 @@ async function v3RenderStationLogins(){
       '<div class="grid grid-cols-2 gap-2 pt-1"><button type="button" class="v3-st-gen btn-primary rounded-xl py-2.5 text-xs text-white font-semibold" data-k="'+k+'"><i class="fa-solid fa-rotate mr-1"></i>'+(x.configured?'Rotate password':'Create password')+'</button>'+
       '<button type="button" class="v3-st-set rounded-xl py-2.5 text-xs border border-teal-500/40 text-teal-200" data-k="'+k+'"><i class="fa-solid fa-pen mr-1"></i>Set my own</button>'+
       '<button type="button" class="v3-st-out col-span-2 rounded-xl py-2 text-xs border border-rose-500/40 text-rose-200" data-k="'+k+'"'+(x.configured?'':' disabled')+'><i class="fa-solid fa-right-from-bracket mr-1"></i>Sign out all '+esc(V3_STATION_LABEL[k])+' devices</button></div></section>';
-  }).join('') + '<div id="stl-once"></div>';
+  }).join('') + '<div id="stl-once"></div>' + v3SwitchOverCard(d);
+  v3BindSwitchOver(d);
   const once = function(k, pw, username){
     $('#stl-once').innerHTML = v3Card(v3Title('fa-eye', 'New '+esc(V3_STATION_LABEL[k])+' password — shown once')+
       '<div class="rounded-xl bg-slate-900/70 border border-teal-500/40 p-3 text-center"><p class="text-[11px] text-slate-400">Username</p><p class="font-mono text-slate-100">'+esc(username)+'</p><p class="text-[11px] text-slate-400 mt-1">Password</p><p class="font-mono text-lg text-teal-200 select-all" id="stl-pw">'+esc(pw)+'</p></div>'+
@@ -2394,7 +2451,7 @@ async function v3RenderStationLogins(){
   $$('.v3-st-gen').forEach(function(b){ b.onclick = async function(){
     const k = b.dataset.k;
     if (st[k] && st[k].configured && !confirm('Rotate the '+V3_STATION_LABEL[k]+' password? Every '+V3_STATION_LABEL[k]+' device is signed out.')) return;
-    const pass = await askPasscode('super', 'Changing a station password needs the admin password.'); if (!pass) return;
+    const pass = await askPasscode('super'); if (!pass) return;
     const r = await v3Call('setStationPassword', { station: k, generate: 1, passcode: pass });
     if (r) { toast(r.message || 'Done','ok'); await v3RenderStationLogins(); once(k, r.password, (r.station && r.station.username) || k); }
   }; });
@@ -2407,7 +2464,7 @@ async function v3RenderStationLogins(){
     ], 'Save & sign out devices', async function(v){
       if (v.password.length < 8) { toast('At least 8 characters','error'); return false; }
       if (v.password !== v.password2) { toast('Passwords do not match','error'); return false; }
-      const pass = await askPasscode('super', 'Changing a station password needs the admin password.'); if (!pass) return false;
+      const pass = await askPasscode('super'); if (!pass) return false;
       const r = await v3Call('setStationPassword', { station: k, username: v.username, password: v.password, passcode: pass });
       if (r) { toast(r.message || 'Saved','ok'); v3RenderStationLogins(); }
       return !!r;
@@ -2416,10 +2473,38 @@ async function v3RenderStationLogins(){
   $$('.v3-st-out').forEach(function(b){ b.onclick = async function(){
     const k = b.dataset.k;
     if (!confirm('Sign out every '+V3_STATION_LABEL[k]+' device now? The password stays the same.')) return;
-    const pass = await askPasscode('super', 'Signing out station devices needs the admin password.'); if (!pass) return;
+    const pass = await askPasscode('super'); if (!pass) return;
     const r = await v3Call('signOutStation', { station: k, passcode: pass });
     if (r) { toast(r.message || 'Signed out','ok'); v3RenderStationLogins(); }
   }; });
+}
+/** Switch-over (prepared, NOT run): make Chef / Boat station-only. Preview first; apply needs both stations set up. */
+function v3SwitchOverCard(d){
+  const ex = !!d.exclusive;
+  return '<section class="glass rounded-2xl p-4 space-y-2 min-w-0 border border-amber-500/30" id="switch-over">'+v3Title('fa-right-left','Switch-over to station-only', ex ? v3Chip('Done · stations only','ok') : v3Chip('Not run · old setup in parallel','warn'))+
+    (ex ? '<p class="text-xs text-slate-300">Chef and boat tools now open only with the station logins (and for superadmins). Personal kitchen / boat roles were removed; the old values are kept in the “Role Backup” sheet.</p>'+
+      '<button type="button" id="so-back" class="w-full rounded-xl py-2.5 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-rotate-left mr-1"></i>Undo switch-over (restore personal roles from the backup)</button>'
+    : '<p class="text-xs text-slate-300">Right now personal <strong>kitchen</strong> and <strong>boat</strong> accounts keep their tools alongside the station logins. After testing is approved, the switch-over removes kitchen / boat as personal roles (HOD, assistant HOD and admin rights are kept; everyone else becomes staff), backs up every changed row, and hides chef / boat tools from personal accounts.</p>'+
+      '<div class="grid grid-cols-2 gap-2"><button type="button" id="so-preview" class="rounded-xl py-2.5 text-xs border border-teal-500/40 text-teal-200"><i class="fa-solid fa-eye mr-1"></i>Preview</button><button type="button" id="so-apply" class="rounded-xl py-2.5 text-xs border border-rose-500/40 text-rose-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Apply…</button></div>')+
+    '<div id="so-out"></div></section>';
+}
+function v3BindSwitchOver(d){
+  const show = function(r){
+    const ch = r.changes || [];
+    $('#so-out').innerHTML = '<div class="space-y-1 pt-1" id="so-preview-out"><p class="text-[11px] text-slate-300">'+(r.applied ? 'Applied' : 'Preview — nothing changed')+' · '+ch.length+' account(s) change'+((r.stationsMissing||[]).length ? ' · <span class="text-amber-200">set up first: '+esc(r.stationsMissing.join(', '))+' station</span>' : '')+'</p>'+
+      (ch.length ? ch.map(function(x){ return '<div class="text-[11px] py-1 border-b border-slate-700/40 last:border-0 min-w-0"><span class="text-slate-100">'+esc(x.name||x.email)+'</span> <span class="text-slate-400">· '+esc(x.department||'—')+'</span><br><span class="text-slate-300">'+esc(x.from)+' → '+esc(x.to)+'</span> <span class="text-rose-300">(drops '+esc((x.dropped||[]).join(', '))+')</span></div>'; }).join('') : v3Empty('No personal kitchen / boat roles to remove.'))+'</div>';
+  };
+  const pv = $('#so-preview'); if (pv) pv.onclick = async function(){ const r = await v3Call('stationsSwitchOver', { dryRun: 'true' }); if (r) show(r); };
+  const ap = $('#so-apply'); if (ap) ap.onclick = async function(){
+    const r0 = await v3Call('stationsSwitchOver', { dryRun: 'true' }); if (!r0) return; show(r0);
+    if ((r0.stationsMissing||[]).length) { toast('Set up the '+r0.stationsMissing.join(' and ')+' station password first','error'); return; }
+    if (!confirm('Switch over now? '+(r0.changes||[]).length+' personal kitchen / boat account(s) lose those roles and chef / boat tools become station-only.')) return;
+    const r = await v3Call('stationsSwitchOver', { apply: 1 }, 'Switch-over done'); if (r) { cacheInvalidate(['v3home']); await v3RefreshHome(); v3RenderStationLogins(); }
+  };
+  const bk = $('#so-back'); if (bk) bk.onclick = async function(){
+    if (!confirm('Undo the switch-over and restore the personal kitchen / boat roles from the backup?')) return;
+    const r = await v3Call('stationsSwitchBack', {}, 'Personal roles restored'); if (r) { cacheInvalidate(['v3home']); await v3RefreshHome(); v3RenderStationLogins(); }
+  };
 }
 /* login: the same box takes an email or a station username */
 (function(){
@@ -2428,12 +2513,13 @@ async function v3RenderStationLogins(){
   const lab = document.querySelector('label[for="login-email"]'); if (lab && /email/i.test(lab.textContent || '')) lab.textContent = 'Email or station username';
 })();
 
-/* ============ P. Saved order summaries (Dinner Snapshots) ============ */
+/* ============ P. Meal summaries (breakfast / lunch / dinner, last 5 days, Meal Snapshots tab) ============ */
 function v3SnapHtml(d){
   const pl = d.payload || {}, meal = d.meal || pl.meal || 'dinner';
   const dn = meal === 'dinner' ? { serviceDate: pl.serviceDate || d.serviceDate, prep: pl.prep || {}, orders: pl.orders || [], total: pl.total, late: (pl.orders || []).filter(function(o){ return String(o.status) === 'late_pending'; }) } : null;
   const base = meal === 'dinner' ? buildDinnerOrderSheetHtml(dn) : buildHeadcountOrderSheetHtml(meal === 'lunch' ? 'Lunch' : 'Breakfast', Object.assign({ serviceDate: d.serviceDate }, pl));
-  const src = d.source === 'rows' ? 'Built from the order rows on '+esc(v3Ts(d.generatedAt)) : 'Saved summary · '+esc(d.kind === 'auto' ? 'automatic at the 8pm cutoff' : 'saved')+' · '+esc(v3Ts(d.generatedAt))+' · '+esc(d.generatedBy||'');
+  const cut = meal === 'dinner' ? '8pm' : '1pm';
+  const src = d.source === 'rows' ? 'Built from the order rows on '+esc(v3Ts(d.generatedAt)) : 'Saved summary · '+esc(d.kind === 'auto' ? 'automatic at the '+cut+' cutoff' : 'saved')+' · '+esc(v3Ts(d.generatedAt))+' · '+esc(d.generatedBy||'');
   const add = d.addendum || { added:[], changed:[] };
   let extra = '';
   if ((add.added||[]).length || (add.changed||[]).length) {
@@ -2447,24 +2533,35 @@ function v3SnapHtml(d){
 }
 async function v3RenderSnapshots(){
   const st = state.snap || { meal:'dinner', date:'' }; state.snap = st;
-  $('#main-content').innerHTML = v3Page(v3Back(v3Station() ? 'chef' : (v3IsAdmin() ? 'manage' : 'chef'), v3Station() ? 'Chef' : (v3IsAdmin() ? 'Manage' : 'Chef')) +
-    v3Card(v3Title('fa-box-archive','Saved order summaries')+
-      '<p class="text-[11px] text-slate-400">At 8:00 PM Fiji the dinner books close and the full order list for tomorrow is saved automatically (with allergies & special requests). Pick any earlier date to open its saved summary — or build one from the order rows.</p>'+
-      '<div class="grid grid-cols-3 gap-1 rounded-xl bg-slate-900/60 p-1">'+V3_MEALS.slice().reverse().map(function(m){ return '<button type="button" class="v3-snap-meal rounded-lg py-1.5 text-xs '+(st.meal===m?'bg-teal-600 text-white font-semibold':'text-slate-300')+'" data-m="'+m+'">'+V3_MEAL_LABEL[m]+'</button>'; }).join('')+'</div>'+
-      '<div class="flex gap-2"><input type="date" id="snap-date" class="ui-input flex-1 min-w-0" value="'+esc(st.date||'')+'"/><button type="button" id="snap-go" class="btn-primary rounded-xl px-4 text-sm text-white font-semibold">Generate</button></div>', 'snap-pick')+
-    '<div id="snap-preview"></div><div id="snap-list" class="space-y-2">'+v3Loading()+'</div>', 'snapshots-root');
-  $$('.v3-snap-meal').forEach(function(b){ b.onclick = function(){ st.meal = b.dataset.m; v3RenderSnapshots(); }; });
+  const backTab = v3Station() ? 'chef' : (v3IsAdmin() ? 'manage' : 'chef');
+  $('#main-content').innerHTML = v3Page(v3Back(backTab, backTab === 'manage' ? 'Manage' : 'Chef') +
+    v3Card(v3Title('fa-box-archive','Meal summaries')+
+      '<p class="text-[11px] text-slate-400">Order summaries in the printable kitchen format (with allergies & special requests). Saved automatically when the books close — dinner at 8:00 PM, breakfast & lunch at 1:00 PM Fiji. If a day was not saved it is built from the order rows.</p>'+
+      '<div class="grid grid-cols-3 gap-1 rounded-xl bg-slate-900/60 p-1" id="snap-meals">'+V3_MEALS.map(function(m){ return '<button type="button" class="v3-snap-meal rounded-lg py-1.5 text-xs '+(st.meal===m?'bg-teal-600 text-white font-semibold':'text-slate-300')+'" data-m="'+m+'">'+V3_MEAL_LABEL[m]+'</button>'; }).join('')+'</div>'+
+      '<div id="snap-days" class="grid grid-cols-4 gap-1.5">'+v3Loading()+'</div>'+
+      '<details class="text-[11px] text-slate-400"><summary class="cursor-pointer">Other date</summary><div class="flex gap-2 pt-2"><input type="date" id="snap-date" class="ui-input flex-1 min-w-0" value="'+esc(st.date||'')+'"/><button type="button" id="snap-go" class="btn-primary rounded-xl px-4 text-sm text-white font-semibold">Open</button></div></details>', 'snap-pick')+
+    '<div id="snap-preview"></div><div id="snap-list" class="space-y-2"></div>', 'snapshots-root');
+  $$('.v3-snap-meal').forEach(function(b){ b.onclick = function(){ st.meal = b.dataset.m; st.date = ''; v3RenderSnapshots(); }; });
   $('#snap-go').onclick = function(){ const d = $('#snap-date').value; if (!d) { toast('Pick a date','error'); return; } st.date = d; v3OpenSnapshot({ serviceDate: d, meal: st.meal }); };
-  const d = await v3Call('getOrderSnapshots', { meal: st.meal });
+  const d = await v3Call('getOrderSnapshots', { meal: st.meal, limit: 30 });
   if (state.tab !== 'snapshots' || !d) return;
-  if (!st.date) { st.date = d.lastClosedDinner; const inp = $('#snap-date'); if (inp) inp.value = st.date; }
-  if (d.autoCreated) toast('Tonight\u2019s dinner summary was saved', 'ok');
+  if (d.autoCreated) toast('The last closed summary was saved', 'ok');
+  const days = d.days || [];
+  if (!st.date) st.date = (d.lastClosed && d.lastClosed[st.meal]) || d.lastClosedDinner || fijiDateString();
+  $('#snap-days').innerHTML = days.map(function(x){
+    const lab = x.offset === 0 ? 'Today' : x.offset === 1 ? 'Tomorrow' : x.offset === -1 ? 'Yesterday' : v3DateLabel(x.date);
+    const saved = x.saved && x.saved[st.meal];
+    return '<button type="button" class="v3-snap-day rounded-xl border px-1 py-1.5 text-center min-w-0 '+(x.date===st.date?'border-teal-400 bg-teal-600/30 text-white':'border-slate-700/60 text-slate-200')+'" data-d="'+esc(x.date)+'">'+
+      '<span class="block text-[11px] font-semibold truncate">'+esc(lab)+'</span><span class="block text-[9px] '+(saved?'text-emerald-300':'text-slate-500')+'">'+(saved?'saved':'from rows')+'</span></button>';
+  }).join('');
+  $$('.v3-snap-day').forEach(function(b){ b.onclick = function(){ st.date = b.dataset.d; $$('.v3-snap-day').forEach(function(x){ const on = x === b; x.classList.toggle('border-teal-400', on); x.classList.toggle('bg-teal-600/30', on); }); v3OpenSnapshot({ serviceDate: st.date, meal: st.meal }); }; });
   const list = d.snapshots || [];
-  $('#snap-list').innerHTML = '<p class="v3-section-title px-1">Saved ('+d.total+')</p>' + (list.length ? list.map(function(x){
+  $('#snap-list').innerHTML = '<p class="v3-section-title px-1">Saved '+esc(V3_MEAL_LABEL[st.meal].toLowerCase())+' summaries ('+d.total+')</p>' + (list.length ? list.slice(0, 15).map(function(x){
     return '<button type="button" class="v3-snap w-full text-left glass rounded-xl p-3 min-w-0" data-id="'+esc(x.id)+'"><div class="v3-row"><p class="text-sm text-slate-100 truncate min-w-0">'+esc(V3_MEAL_LABEL[x.meal]||x.meal)+' · '+esc(v3DateLabel(x.serviceDate))+' <span class="text-[11px] text-slate-400">'+esc(x.serviceDate)+'</span></p>'+
-      v3Chip(x.kind === 'auto' ? 'Auto 8pm' : 'Saved', x.kind === 'auto' ? 'ok' : 'info')+'</div><p class="text-[11px] text-slate-400 truncate">'+x.totalOrders+' orders · '+esc(v3Ts(x.generatedAt))+' · '+esc(x.generatedBy)+'</p></button>';
-  }).join('') : v3Card(v3Empty('Nothing saved yet — the first one is saved at 8:00 PM Fiji.')));
+      v3Chip(x.kind === 'auto' ? 'Auto '+(x.meal === 'dinner' ? '8pm' : '1pm') : 'Saved', x.kind === 'auto' ? 'ok' : 'info')+'</div><p class="text-[11px] text-slate-400 truncate">'+x.totalOrders+' orders · '+esc(v3Ts(x.generatedAt))+' · '+esc(x.generatedBy)+'</p></button>';
+  }).join('') : v3Card(v3Empty('Nothing saved yet — the first one is saved when the books close.')));
   $$('.v3-snap').forEach(function(b){ b.onclick = function(){ v3OpenSnapshot({ id: b.dataset.id }); }; });
+  v3OpenSnapshot({ serviceDate: st.date, meal: st.meal });
 }
 async function v3OpenSnapshot(q){
   const box = $('#snap-preview'); if (!box) return;
@@ -2475,7 +2572,7 @@ async function v3OpenSnapshot(q){
   const html = v3SnapHtml(d);
   const fn = (d.meal||'dinner')+'-orders-'+d.serviceDate+(d.source === 'rows' ? '-rebuilt' : '-saved')+'.pdf';
   const addN = ((d.addendum||{}).added||[]).length + ((d.addendum||{}).changed||[]).length;
-  box.innerHTML = v3Card(v3Title('fa-eye', esc(V3_MEAL_LABEL[d.meal]||'Dinner')+' · '+esc(d.serviceDate), d.source === 'rows' ? v3Chip('From order rows','warn') : v3Chip(d.kind === 'auto' ? 'Saved at 8pm' : 'Saved','ok'))+
+  box.innerHTML = v3Card(v3Title('fa-eye', esc(V3_MEAL_LABEL[d.meal]||'Dinner')+' · '+esc(d.serviceDate), d.source === 'rows' ? v3Chip('From order rows','warn') : v3Chip(d.kind === 'auto' ? 'Saved at '+(d.meal === 'dinner' ? '8pm' : '1pm') : 'Saved','ok'))+
     '<p class="text-[11px] text-slate-400">'+d.totalOrders+' orders'+(addN ? ' · <span class="text-amber-200">'+addN+' change(s) after it was saved (addendum)</span>' : '')+'</p>'+
     '<div class="grid grid-cols-2 gap-2"><button type="button" id="snap-pdf" class="btn-primary rounded-xl py-2 text-xs text-white font-semibold"><i class="fa-solid fa-file-pdf mr-1"></i>Download PDF</button><button type="button" id="snap-print" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-print mr-1"></i>Print</button>'+
     '<button type="button" id="snap-view" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-up-right-from-square mr-1"></i>View PDF</button><button type="button" id="snap-save" class="rounded-xl py-2 text-xs border border-teal-500/40 text-teal-200"><i class="fa-solid fa-floppy-disk mr-1"></i>Save a copy now</button></div>'+

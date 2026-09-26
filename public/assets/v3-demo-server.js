@@ -44,7 +44,12 @@ var uid = S.uid;
 var updateRowById = S.updateRowById;
 var userPermissions = S.userPermissions;
 var withIdempotency = S.withIdempotency;
-var isAdminPassword = S.isAdminPassword;
+var setSetting = S.setSetting;
+var stationsExclusive = S.stationsExclusive;
+var ALL_PERMISSIONS = S.ALL_PERMISSIONS;
+var permissionsToString = S.permissionsToString;
+var primaryRoleFromPermissions = S.primaryRoleFromPermissions;
+var sendAppMail = S.sendAppMail;
 var Utilities = S.Utilities;
 var MailApp = S.MailApp;
 var LockService = S.LockService;
@@ -55,27 +60,20 @@ var preferredNameMap = S.preferredNameMap;
 var decorateOrderNotes = S.decorateOrderNotes;
 /**
  * PCR Staff App — 3.0 redesign backend.
- *  - Personal roles: super_admin, admin (management), hod, staff + assistant-HOD flag tied to a department.
- *    Chef and Boat work is done on shared STATION logins (Stations.gs); chef / boat_manager are no longer personal roles.
+ *  - Personal roles stay as in 2.x (permissions: super_admin, admin, hod, assistant_hod, chef, boat_manager, boat_captain, staff).
+ *    Shared Chef / Boat STATION logins (Stations.gs) run in parallel; the superadmin switch-over (stations_exclusive) is
+ *    prepared but OFF.
  *  - Department join approval (HOD / assistant HOD of that department).
  *  - Two-step leave (department HOD → management = admin/superadmin), cancel, escalate by email.
  *  - Late meal requests (staff) and special meal orders (HOD / chef / admin) → chef/HOD decisions.
  *  - Weekly dinner menu likes/dislikes, chef feedback, department updates (posts, comments, reactions).
- *  - My History, chef dashboard + reports, admin export, superadmin dashboard, role migration.
+ *  - My History, chef dashboard + reports, admin export, superadmin dashboard, leave calendar, cutoff reminders.
  * Everything new is added lazily (new tabs + columns appended at the END of row 1) so existing rows keep working.
  * All actions are GET-safe and check role/ownership on the server.
  */
 
-/** Assignable personal roles (3.0 promotion model). */
-var V3_ROLES = ['super_admin', 'admin', 'hod', 'staff'];
-/** Legacy permissions that now live on the Chef / Boat station logins. */
-var V3_STATION_ROLES = { chef: 1, kitchen: 1, boat_manager: 1, boat_captain: 1, boat: 1 };
-var V3_STATION_ROLE_MSG = 'Chef and Boat are shared station logins now (Manage → Station logins) — personal accounts can be staff, HOD, admin or superadmin.';
-/** Seat limits per role (ACTIVE users). */
-var V3_SEAT_LIMITS = { super_admin: 3, admin: 5 };
-var V3_SEAT_LABEL = { super_admin: 'Superadmin', admin: 'Admin' };
-/** Accounts the 3.0 migration proposes to DEACTIVATE (never deleted). Plus any "Test Test" style account. */
-var V3_MIGRATION_DEACTIVATE = ['paradisecove679@gmail.com'];
+/** Permissions an admin can assign (same set as 2.x ALL_PERMISSIONS). */
+var V3_ASSIGNABLE_PERMS = ['staff', 'hod', 'assistant_hod', 'chef', 'boat_manager', 'boat_captain', 'admin', 'super_admin'];
 var V3_ORDER_COLS = ['orderType', 'reason', 'requestedBy', 'guestName', 'guestCompany', 'decidedBy', 'decidedAt', 'cancelReason', 'cancelledAt'];
 /** Lazy: Apps Script may load V3.gs before Code.gs, so never read another file's globals at load time. */
 function v3OrderHeaders() { return ORDER_HEADERS.concat(V3_ORDER_COLS); }
@@ -88,7 +86,8 @@ var V3_SHEETS = {
   'Dept Updates': ['id', 'department', 'authorEmail', 'authorName', 'title', 'body', 'active', 'createdAt'],
   'Dept Update Activity': ['id', 'updateId', 'userEmail', 'userName', 'kind', 'text', 'createdAt'],
   'Station Log': ['id', 'at', 'station', 'actor', 'actorDepartment', 'action', 'targetId', 'details'],
-  'Dinner Snapshots': ['id', 'serviceDate', 'meal', 'kind', 'generatedAt', 'generatedBy', 'totalOrders', 'payloadJson']
+  'Meal Snapshots': ['id', 'serviceDate', 'meal', 'kind', 'generatedAt', 'generatedBy', 'totalOrders', 'payloadJson'],
+  'Role Backup': ['id', 'at', 'by', 'userEmail', 'role', 'permissions', 'note']
 };
 var V3_MEAL_SHEETS = { breakfast: 'Breakfast Orders', lunch: 'Lunch Orders', dinner: 'Dinner Orders' };
 var V3_CANCEL_LIMIT = 3;
@@ -100,7 +99,7 @@ function ensureV3Schema(ss, force) {
   var cache = null;
   try {
     cache = CacheService.getScriptCache();
-    if (!force && cache.get('pcr_v3_schema_302') === '1') return;
+    if (!force && cache.get('pcr_v3_schema_303') === '1') return;
   } catch (eC) {}
   var lock = null, got = false;
   try { lock = LockService.getScriptLock(); got = lock.tryLock(10000); } catch (eL) {}
@@ -118,7 +117,7 @@ function ensureV3Schema(ss, force) {
     if (lv && lv.getLastRow() > 0) ensureColumns(lv, V3_LEAVE_HEADERS);
     var rem = ss.getSheetByName('Reminders');
     if (rem && rem.getLastRow() > 0) ensureColumns(rem, ['updatedAt', 'updatedBy']);
-    try { if (cache) cache.put('pcr_v3_schema_302', '1', 21600); } catch (eP) {}
+    try { if (cache) cache.put('pcr_v3_schema_303', '1', 21600); } catch (eP) {}
   } finally {
     try { lock.releaseLock(); } catch (eR) {}
   }
@@ -142,14 +141,8 @@ function v3Role(u) {
   if (p.indexOf('boat_manager') >= 0 || p.indexOf('boat_captain') >= 0) return 'boat_manager';
   return 'staff';
 }
-/** Permissions string for a personal role. keepHod: an admin who was also HOD keeps the hod permission. */
-function v3PermsForRole(role, keepHod) {
-  if (role === 'super_admin') return 'super_admin,admin';
-  if (role === 'admin') return keepHod ? 'admin,hod' : 'admin';
-  if (role === 'hod') return 'hod';
-  return 'staff';
-}
-/** 'chef' / 'boat' when the account still carries an old chef / boat permission (moves to the station at migration). */
+function v3HasHod(u) { return !!u && userPermissions(u).indexOf('hod') >= 0; }
+/** 'chef' / 'boat' when the account carries a personal chef / boat permission (removed only by the switch-over). */
 function v3LegacyStation(u) {
   var p = userPermissions(u);
   if (p.indexOf('chef') >= 0 || p.indexOf('kitchen') >= 0) return 'chef';
@@ -157,51 +150,30 @@ function v3LegacyStation(u) {
   return '';
 }
 function v3IsActiveUser(u) { return !!u && (truthy(u.active) || String(u.email).toLowerCase() === SUPERADMIN_EMAIL); }
-/** Seats a user occupies (only active users use seats). */
-function v3SeatsOf(u) {
-  if (!v3IsActiveUser(u)) return [];
-  var r = v3Role(u);
-  return (r === 'super_admin' || r === 'admin') ? [r] : [];
-}
-function v3SeatUsage(users) {
-  users = users || sheetToObjects('Users');
-  var out = {};
-  Object.keys(V3_SEAT_LIMITS).forEach(function (k) { out[k] = { role: k, label: V3_SEAT_LABEL[k], limit: V3_SEAT_LIMITS[k], used: 0, free: 0, users: [] }; });
-  users.forEach(function (u) {
-    v3SeatsOf(u).forEach(function (k) {
-      out[k].used++;
-      out[k].users.push({ email: String(u.email || '').toLowerCase(), name: v3Name(u), department: u.department || '', role: v3Role(u) });
-    });
-  });
-  Object.keys(out).forEach(function (k) { out[k].free = Math.max(0, out[k].limit - out[k].used); out[k].over = Math.max(0, out[k].used - out[k].limit); });
-  return out;
-}
-/** '' when `after` fits, else a clear error. Only seats the user does NOT already hold are checked. */
-function v3SeatCheck(before, after, users) {
-  users = users || sheetToObjects('Users');
-  var id = before ? String(before.id) : '';
-  var others = users.filter(function (u) { return !id || String(u.id) !== id; });
-  var had = before ? v3SeatsOf(before) : [];
-  var usage = v3SeatUsage(others);
-  var need = v3SeatsOf(after).filter(function (k) { return had.indexOf(k) < 0; });
-  for (var i = 0; i < need.length; i++) {
-    var k = need[i], s = usage[k];
-    if (s.used + 1 > s.limit) {
-      return s.label + ' seats are full (' + s.used + ' of ' + s.limit + ' used: ' + s.users.map(function (x) { return x.name; }).join(', ') +
-        '). Remove the ' + s.label.toLowerCase() + ' role from someone first.';
-    }
-  }
-  return '';
-}
 function v3IsVagueDept(d) { var n = normDept(d); return !n || n === 'other' || n === 'others' || n === 'n/a' || n === '-'; }
-/** Things an admin should look at for one user (department "Other", chef outside the kitchen, ...). */
+/** Things an admin should look at for one user (HOD / assistant HOD in department "Other"). */
 function v3UserWarnings(u) {
-  var w = [], r = v3Role(u);
-  if ((r === 'hod' || isAsstHod(u)) && v3IsVagueDept(u.department)) w.push((r === 'hod' ? 'HOD' : 'Assistant HOD') + ' in department "' + (u.department || 'blank') + '" — set the real department so leave / join requests reach them');
-  var ls = v3LegacyStation(u);
-  if (ls) w.push('Old ' + (ls === 'chef' ? 'chef' : 'boat manager / captain') + ' permission — the ' + (ls === 'chef' ? 'Chef' : 'Boat') + ' station login replaces it at the 3.0 migration');
-  if (v3MigrationDeactivate(u)) w.push('Looks like a test account — the migration proposes to deactivate it (data is kept)');
+  var w = [];
+  if ((v3HasHod(u) || isAsstHod(u)) && v3IsVagueDept(u.department)) w.push((v3HasHod(u) ? 'HOD' : 'Assistant HOD') + ' in department "' + (u.department || 'blank') + '" — set the real department so leave / join requests reach them');
   return w;
+}
+/** Active users per role (Users & roles counts; no limits). */
+function v3RoleCounts(users) {
+  users = users || sheetToObjects('Users');
+  var out = { super_admin: 0, admin: 0, hod: 0, assistant_hod: 0, chef: 0, boat_manager: 0, boat_captain: 0, staff: 0, inactive: 0, total: users.length };
+  users.forEach(function (u) {
+    if (!v3IsActiveUser(u)) { out.inactive++; return; }
+    var p = userPermissions(u);
+    if (p.indexOf('super_admin') >= 0) out.super_admin++;
+    else if (p.indexOf('admin') >= 0) out.admin++;
+    if (p.indexOf('hod') >= 0) out.hod++;
+    if (p.indexOf('assistant_hod') >= 0 || truthy(u.assistantHod)) out.assistant_hod++;
+    if (p.indexOf('chef') >= 0 || p.indexOf('kitchen') >= 0) out.chef++;
+    if (p.indexOf('boat_manager') >= 0 || p.indexOf('boat') >= 0) out.boat_manager++;
+    if (p.indexOf('boat_captain') >= 0) out.boat_captain++;
+    if (!p.some(function (x) { return x !== 'staff'; })) out.staff++;
+  });
+  return out;
 }
 function isAsstHod(u) {
   if (!u) return false;
@@ -225,10 +197,14 @@ function normDept(d) { return String(d || '').trim().toLowerCase(); }
 function canActForDept(u, dept) {
   if (!u) return false;
   if (isAdminPerm(u)) return true;
-  if (normDept(u.department) !== normDept(dept) || !normDept(dept)) return false;
-  return v3Role(u) === 'hod' || isAsstHod(u);
+  return v3IsLeadOf(u, dept);
 }
-function isDeptLead(u) { return !!u && (v3Role(u) === 'hod' || isAsstHod(u)); }
+/** HOD / assistant HOD of exactly this department (admins are NOT included). */
+function v3IsLeadOf(u, dept) {
+  if (!u || !normDept(dept) || normDept(u.department) !== normDept(dept)) return false;
+  return v3HasHod(u) || isAsstHod(u);
+}
+function isDeptLead(u) { return !!u && (v3HasHod(u) || isAsstHod(u)); }
 function v3Requester(p) {
   var u = getRequester(p || {});
   if (!u) throw new Error('Login required');
@@ -251,20 +227,22 @@ function v3Mail(to, subject, body) {
     .filter(function (x) { return x && x.indexOf('@') > 0 && !/@pcr\.local$/.test(x) && !/\.invalid$/.test(x); });
   var seen = {}; list = list.filter(function (x) { if (seen[x]) return false; seen[x] = 1; return true; });
   if (!list.length) return 0;
-  try { MailApp.sendEmail({ to: list.join(','), subject: subject, body: body + '\n\n— PCR Staff App' }); return list.length; } catch (e) { return 0; }
+  var r = sendAppMail(list, subject, body + '\n\n— PCR Staff App', 'notify');
+  return r && r.sent ? list.length : 0;
 }
 /** Active department leads (HOD + assistant HOD) of a department. */
 function deptLeads(dept) {
   return sheetToObjects('Users').filter(function (u) {
-    return truthy(u.active) && normDept(u.department) === normDept(dept) && normDept(dept) && (v3Role(u) === 'hod' || isAsstHod(u));
+    return truthy(u.active) && normDept(u.department) === normDept(dept) && normDept(dept) && (v3HasHod(u) || isAsstHod(u));
   });
 }
 function adminUsers() {
   return sheetToObjects('Users').filter(function (u) { return truthy(u.active) && isAdminPerm(u); });
 }
-/** Personal accounts still holding the old chef permission (none after the 3.0 migration — the Chef station sees counts on its dashboard). */
+/** Personal chef accounts (notified while the old setup runs in parallel; the Chef station sees counts on its dashboard). */
 function chefUsers() {
-  return sheetToObjects('Users').filter(function (u) { return truthy(u.active) && v3LegacyStation(u) === 'chef' && !stationConfigured('chef'); });
+  if (stationsExclusive()) return [];
+  return sheetToObjects('Users').filter(function (u) { return truthy(u.active) && v3LegacyStation(u) === 'chef'; });
 }
 function v3Date(v) { return String(v || '').replace(/^'/, '').slice(0, 10); }
 function v3Today() { return fijiDateString(getFijiNow()); }
@@ -284,8 +262,7 @@ function routeV3(action, p) {
     updateDeptStaff: updateDeptStaff,
     removeFromDept: removeFromDept,
     setUserAccess: setUserAccess,
-    getSeatUsage: getSeatUsage,
-    migrateRoles: migrateRoles,
+    getLeaveCalendar: getLeaveCalendar,
     submitLeave: function (q) { return withIdempotency('submitLeave', q, submitLeave); },
     decideLeave: decideLeave,
     cancelLeave: cancelLeave,
@@ -296,6 +273,7 @@ function routeV3(action, p) {
     getMealRequests: getMealRequests,
     decideMealRequest: decideMealRequest,
     decideAllMealRequests: decideAllMealRequests,
+    approveAllPending: approveAllPending,
     getWeeklyMenu: getWeeklyMenu,
     voteMenuItem: voteMenuItem,
     sendChefFeedback: function (q) { return withIdempotency('sendChefFeedback', q, sendChefFeedback); },
@@ -388,8 +366,8 @@ function removeFromDept(p) {
   v3Notify(t.email, 'Removed from ' + t.department, 'You were removed from the department by ' + v3Name(r) + '. Contact admin if this is wrong.', 'dept_join', t.id);
   return { success: true, data: { removed: t.email } };
 }
-/** Admin / superadmin: role (staff / HOD / admin / superadmin), department, assistant-HOD flag, active, department status.
- *  Seat limits are enforced here. Granting or removing admin / superadmin needs a superadmin + the admin password. */
+/** Admin / superadmin: permissions (the 2.x set incl. assistant HOD, chef, boat manager / captain), department, active,
+ *  department status. Only a superadmin grants or removes admin / superadmin. No seat limits. */
 function setUserAccess(p) {
   var r = v3Requester(p);
   if (!isAdminPerm(r)) return { success: false, error: 'Only admin or superadmin can change roles and departments' };
@@ -397,149 +375,49 @@ function setUserAccess(p) {
   if (!t) return { success: false, error: 'User not found' };
   var isMain = String(t.email).toLowerCase() === SUPERADMIN_EMAIL;
   var patch = {};
-  var oldRole = v3Role(t);
-  var role = oldRole;
-  if (V3_ROLES.indexOf(role) < 0) role = 'staff'; // old chef / boat manager → staff (the station login does that work)
-  if (p.role !== undefined && p.role !== '') {
-    role = String(p.role);
-    if (V3_STATION_ROLES[role]) return { success: false, error: V3_STATION_ROLE_MSG };
-    if (V3_ROLES.indexOf(role) < 0) return { success: false, error: 'Unknown role: ' + role };
+  var oldPerms = userPermissions(t);
+  if (p.permissions !== undefined && p.permissions !== '') {
+    var raw = Array.isArray(p.permissions) ? p.permissions : String(p.permissions).split(/[,|]+/);
+    var perms = [];
+    raw.forEach(function (x) {
+      x = String(x || '').trim().toLowerCase();
+      if (x === 'kitchen') x = 'chef';
+      if (x === 'boat') x = 'boat_manager';
+      if (V3_ASSIGNABLE_PERMS.indexOf(x) >= 0 && perms.indexOf(x) < 0) perms.push(x);
+    });
+    if (!perms.length) perms = ['staff'];
+    if (perms.indexOf('staff') < 0) perms.unshift('staff');
+    if (perms.indexOf('super_admin') >= 0 && perms.indexOf('admin') < 0) perms.push('admin');
+    var had = function (k) { return oldPerms.indexOf(k) >= 0; }, has = function (k) { return perms.indexOf(k) >= 0; };
+    var touchesTop = had('super_admin') !== has('super_admin') || had('admin') !== has('admin');
+    if (touchesTop && !isSuperPerm(r)) return { success: false, error: 'Only superadmin can grant or remove admin / superadmin' };
+    if (isSuperPerm(t) && !isSuperPerm(r)) return { success: false, error: 'Only superadmin can change a superadmin account' };
+    if (isMain && !has('super_admin')) return { success: false, error: 'The main superadmin account keeps its role' };
+    if (stationsExclusive() && perms.some(function (x) { return x === 'chef' || x === 'boat_manager' || x === 'boat_captain'; }))
+      return { success: false, error: 'Chef / boat are station logins now (switch-over done) — not personal roles' };
+    var newStr = permissionsToString(perms);
+    if (newStr !== String(t.permissions || '') || String(t.role || '') !== primaryRoleFromPermissions(perms)) {
+      patch.permissions = newStr; patch.role = primaryRoleFromPermissions(perms);
+    }
+    if (truthy(t.assistantHod) !== has('assistant_hod')) patch.assistantHod = has('assistant_hod'); // keep the 3.0 column in step with the permission
   }
-  var touchesTop = role !== oldRole && (role === 'super_admin' || oldRole === 'super_admin' || role === 'admin' || oldRole === 'admin');
-  if (touchesTop) {
-    if (!isSuperPerm(r)) return { success: false, error: 'Only superadmin can grant or remove admin / superadmin' };
-    if (!isAdminPassword(p.passcode)) return { success: false, error: 'Admin password required (wrong or missing)', needsPassword: true };
-  }
-  if (isMain && role !== 'super_admin') return { success: false, error: 'The main superadmin account keeps its role' };
-  if (isSuperPerm(t) && !isSuperPerm(r)) return { success: false, error: 'Only superadmin can change a superadmin account' };
-  var keepHod = role === 'admin' && oldRole === 'admin' && userPermissions(t).indexOf('hod') >= 0;
-  var newPerms = v3PermsForRole(role, keepHod);
-  var curPerms = userPermissions(t).filter(function (x) { return x !== 'staff' || role === 'staff'; }).join(',');
-  if (role !== oldRole || String(t.role || '') !== role || curPerms !== newPerms) { patch.role = role; patch.permissions = newPerms; }
   if (p.department !== undefined && String(p.department) !== String(t.department)) {
     patch.department = v3Clean(p.department, 60);
     patch.deptStatus = 'approved'; patch.deptDecidedBy = r.email; patch.deptDecidedAt = nowIso();
-  }
-  if (p.assistantHod !== undefined) {
-    var asst = truthy(p.assistantHod) || p.assistantHod === 'on';
-    if (asst && (role === 'hod' || role === 'admin' || role === 'super_admin')) asst = false; // already has department rights
-    if (asst !== truthy(t.assistantHod) || userPermissions(t).indexOf('assistant_hod') >= 0) patch.assistantHod = asst;
   }
   if (p.deptStatus !== undefined && ['approved', 'pending', 'declined', 'removed'].indexOf(String(p.deptStatus)) >= 0 && String(p.deptStatus) !== deptStatusOf(t)) {
     patch.deptStatus = String(p.deptStatus); patch.deptDecidedBy = r.email; patch.deptDecidedAt = nowIso();
   }
   if (p.active !== undefined && truthy(p.active) !== truthy(t.active)) {
     if (isMain) return { success: false, error: 'Cannot deactivate the main superadmin' };
+    if (isSuperPerm(t) && !isSuperPerm(r)) return { success: false, error: 'Only superadmin can change a superadmin account' };
     patch.active = truthy(p.active);
   }
-  if (!Object.keys(patch).length) return { success: true, data: { user: v3UserOut(t), unchanged: true, seats: v3SeatUsage() } };
-  var users = sheetToObjects('Users');
-  var seatErr = v3SeatCheck(t, Object.assign({}, t, patch), users);
-  if (seatErr) return { success: false, error: seatErr, seatFull: true };
+  if (!Object.keys(patch).length) return { success: true, data: { user: v3UserOut(t), unchanged: true, roleCounts: v3RoleCounts() } };
   updateRowById('Users', t.id, patch);
   var after = findUserByEmail(t.email);
-  return { success: true, data: { user: v3UserOut(after), seats: v3SeatUsage(), warnings: v3UserWarnings(after) } };
+  return { success: true, data: { user: v3UserOut(after), roleCounts: v3RoleCounts(), warnings: v3UserWarnings(after) } };
 }
-/** Admin: seats used per limited role. */
-function getSeatUsage(p) {
-  var r = v3Requester(p);
-  if (!isAdminPerm(r)) return { success: false, error: 'Admin or superadmin required' };
-  return { success: true, data: { seats: v3SeatUsage() } };
-}
-/** Accounts the migration proposes to deactivate: listed test accounts and "Test Test" names. */
-function v3MigrationDeactivate(u) {
-  if (!u) return false;
-  if (V3_MIGRATION_DEACTIVATE.indexOf(String(u.email || '').trim().toLowerCase()) >= 0) return true;
-  var f = String(u.firstName || '').trim().toLowerCase(), l = String(u.lastName || '').trim().toLowerCase();
-  return f === 'test' && (l === 'test' || l === '');
-}
-/** 3.0 role migration target for one user (promotion model: staff / HOD / admin / superadmin + assistant HOD flag):
- *  - superadmin / admin / HOD keep that role (an admin who was also HOD keeps hod as a second permission)
- *  - chef, kitchen, boat manager, captain → staff (the work moves to the Chef / Boat station logins)
- *  - assistant HOD below HOD → staff + assistant HOD flag
- *  - listed test accounts → deactivated (rows kept). */
-function v3MigrateTarget(u) {
-  var raw = String(u.permissions || u.role || '').toLowerCase();
-  var p = userPermissions(u);
-  var role = p.indexOf('super_admin') >= 0 ? 'super_admin' : p.indexOf('admin') >= 0 ? 'admin' : p.indexOf('hod') >= 0 ? 'hod' : 'staff';
-  var keepHod = role === 'admin' && p.indexOf('hod') >= 0;
-  var asst = isAsstHod(u) && role === 'staff';
-  var deactivate = v3MigrationDeactivate(u) && v3IsActiveUser(u) && String(u.email).toLowerCase() !== SUPERADMIN_EMAIL;
-  return { role: role, perms: v3PermsForRole(role, keepHod), keepHod: keepHod, assistantHod: asst, from: raw || 'staff',
-    toStation: v3LegacyStation(u), deactivate: deactivate };
-}
-/** What someone can do (for the "nobody loses rights" check). Chef / boat rights move to the station logins, so they are not counted. */
-function v3Caps(u) {
-  var p = userPermissions(u), c = {};
-  var adm = p.indexOf('admin') >= 0 || p.indexOf('super_admin') >= 0;
-  if (p.indexOf('super_admin') >= 0) c.superadmin = 1;
-  if (adm) c.admin = 1;
-  if (adm || p.indexOf('hod') >= 0 || p.indexOf('assistant_hod') >= 0 || truthy(u.assistantHod)) c.department_lead = 1;
-  return c;
-}
-/**
- * dryRun (default) only reports. apply=1 needs a SUPERADMIN + the admin password, is refused while a seat limit would be exceeded
- * or anyone would lose rights, and — when the Chef / Boat stations are not set up yet — needs chefPassword + boatPassword
- * (typed by the superadmin at migration time; usernames chefUsername / boatUsername, default chef / boat).
- */
-function migrateRoles(p) {
-  var r = v3Requester(p);
-  if (!isAdminPerm(r)) return { success: false, error: 'Admin or superadmin required' };
-  var apply = truthy(p.apply) || p.dryRun === 'false' || p.dryRun === false;
-  if (apply && !isSuperPerm(r)) return { success: false, error: 'Only a superadmin can apply the migration (it also creates the station logins)' };
-  if (apply && !isAdminPassword(p.passcode)) return { success: false, error: 'Admin password required (wrong or missing)', needsPassword: true };
-  var users = sheetToObjects('Users');
-  var counts = {}, changes = [], byTarget = {}, warnings = [], lost = [], projected = [], deact = [], toStation = [];
-  users.forEach(function (u) {
-    var t = v3MigrateTarget(u);
-    var key = t.from + ' → ' + t.role + (t.keepHod ? ' + HOD' : '') + (t.assistantHod ? ' + assistant HOD flag' : '');
-    counts[key] = (counts[key] || 0) + 1;
-    var after = Object.assign({}, u, { role: t.role, permissions: t.perms, assistantHod: t.assistantHod });
-    if (t.deactivate) after.active = false;
-    projected.push(after);
-    var wasActive = v3IsActiveUser(u);
-    if (v3IsActiveUser(after)) byTarget[t.role] = (byTarget[t.role] || 0) + 1;
-    var needs = String(u.role || '') !== t.role || String(u.permissions || '') !== t.perms || t.assistantHod !== truthy(u.assistantHod) || t.deactivate;
-    var who = { email: String(u.email || '').toLowerCase(), name: v3Name(u), department: u.department || '', active: wasActive };
-    if (needs) changes.push(Object.assign({ from: t.from, to: t.role, perms: t.perms, keepHod: t.keepHod, assistantHod: t.assistantHod, toStation: t.toStation, deactivate: t.deactivate }, who));
-    if (t.toStation) toStation.push(Object.assign({ station: t.toStation }, who));
-    if (t.deactivate) deact.push(Object.assign({ reason: 'Test account' }, who));
-    var bc = v3Caps(u), ac = t.deactivate ? bc : v3Caps(after);
-    var gone = Object.keys(bc).filter(function (k) { return !ac[k]; });
-    if (gone.length) lost.push(Object.assign({ lost: gone }, who));
-    v3UserWarnings(after).forEach(function (text) { if (!/Old (chef|boat)|test account/.test(text)) warnings.push(Object.assign({ kind: 'check', text: text }, who)); });
-    if (t.deactivate) warnings.push(Object.assign({ kind: 'deactivate', text: 'Proposed: deactivate (test account). Rows and history are kept.' }, who));
-    else if (!wasActive && (t.role !== 'staff' || t.toStation)) warnings.push(Object.assign({ kind: 'inactive', text: 'Inactive — becomes inactive ' + t.role.replace('_', ' ') + (t.toStation ? ' (old ' + t.toStation + ' permission dropped)' : '') }, who));
-  });
-  var seats = v3SeatUsage(projected);
-  var seatProblems = Object.keys(seats).filter(function (k) { return seats[k].over > 0; }).map(function (k) {
-    return seats[k].label + ': ' + seats[k].used + ' of ' + seats[k].limit + ' after migration — remove ' + seats[k].over + ' before applying';
-  });
-  var st = stationStatus();
-  var stationsNeeded = Object.keys(st).filter(function (k) { return !st[k].configured; });
-  if (apply && seatProblems.length) return { success: false, error: 'Migration not applied — seat limits: ' + seatProblems.join('; '), seatFull: true };
-  if (apply && lost.length) return { success: false, error: 'Migration not applied — ' + lost.length + ' user(s) would lose rights' };
-  if (apply && stationsNeeded.length) {
-    var missing = stationsNeeded.filter(function (k) { return stationValidPassword(p[k + 'Password']); });
-    if (missing.length) return { success: false, error: 'Set the ' + missing.map(function (k) { return STATION_DEFS[k].label; }).join(' and ') + ' station password' + (missing.length > 1 ? 's' : '') + ' (8+ characters) to apply', needsStationPasswords: stationsNeeded };
-    stationsNeeded.forEach(function (k) { stationSetPassword(k, p[k + 'Username'] || STATION_DEFS[k].defaultUsername, p[k + 'Password'], r.email); });
-    st = stationStatus();
-  }
-  if (apply) users.forEach(function (u, i) {
-    var a = projected[i];
-    var patch = {};
-    if (String(u.role || '') !== a.role || String(u.permissions || '') !== a.permissions || truthy(a.assistantHod) !== truthy(u.assistantHod)) {
-      patch.role = a.role; patch.permissions = a.permissions; patch.assistantHod = a.assistantHod;
-    }
-    if (a.active === false && truthy(u.active)) patch.active = false;
-    if (Object.keys(patch).length) updateRowById('Users', u.id, patch);
-  });
-  var asstCount = projected.filter(function (u) { return truthy(u.assistantHod) && v3IsActiveUser(u); }).length;
-  return { success: true, data: { applied: apply, totalUsers: users.length, mapping: counts, byRole: byTarget, assistantHodFlags: asstCount,
-    changes: changes.slice(0, 300), changeCount: changes.length, warnings: warnings, lostRights: lost, seats: seats, seatProblems: seatProblems,
-    deactivate: deact, toStation: toStation, stations: st, stationsNeeded: apply ? [] : stationsNeeded } };
-}
-
 /* ========== LEAVE (two step: department → management) ========== */
 function v3LeaveOut(l) {
   var st = String(l.status || '');
@@ -570,7 +448,7 @@ function submitLeave(p) {
   });
   if (open.length) return { success: false, error: 'You already have a pending request for those dates' };
   // HODs (and admins) go straight to management — nobody approves their own leave.
-  var lead = v3Role(u) === 'hod' || isAdminPerm(u);
+  var lead = v3HasHod(u) || isAdminPerm(u);
   var row = {
     id: uid('lv'), userEmail: String(u.email).toLowerCase(), userName: v3Name(u), department: u.department || '',
     startDate: s, endDate: e, reason: reason, status: lead ? 'pending_manager' : 'pending_hod', reviewedBy: '', hodNote: '', managerNote: '', notifyNote: '',
@@ -591,7 +469,13 @@ function decideLeave(p) {
   var st = String(l.status);
   var patch;
   if (st === 'pending_hod' || st === 'pending') {
-    if (!canActForDept(r, l.department)) return { success: false, error: 'Only the HOD / assistant HOD of ' + l.department + ' (or admin) can review this' };
+    // 3.0 (item 33): the department step is never skipped — only the HOD / assistant HOD of THAT department decides it.
+    // An admin may act for the department only when it has no active HOD / assistant HOD (recorded as such).
+    var noLead = !deptLeads(l.department).some(function (x) { return String(x.email).toLowerCase() !== String(l.userEmail).toLowerCase(); });
+    if (!v3IsLeadOf(r, l.department) && !(isAdminPerm(r) && noLead)) {
+      return { success: false, error: 'Waiting for the HOD / assistant HOD of ' + (l.department || 'the department') + ' (HODs only decide their own department)' };
+    }
+    if (!v3IsLeadOf(r, l.department)) note = (note ? note + ' ' : '') + '(department has no HOD — decided by admin)';
     patch = { status: approve ? 'pending_manager' : 'rejected', hodStatus: approve ? 'approved' : 'declined', hodBy: r.email, hodAt: nowIso(), hodNote: note, reviewedBy: r.email };
     if (!approve) patch.notifyNote = note || 'Declined by HOD';
   } else if (st === 'pending_manager') {
@@ -655,6 +539,28 @@ function getLeave(p) {
   } else return { success: false, error: 'Unknown scope' };
   rows.sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
   return { success: true, data: { requests: rows.slice(0, Number(p.limit) || 300) } };
+}
+/** Month view (item 38): approved + pending leave. HOD / assistant HOD: their department; admin / superadmin: all
+ *  (optionally one department). month = 'YYYY-MM'. */
+function getLeaveCalendar(p) {
+  var u = v3Requester(p);
+  var month = /^\d{4}-\d{2}$/.test(String(p.month || '')) ? String(p.month) : v3Today().slice(0, 7);
+  var first = month + '-01';
+  var y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7));
+  var last = month + '-' + ('0' + new Date(Date.UTC(y, m, 0)).getUTCDate()).slice(-2);
+  var dept = '';
+  if (isAdminPerm(u)) dept = String(p.department || '');
+  else if (isDeptLead(u)) dept = String(u.department || '');
+  else return { success: false, error: 'HOD / assistant HOD / admin only' };
+  var rows = sheetToObjects('Leave Requests').map(v3LeaveOut).filter(function (l) {
+    if (['approved', 'pending_hod', 'pending_manager'].indexOf(l.status) < 0) return false;
+    if (dept && normDept(l.department) !== normDept(dept)) return false;
+    return !(l.endDate < first || l.startDate > last);
+  });
+  var depts = {};
+  sheetToObjects('Leave Requests').forEach(function (l) { if (l.department) depts[String(l.department)] = 1; });
+  return { success: true, data: { month: month, first: first, last: last, department: dept, allDepartments: isAdminPerm(u),
+    departments: Object.keys(depts).sort(), leave: rows } };
 }
 
 /* ========== MEALS: cancel limit, late requests, special orders ========== */
@@ -811,6 +717,45 @@ function decideAllMealRequests(p) {
     });
   });
   return { success: true, data: { decided: n, status: approve ? 'approved' : 'rejected' } };
+}
+
+/** Item 37: "Approve all" in the approvals inbox. Runs the normal one-by-one decision for every item the requester may
+ *  decide (same checks as the single buttons: HODs / assistant HODs only their own department, never their own request).
+ *  kind: 'leave' (HOD step) | 'final' (admin final step) | 'late' (late meal requests) | 'joins' (department join requests). */
+function approveAllPending(p) {
+  var r = v3Requester(p);
+  var kind = String(p.kind || '');
+  var me = String(r.email).toLowerCase();
+  var ok = 0, skipped = 0;
+  var q = function (extra) { return Object.assign({}, p, extra); };
+  if (kind === 'leave' || kind === 'final') {
+    if (kind === 'final' && !isAdminPerm(r)) return { success: false, error: 'Admin only' };
+    if (kind === 'leave' && !isDeptLead(r) && !isAdminPerm(r)) return { success: false, error: 'HOD / assistant HOD only' };
+    var want = kind === 'final' ? ['pending_manager'] : ['pending_hod', 'pending'];
+    sheetToObjects('Leave Requests').forEach(function (l) {
+      if (want.indexOf(String(l.status)) < 0 || String(l.userEmail).toLowerCase() === me) return;
+      if (kind === 'leave' && !v3IsLeadOf(r, l.department)) { skipped++; return; } // HOD step: own department only
+      var res = decideLeave(q({ id: l.id, decision: 'approve', note: String(p.note || '') }));
+      if (res && res.success) ok++; else skipped++;
+    });
+  } else if (kind === 'late') {
+    if (!isDeptLead(r) && !isAdminPerm(r) && !isChefPerm(r)) return { success: false, error: 'HOD / assistant HOD / admin only' };
+    Object.keys(V3_MEAL_SHEETS).forEach(function (meal) {
+      sheetToObjects(V3_MEAL_SHEETS[meal]).forEach(function (o) {
+        if (String(o.status) !== 'late_pending' || v3Date(o.serviceDate) < v3Today()) return;
+        if (v3DecideOne(r, meal, o, true).ok) ok++; else skipped++;
+      });
+    });
+  } else if (kind === 'joins') {
+    if (!isDeptLead(r) && !isAdminPerm(r)) return { success: false, error: 'HOD / assistant HOD / admin only' };
+    sheetToObjects('Users').forEach(function (u) {
+      if (deptStatusOf(u) !== 'pending' || (!truthy(u.active) && !truthy(u.verified))) return;
+      if (String(u.email).toLowerCase() === me || !canActForDept(r, u.department)) return;
+      var res = decideJoinRequest(q({ targetEmail: u.email, decision: 'approve' }));
+      if (res && res.success) ok++; else skipped++;
+    });
+  } else return { success: false, error: 'kind must be leave, final, late or joins' };
+  return { success: true, data: { approved: ok, skipped: skipped } };
 }
 
 /* ========== WEEKLY MENU VOTES ========== */
@@ -1132,9 +1077,9 @@ function v3SuperDash() {
     boat: boat.slice(0, 8),
     users: { total: users.length, active: users.filter(function (x) { return truthy(x.active); }).length,
       newThisWeek: users.filter(function (x) { return v3Date(x.createdAt) >= weekAgo; }).length, byRole: roleCounts },
-    health: { version: APP_VERSION, fijiNow: nowIso(), sheetId: SHEET_ID, verificationDelivery: 'email', mailFrom: getSetting('mail_from', '') || 'script owner' },
+    health: { version: APP_VERSION, fijiNow: nowIso(), sheetId: SHEET_ID, verificationDelivery: 'email', mailProvider: getSetting('mail_provider', 'mailapp') || 'mailapp', mailFrom: getSetting('mail_from', '') || 'script account', stationsExclusive: stationsExclusive() },
     weekly: chef.weekly,
-    seats: v3SeatUsage(users)
+    roleCounts: v3RoleCounts(users)
   };
 }
 function updateReminder(p) {
@@ -1187,8 +1132,31 @@ function getV3Home(u) {
   }
   if (isChefPerm(u)) out.chef = v3ChefDash();
   if (isSuperPerm(u)) out.superDash = v3SuperDash();
-  // 3.0 stations: until the migration sets them up, old chef / boat permissions keep their tools (see Stations.gs)
+  // 3.0 stations run in parallel with personal chef / boat roles until the switch-over (stations_exclusive)
   out.stationsReady = { chef: stationConfigured('chef'), boat: stationConfigured('boat') };
+  out.stationsExclusive = stationsExclusive();
+  out.cutoffReminders = v3CutoffReminders(u, myMeals);
+  return out;
+}
+
+/* ========== CUTOFF REMINDER (item 39) ==========
+ * One hour before each cutoff (breakfast / lunch 1pm, dinner 8pm Fiji) the Home block carries a reminder for users who
+ * have not ordered that meal yet. The app shows it as a banner + highlights the countdown. Nothing is emailed and nothing
+ * is written to the Sheet (no per-user notification rows), so no trigger is needed. */
+function v3CutoffReminders(u, myMeals) {
+  var now = getFijiNow();
+  var h = now.getUTCHours();
+  var out = [];
+  var checks = [];
+  if (h === 12) checks = ['breakfast', 'lunch'];
+  else if (h === 19) checks = ['dinner'];
+  checks.forEach(function (meal) {
+    var info = v3MealInfo(meal, now);
+    if (!info || !info.open) return;
+    var has = (myMeals || []).some(function (o) { return o.meal === meal && o.serviceDate === info.serviceDate && ['cancelled', 'rejected', 'declined'].indexOf(String(o.status)) < 0; });
+    if (!has) out.push({ meal: meal, serviceDate: info.serviceDate, closesAt: meal === 'dinner' ? '8:00 PM' : '1:00 PM',
+      minutesLeft: 60 - now.getUTCMinutes() });
+  });
   return out;
 }
 
@@ -1201,8 +1169,9 @@ function getV3Home(u) {
  *   or "Sign out all devices" bumps the station generation → every existing station session stops working.
  * - A station token may ONLY call that station's actions (STATION_ACTIONS). Mutating actions need the name of the
  *   person doing it (actorName, picked on the device) and are written to the "Station Log" sheet.
- * - Personal accounts: chef / boat tools are station-only; a superadmin can open both pages with their own account.
- *   Until a station has been set up (by the 3.0 migration) old chef / boat_manager permissions keep working.
+ * - A superadmin can open both pages with their own account (actions recorded under their email, no name picker).
+ * - The old setup runs IN PARALLEL: personal chef / kitchen / boat roles keep their tools. The prepared switch-over
+ *   (stationsSwitchOver, superadmin, preview first) removes those personal roles and turns on stations_exclusive.
  * This file is also bundled into the demo (tools/build-demo-server.js), so demo mode runs the same rules.
  */
 var STATION_DEFS = {
@@ -1223,7 +1192,7 @@ var STATION_ACTIONS = {
     getMealRequests: 1, getWeeklyMenu: 1, getChefFeedback: 1,
     markOrderStatus: 1, saveDinnerMenuItem: 1, deleteDinnerMenuItem: 1, approveLateDinnerOrder: 1, approveLateBreakfastOrder: 1,
     approveAllLateBreakfast: 1, processBreakfastWorkflow: 1, processDinnerWorkflow: 1, decideMealRequest: 1, decideAllMealRequests: 1,
-    markChefFeedback: 1, placeMealOnBehalf: 1, placeSpecialMeal: 1,
+    markChefFeedback: 1,
     getOrderSnapshots: 1, getOrderSnapshot: 1, saveOrderSnapshot: 1
   },
   boat: {
@@ -1236,10 +1205,10 @@ var STATION_ACTIONS = {
 var STATION_MUTATIONS = {
   markOrderStatus: 1, saveDinnerMenuItem: 1, deleteDinnerMenuItem: 1, approveLateDinnerOrder: 1, approveLateBreakfastOrder: 1,
   approveAllLateBreakfast: 1, processBreakfastWorkflow: 1, processDinnerWorkflow: 1, decideMealRequest: 1, decideAllMealRequests: 1,
-  markChefFeedback: 1, placeMealOnBehalf: 1, placeSpecialMeal: 1, saveOrderSnapshot: 1,
+  markChefFeedback: 1, saveOrderSnapshot: 1,
   saveBoatRun: 1, deleteBoatRun: 1, dedupeBoatRuns: 1, reviewEmergencyTravel: 1, cancelBoatBooking: 1
 };
-/* station-only tools: a personal account needs superadmin (or the legacy permission while that station is not set up yet) */
+/* station tools: after the switch-over (stations_exclusive) a personal account needs superadmin for these */
 var STATION_ONLY_PERSONAL = {
   getKitchenDashboard: 'chef', getDinnerPrepList: 'chef', getMealStatistics: 'chef', getBreakfastOrderSheet: 'chef', getLunchOrderSheet: 'chef',
   getChefDashboard: 'chef', getMealReport: 'chef', getChefFeedback: 'chef', markOrderStatus: 'chef', saveDinnerMenuItem: 'chef',
@@ -1380,7 +1349,7 @@ function stationBindRequest(action, p, key) {
   var u = stationUser(key, actor);
   p._stationUser = u; p._station = key; p._actor = actor;
   p.requesterEmail = u.email;
-  if (p.userEmail && action !== 'placeMealOnBehalf' && action !== 'cancelBoatBooking') delete p.userEmail; // stations never act "as" a staff member
+  if (p.userEmail && action !== 'cancelBoatBooking') delete p.userEmail; // stations never act "as" a staff member
   return '';
 }
 /** Gate for a personal account calling a station-only tool. '' = allowed. */
@@ -1388,7 +1357,7 @@ function stationPersonalGate(action, u) {
   var key = STATION_ONLY_PERSONAL[action];
   if (!key) return '';
   if (isSuperPerm(u)) return '';
-  if (!stationConfigured(key) && stationLegacyPerm(u, key)) return ''; // before the 3.0 migration created the station
+  if (!stationsExclusive()) return ''; // old setup in parallel: personal chef / boat / admin permissions still decide (in each action)
   return STATION_DEFS[key].label + ' tools moved to the ' + STATION_DEFS[key].label + ' station login (or ask a superadmin).';
 }
 function stationLegacyPerm(u, key) {
@@ -1429,24 +1398,24 @@ function stationStatus() {
 }
 /* ---------- routable actions ---------- */
 function routeStations(action, p) {
-  var map = { getStations: getStations, setStationPassword: setStationPassword, signOutStation: signOutStation, getStationPeople: getStationPeople, getStationHome: getStationHome };
+  var map = { getStations: getStations, setStationPassword: setStationPassword, signOutStation: signOutStation, getStationPeople: getStationPeople, getStationHome: getStationHome,
+    stationsSwitchOver: stationsSwitchOver, stationsSwitchBack: stationsSwitchBack };
   var fn = map[action];
   if (!fn) return null;
   try { return fn(p || {}); } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
 }
-function stationRequireSuper(p, needPassword) {
+function stationRequireSuper(p) {
   var r = getRequester(p);
   if (!r || p._stationUser || !isSuperPerm(r)) return { success: false, error: 'Superadmin only' };
-  if (needPassword && !isAdminPassword(p.passcode)) return { success: false, error: 'Admin password required (wrong or missing)', needsPassword: true };
   return null;
 }
 function getStations(p) {
-  var bad = stationRequireSuper(p, false); if (bad) return bad;
-  return { success: true, data: { stations: stationStatus() } };
+  var bad = stationRequireSuper(p); if (bad) return bad;
+  return { success: true, data: { stations: stationStatus(), exclusive: stationsExclusive() } };
 }
-/** Superadmin + admin password. generate=1 → a new random password is returned ONCE; else p.password is used. */
+/** Superadmin only. generate=1 → a new random password is returned ONCE; else p.password is used. */
 function setStationPassword(p) {
-  var bad = stationRequireSuper(p, true); if (bad) return bad;
+  var bad = stationRequireSuper(p); if (bad) return bad;
   var key = String(p.station || '');
   if (!STATION_DEFS[key]) return { success: false, error: 'Pick the Chef or Boat station' };
   var gen = truthy(p.generate);
@@ -1457,7 +1426,7 @@ function setStationPassword(p) {
     message: STATION_DEFS[key].label + ' station password ' + (gen ? 'rotated' : 'set') + ' — every device signed in as ' + STATION_DEFS[key].label + ' is signed out.' } };
 }
 function signOutStation(p) {
-  var bad = stationRequireSuper(p, true); if (bad) return bad;
+  var bad = stationRequireSuper(p); if (bad) return bad;
   var key = String(p.station || '');
   if (!STATION_DEFS[key]) return { success: false, error: 'Pick the Chef or Boat station' };
   stationSignOutAll(key, getRequester(p).email);
@@ -1477,23 +1446,87 @@ function getStationHome(p) {
   return { success: true, data: { station: key, label: STATION_DEFS[key].label, fijiNow: nowIso(), version: APP_VERSION } };
 }
 
+/* ---------- switch-over (PREPARED, NOT RUN) ----------
+ * After testing is approved a superadmin runs this once: every personal chef / kitchen / boat_manager / boat_captain / boat
+ * permission is removed (HOD, assistant HOD, admin and superadmin rights are kept; nobody is deactivated), the old
+ * permissions are copied to the "Role Backup" tab first, and App Setting stations_exclusive = true hides the chef / boat
+ * tools from personal accounts (server-enforced by stationPersonalGate / isChefPerm / isBoatManagerPerm).
+ * dryRun (default) only previews. apply=1 needs both station logins set up. stationsSwitchBack undoes it from the backup. */
+var SWITCH_DROP = { chef: 1, kitchen: 1, boat_manager: 1, boat_captain: 1, boat: 1 };
+function switchTarget(u) {
+  var raw = String(u.permissions || u.role || '').toLowerCase();
+  var before = raw.split(/[,|\s]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+  if (!before.length) before = [String(u.role || 'staff')];
+  var dropped = before.filter(function (x) { return SWITCH_DROP[x]; });
+  var after = before.filter(function (x) { return !SWITCH_DROP[x]; });
+  if (after.indexOf('staff') < 0) after.unshift('staff');
+  return { before: before.join(','), after: after.join(','), role: primaryRoleFromPermissions(after), dropped: dropped };
+}
+function stationsSwitchOver(p) {
+  var bad = stationRequireSuper(p); if (bad) return bad;
+  var apply = truthy(p.apply) || p.dryRun === 'false' || p.dryRun === false;
+  var users = sheetToObjects('Users');
+  var changes = [];
+  users.forEach(function (u) {
+    var t = switchTarget(u);
+    if (!t.dropped.length) return;
+    changes.push({ email: String(u.email || '').toLowerCase(), name: v3Name(u), department: u.department || '', active: truthy(u.active),
+      from: t.before, to: t.after, newRole: t.role, dropped: t.dropped, keeps: t.after.split(',').filter(function (x) { return x !== 'staff'; }) });
+  });
+  var st = stationStatus();
+  var missing = Object.keys(st).filter(function (k) { return !st[k].configured; });
+  var out = { applied: false, exclusive: stationsExclusive(), changes: changes, changeCount: changes.length, stations: st, stationsMissing: missing,
+    summary: 'Removes personal chef / kitchen / boat roles from ' + changes.length + ' account(s) (HOD / assistant HOD / admin / superadmin kept), backs them up to "Role Backup", then chef / boat tools are station-only (superadmin can still open both pages).' };
+  if (!apply) return { success: true, data: out };
+  if (stationsExclusive()) return { success: false, error: 'Switch-over already done' };
+  if (missing.length) return { success: false, error: 'Set up the ' + missing.map(function (k) { return STATION_DEFS[k].label; }).join(' and ') + ' station login first' };
+  var r = getRequester(p);
+  var at = nowIso();
+  users.forEach(function (u) {
+    var t = switchTarget(u);
+    if (!t.dropped.length) return;
+    v3Append('Role Backup', { id: uid('rb'), at: at, by: r.email, userEmail: String(u.email).toLowerCase(), role: u.role || '', permissions: u.permissions || '', note: 'switch-over' });
+    updateRowById('Users', u.id, { permissions: t.after, role: t.role });
+  });
+  setSetting('stations_exclusive', 'true', r.email);
+  out.applied = true; out.exclusive = true;
+  return { success: true, data: out };
+}
+function stationsSwitchBack(p) {
+  var bad = stationRequireSuper(p); if (bad) return bad;
+  var r = getRequester(p);
+  var rows = sheetToObjects('Role Backup').filter(function (x) { return String(x.note) === 'switch-over'; });
+  var latest = {};
+  rows.forEach(function (x) { latest[String(x.userEmail).toLowerCase()] = x; });
+  var n = 0;
+  Object.keys(latest).forEach(function (em) {
+    var u = findUserByEmail(em); if (!u) return;
+    updateRowById('Users', u.id, { permissions: latest[em].permissions, role: latest[em].role }); n++;
+  });
+  setSetting('stations_exclusive', 'false', r.email);
+  return { success: true, data: { restored: n, exclusive: false } };
+}
+
 /**
- * PCR Staff App 3.0 — saved order summaries ("Dinner Snapshots" tab).
+ * PCR Staff App 3.0 — meal summaries ("Meal Snapshots" tab).
  *
- * - At the dinner cutoff (8:00 PM Fiji) a snapshot of ALL dinner orders for tomorrow's service is saved automatically:
- *   a time-driven trigger calls dinnerSnapshotTick() ~8:05 PM Fiji (installDinnerSnapshotTrigger), and as a fallback
- *   the first kitchen read / list open after the cutoff creates it (idempotent — one "auto" snapshot per service date).
+ * - At each cutoff a snapshot of ALL orders for tomorrow's service is saved automatically: breakfast + lunch at 1:00 PM
+ *   Fiji, dinner at 8:00 PM Fiji. A time-driven trigger calls mealSnapshotTick() ~1:05 PM and ~8:05 PM Fiji
+ *   (installMealSnapshotTriggers), and as a fallback the first kitchen read / summary open after a cutoff creates it
+ *   (idempotent — one "auto" snapshot per meal + service date).
  * - The payload is the same data the printable dinner order list uses (prep tally + byItem + every order row with notes),
  *   so the saved summary prints exactly like the live list, including "Allergies & special requests".
  * - Any date can be generated later: the saved snapshot if there is one, else built from the order rows (still there
  *   for ~60 days; archiveOldRows never touches this tab). Orders added after a snapshot show as an addendum.
- * - Breakfast / lunch use the same tab (meal column) for manual summaries.
+ * - The Meal summaries page offers the last 5 days + today + tomorrow; archiveOldRows never touches this tab.
  * Also bundled into the demo (tools/build-demo-server.js).
  */
-var SNAP_SHEET = 'Dinner Snapshots';
+var SNAP_SHEET = 'Meal Snapshots';
 var SNAP_HEADERS = ['id', 'serviceDate', 'meal', 'kind', 'generatedAt', 'generatedBy', 'totalOrders', 'payloadJson'];
 var SNAP_MEAL_SHEETS = { dinner: 'Dinner Orders', breakfast: 'Breakfast Orders', lunch: 'Lunch Orders' };
-var SNAP_CUTOFF_HOUR = 20;
+var SNAP_CUTOFF_HOUR = 20; // dinner
+var SNAP_CUTOFF = { dinner: 20, breakfast: 13, lunch: 13 };
+var SNAP_DAYS_BACK = 5;
 
 function snapDate(v) { var s = String(v == null ? '' : v); var m = s.match(/^(\d{4}-\d{2}-\d{2})/); return m ? m[1] : ''; }
 function snapRows() { try { return sheetToObjects(SNAP_SHEET); } catch (e) { return []; } }
@@ -1530,49 +1563,64 @@ function snapSave(meal, serviceDate, kind, by) {
   appendRow(SNAP_SHEET, row, SNAP_HEADERS);
   return row;
 }
-/** The service date whose dinner books closed most recently (after 8pm → tomorrow, else today). */
-function snapLastClosedDinner(now) {
+function snapLastClosedDinner(now) { return snapLastClosed('dinner', now); }
+/** The service date whose books closed most recently for that meal (after the cutoff → tomorrow, else today). */
+function snapLastClosed(meal, now) {
   now = now || getFijiNow();
-  return now.getUTCHours() >= SNAP_CUTOFF_HOUR ? fijiDateString(addFijiDays(now, 1)) : fijiDateString(now);
+  return now.getUTCHours() >= SNAP_CUTOFF[meal] ? fijiDateString(addFijiDays(now, 1)) : fijiDateString(now);
 }
-/** Idempotent: one automatic snapshot per closed dinner service date. Returns the row (existing or new). */
-function snapEnsureAuto(serviceDate, by) {
-  var have = snapFind('dinner', serviceDate, 'auto');
+/** Idempotent: one automatic snapshot per meal + closed service date. Returns the row (existing or new). */
+function snapEnsureAuto(serviceDate, by, meal) {
+  meal = meal || 'dinner';
+  var have = snapFind(meal, serviceDate, 'auto');
   if (have.length) return { row: have[0], created: false };
   var lock = null;
   try { lock = LockService.getScriptLock(); if (!lock.tryLock(20000)) lock = null; } catch (e) { lock = null; }
   try {
-    have = snapFind('dinner', serviceDate, 'auto'); // re-check inside the lock
+    have = snapFind(meal, serviceDate, 'auto'); // re-check inside the lock
     if (have.length) return { row: have[0], created: false };
-    return { row: snapSave('dinner', serviceDate, 'auto', by || 'auto (8:05pm)'), created: true };
+    return { row: snapSave(meal, serviceDate, 'auto', by || ('auto (' + (meal === 'dinner' ? '8:05pm' : '1:05pm') + ')')), created: true };
   } finally { try { if (lock) lock.releaseLock(); } catch (e2) {} }
 }
-/** Time-driven trigger (~8:05 PM Fiji daily). Safe to run any number of times. */
-function dinnerSnapshotTick() {
+function dinnerSnapshotTick() { return mealSnapshotTick(); }
+/** Time-driven trigger (~1:05 PM and ~8:05 PM Fiji). Saves every meal whose cutoff has passed. Safe to run any number of times. */
+function mealSnapshotTick() {
   var now = getFijiNow();
-  if (now.getUTCHours() < SNAP_CUTOFF_HOUR) return { skipped: 'before the 8pm cutoff', serviceDate: fijiDateString(now) };
-  var d = snapLastClosedDinner(now);
-  var r = snapEnsureAuto(d, 'auto (8:05pm trigger)');
-  return { serviceDate: d, created: r.created, id: r.row.id };
+  var out = {};
+  ['breakfast', 'lunch', 'dinner'].forEach(function (meal) {
+    if (now.getUTCHours() < SNAP_CUTOFF[meal]) { out[meal] = 'before cutoff'; return; }
+    var d = snapLastClosed(meal, now);
+    var r = snapEnsureAuto(d, 'auto (' + (meal === 'dinner' ? '8:05pm' : '1:05pm') + ' trigger)', meal);
+    out[meal] = { serviceDate: d, created: r.created, id: r.row.id };
+  });
+  return out;
 }
-/** Run once from the Apps Script editor (needs the script.scriptapp scope): daily trigger at ~8:05 PM Fiji. */
-function installDinnerSnapshotTrigger() {
-  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'dinnerSnapshotTick') ScriptApp.deleteTrigger(t); });
-  ScriptApp.newTrigger('dinnerSnapshotTick').timeBased().everyDays(1).atHour(20).nearMinute(5).inTimezone('Pacific/Fiji').create();
-  return 'dinnerSnapshotTick trigger installed (daily ~8:05 PM Fiji)';
+function installDinnerSnapshotTrigger() { return installMealSnapshotTriggers(); }
+/** Run once from the Apps Script editor (needs the script.scriptapp scope): daily triggers ~1:05 PM and ~8:05 PM Fiji. */
+function installMealSnapshotTriggers() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    var h = t.getHandlerFunction();
+    if (h === 'dinnerSnapshotTick' || h === 'mealSnapshotTick') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('mealSnapshotTick').timeBased().everyDays(1).atHour(13).nearMinute(5).inTimezone('Pacific/Fiji').create();
+  ScriptApp.newTrigger('mealSnapshotTick').timeBased().everyDays(1).atHour(20).nearMinute(5).inTimezone('Pacific/Fiji').create();
+  return 'mealSnapshotTick triggers installed (daily ~1:05 PM and ~8:05 PM Fiji)';
 }
-/** Fallback used on kitchen reads: after the cutoff, make sure tonight's auto snapshot exists. Never throws. */
+/** Fallback used on kitchen reads: after each cutoff, make sure that meal's auto snapshot exists. Never throws. */
 function snapFallback() {
+  var created = false;
   try {
     var now = getFijiNow();
-    var d = snapLastClosedDinner(now);
-    if (now.getUTCHours() < SNAP_CUTOFF_HOUR && !snapFind('dinner', d, 'auto').length) {
-      // before 8pm the most recent closed service is today's dinner — only back-fill when orders exist for it
-      if (!sheetToObjects('Dinner Orders').some(function (o) { return snapDate(o.serviceDate) === d; })) return null;
-      return snapEnsureAuto(d, 'auto (on open)');
-    }
-    return snapEnsureAuto(d, now.getUTCHours() === SNAP_CUTOFF_HOUR && now.getUTCMinutes() < 15 ? 'auto (8:05pm)' : 'auto (on open)');
-  } catch (e) { return null; }
+    ['breakfast', 'lunch', 'dinner'].forEach(function (meal) {
+      var d = snapLastClosed(meal, now);
+      if (snapFind(meal, d, 'auto').length) return;
+      // the most recent closed service: only back-fill when orders exist for it
+      if (!sheetToObjects(SNAP_MEAL_SHEETS[meal]).some(function (o) { return snapDate(o.serviceDate) === d; })) return;
+      var r = snapEnsureAuto(d, 'auto (on open)', meal);
+      if (r && r.created) created = true;
+    });
+  } catch (e) {}
+  return { created: created };
 }
 
 function snapCaller(p) {
@@ -1594,7 +1642,7 @@ function snapAddendum(payload, meal, serviceDate) {
     .map(function (o) { return Object.assign({ was: had[String(o.id)] }, o); });
   return { added: added, changed: changed };
 }
-/** List (latest first). Opening it also creates tonight's auto dinner snapshot if the trigger has not yet. */
+/** List (latest first) + the pickable days. Opening it also creates any missing auto snapshot for a closed meal. */
 function getOrderSnapshots(p) {
   var u = snapCaller(p); if (!u) return { success: false, error: 'Chef station, admin or superadmin only' };
   var fb = snapFallback();
@@ -1602,7 +1650,17 @@ function getOrderSnapshots(p) {
   var list = snapRows().filter(function (s) { return !meal || String(s.meal || 'dinner') === meal; }).map(function (s) { return snapOut(s, false); })
     .sort(function (a, b) { return (b.serviceDate + b.generatedAt).localeCompare(a.serviceDate + a.generatedAt); });
   var lim = Math.min(Number(p.limit || 60), 200);
-  return { success: true, data: { snapshots: list.slice(0, lim), total: list.length, lastClosedDinner: snapLastClosedDinner(), autoCreated: !!(fb && fb.created), fijiNow: nowIso() } };
+  // the pickable days: last 5 days + today + tomorrow (service dates), with what exists for each meal
+  var now = getFijiNow(), days = [];
+  for (var i = -SNAP_DAYS_BACK; i <= 1; i++) {
+    var dd = fijiDateString(addFijiDays(now, i));
+    var saved = {};
+    ['breakfast', 'lunch', 'dinner'].forEach(function (m) { saved[m] = snapFind(m, dd, '').length > 0; });
+    days.push({ date: dd, offset: i, saved: saved });
+  }
+  return { success: true, data: { snapshots: list.slice(0, lim), total: list.length, lastClosedDinner: snapLastClosedDinner(), lastClosed: {
+    breakfast: snapLastClosed('breakfast'), lunch: snapLastClosed('lunch'), dinner: snapLastClosed('dinner') }, days: days,
+    autoCreated: !!(fb && fb.created), fijiNow: nowIso() } };
 }
 /**
  * One summary: by id, or by serviceDate (+ meal). Uses the original auto snapshot (else the newest saved one) and adds an
@@ -1645,8 +1703,8 @@ function routeSnapshots(action, p) {
   try { return fn(p || {}); } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
 }
 
-isChefPerm = function (u) { if (!u) return false; if (u.station) return u.station === 'chef'; if (isSuperPerm(u)) return true; return !stationConfigured('chef') && stationLegacyPerm(u, 'chef'); };
-function isBoatManagerPerm(u) { if (!u) return false; if (u.station) return u.station === 'boat'; if (isSuperPerm(u)) return true; return !stationConfigured('boat') && stationLegacyPerm(u, 'boat'); }
+isChefPerm = function (u) { if (!u) return false; if (u.station) return u.station === 'chef'; if (isSuperPerm(u)) return true; if (stationsExclusive()) return false; var p = userPermissions(u); return p.indexOf('chef') >= 0 || p.indexOf('kitchen') >= 0 || isAdminPerm(u); };
+function isBoatManagerPerm(u) { if (!u) return false; if (u.station) return u.station === 'boat'; if (isSuperPerm(u)) return true; if (stationsExclusive()) return false; var p = userPermissions(u); return p.indexOf('boat_manager') >= 0 || p.indexOf('boat') >= 0 || isAdminPerm(u); }
 
-return { routeV3: routeV3, getV3Home: getV3Home, v3Role: v3Role, isAsstHod: isAsstHod, deptStatusOf: deptStatusOf, deptApproved: deptApproved, v3MigrateTarget: v3MigrateTarget, v3Notify: v3Notify, deptLeads: deptLeads, canActForDept: canActForDept, v3SeatUsage: v3SeatUsage, v3SeatCheck: v3SeatCheck, v3UserOut: v3UserOut, v3UserWarnings: v3UserWarnings, V3_SEAT_LIMITS: V3_SEAT_LIMITS, V3_STATION_ROLES: V3_STATION_ROLES, V3_STATION_ROLE_MSG: V3_STATION_ROLE_MSG, routeStations: routeStations, stationLogin: stationLogin, stationVerifyToken: stationVerifyToken, isStationToken: isStationToken, stationBindRequest: stationBindRequest, stationPersonalGate: stationPersonalGate, stationSetPassword: stationSetPassword, stationStatus: stationStatus, stationUser: stationUser, stationPublicUser: stationPublicUser, stationConfigured: stationConfigured, stationLogWrite: stationLogWrite, requesterTag: requesterTag, STATION_MUTATIONS: STATION_MUTATIONS, STATION_ACTIONS: STATION_ACTIONS, STATION_DEFS: STATION_DEFS, isChefPerm: isChefPerm, isBoatManagerPerm: isBoatManagerPerm, routeSnapshots: routeSnapshots, dinnerSnapshotTick: dinnerSnapshotTick, snapFallback: snapFallback, snapLastClosedDinner: snapLastClosedDinner };
+return { routeV3: routeV3, getV3Home: getV3Home, v3Role: v3Role, isAsstHod: isAsstHod, deptStatusOf: deptStatusOf, deptApproved: deptApproved, v3Notify: v3Notify, deptLeads: deptLeads, canActForDept: canActForDept, v3RoleCounts: v3RoleCounts, v3UserOut: v3UserOut, v3UserWarnings: v3UserWarnings, v3CutoffReminders: v3CutoffReminders, getLeaveCalendar: getLeaveCalendar, routeStations: routeStations, stationLogin: stationLogin, stationVerifyToken: stationVerifyToken, isStationToken: isStationToken, stationBindRequest: stationBindRequest, stationPersonalGate: stationPersonalGate, stationSetPassword: stationSetPassword, stationStatus: stationStatus, stationUser: stationUser, stationPublicUser: stationPublicUser, stationConfigured: stationConfigured, stationLogWrite: stationLogWrite, requesterTag: requesterTag, STATION_MUTATIONS: STATION_MUTATIONS, STATION_ACTIONS: STATION_ACTIONS, STATION_DEFS: STATION_DEFS, isChefPerm: isChefPerm, isBoatManagerPerm: isBoatManagerPerm, routeSnapshots: routeSnapshots, dinnerSnapshotTick: dinnerSnapshotTick, mealSnapshotTick: mealSnapshotTick, snapFallback: snapFallback, snapLastClosed: snapLastClosed, stationsSwitchOver: stationsSwitchOver, stationsSwitchBack: stationsSwitchBack };
 };
