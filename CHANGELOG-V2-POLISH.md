@@ -1,6 +1,17 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.10.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.10.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
+
+
+## 2.10.1 hotfix — Kitchen order summaries by date (2026-09-28)
+
+| ID | Change |
+|----|--------|
+| C105 | Kitchen page: new **Order summaries by date** card at the top — chips for the last 3 days, today (“Tonight”) and tomorrow. Picking a date shows the dinner total, dish counts, allergy/special-note count, and **Print / Download PDF / View PDF** of the usual Dinner Prep List for that dinner date (same builder as before), plus breakfast & lunch headcounts for that date with Print / PDF. Chef, HOD, admin, superadmin (same people who see the Kitchen page). |
+| C106 | Backend `getKitchenDaySummary` (read only — never approves or rewrites orders): uses the saved snapshot for that date when there is one, else builds it live from the order rows. “Show live orders instead / Show saved 8pm summary” switch when both exist. |
+| C107 | Automatic save at the 8pm Fiji cutoff: the first app request after 8:00pm saves tomorrow’s dinner summary into the existing **Dinner Prep Snapshots** tab (no new permission needed); optional time trigger `dinnerSummaryTick` ~8:10pm Fiji. The 2.10.0 8:30pm auto-save now uses the same code with a compact payload split across cells (the old single-cell payload could hit the 50,000-character limit on busy nights and error the Kitchen screen). |
+| C108 | PDFs in Drive folder **PCR Kitchen Order Summaries** (script account) + “Saved 8pm PDF” button — active after `setupDinnerSummaries` is run once from the Apps Script editor (authorises Drive + triggers, installs the trigger, backfills the last 3 days). Admin actions `saveDinnerSummary`, superadmin `backfillDinnerSummaries`, `dinnerSummaryStatus`. |
+| C109 | Tests: `tools/tests/summaries-unit.js` (backend, fake sheet), `tools/tests/kitchen-days.js` (demo-mode browser: picker, print, PDF). Rollback tag `v2.10.0-pre-hotfix`. |
 
 ## Visual / brand
 
