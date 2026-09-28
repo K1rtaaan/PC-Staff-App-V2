@@ -2417,6 +2417,7 @@ function saveDinnerMenuItem(p) {
   var itemName = String(p.itemName || '').trim();
   if (!itemName) return { success: false, error: 'itemName required' };
   var sortOrder = p.sortOrder !== undefined && p.sortOrder !== '' ? Number(p.sortOrder) : 99;
+  if (!isFinite(sortOrder)) sortOrder = 99; // 2.10.2: NaN was written as #NUM! in the sheet
   var active = p.active === false || p.active === 'false' ? false : true;
 
   if (p.id) {
@@ -2947,6 +2948,10 @@ function placeDinnerOrder(p) {
   var existing = sheetToObjects('Dinner Orders').filter(function (o) {
     return String(o.userEmail).toLowerCase() === email && String(o.serviceDate).indexOf(serviceDate) === 0 && o.status !== 'cancelled' && o.status !== 'rejected';
   });
+  // 2.10.2: the dish must be on the SERVICE-date weekday menu (stops yesterday's dish / stale
+  // "last choice" from the phone being booked for tomorrow). Re-saving your own current dish is allowed.
+  var choiceErr = dinnerChoiceError(p.mealChoice, serviceDate, existing.length ? existing[0].mealChoice : '');
+  if (choiceErr) return { success: false, error: choiceErr, notOnMenu: true, cutoff: info };
   if (existing.length) {
     updateRowById('Dinner Orders', existing[0].id, {
       mealChoice: p.mealChoice || existing[0].mealChoice,
@@ -2974,6 +2979,20 @@ function placeDinnerOrder(p) {
   appendRow('Dinner Orders', row, ORDER_HEADERS);
   processDinnerWorkflow({ serviceDate: serviceDate });
   return { success: true, data: { order: findOrder('Dinner Orders', row.id) || row, late: late, cutoff: info } };
+}
+
+/** 2.10.2: '' if mealChoice is allowed for serviceDate, else a staff-facing error. */
+function dinnerChoiceError(mealChoice, serviceDate, currentChoice) {
+  var choice = String(mealChoice || '').trim();
+  if (!choice) return '';
+  var norm = function (x) { return String(x || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
+  if (currentChoice && norm(choice) === norm(currentChoice)) return '';
+  var m = getDinnerMenus({ serviceDate: serviceDate, includePreviousDay: false });
+  var items = (m && m.data && m.data.serviceItems) || [];
+  if (!items.length) return ''; // no menu set for that weekday — keep old behaviour
+  for (var i = 0; i < items.length; i++) if (norm(items[i].itemName) === norm(choice)) return '';
+  return '"' + choice + '" is not on the ' + (m.data.serviceWeekdayName || '') + ' ' + serviceDate +
+    ' dinner menu. Please pick from tomorrow\'s menu.';
 }
 
 function placeLunchOrder(p) {

@@ -3304,6 +3304,13 @@ function myNoteLine(o){
   const n = kitchenNoteOf(o);
   return n ? '<div class="text-[11px] text-slate-300 min-w-0">Your note to kitchen: '+noteChipHtml(n)+'</div>' : '';
 }
+/** 2.10.2: true if a dish name is one of the service-date menu items (empty menu = anything goes). */
+function dinnerChoiceOnMenu(choice, menuItems){
+  const n = x => String(x||'').replace(/\s+/g,' ').trim().toLowerCase();
+  if (!choice) return false;
+  if (!menuItems || !menuItems.length) return true;
+  return menuItems.some(it => n(it && it.itemName) === n(choice));
+}
 async function renderDinner(){
   const di = dinnerCutoffInfo();
   state.mealPill = 'dinner';
@@ -3328,7 +3335,10 @@ async function renderDinner(){
     const cur = pickActiveOrder(myDinner); // C100: prefer active row over an older cancelled one
     const lateChip = cur ? lateStateChip(cur.status) : '';
     const statusHtml = cur ? ('<p class="text-xs text-sand-200/70">Your order: <strong>'+esc(cur.mealChoice)+'</strong> '+statusBadge(cur.status)+(cur.late?' <span class="text-amber-400">LATE</span>':'')+(lateChip?' '+lateChip:'')+'</p>') : '';
-    const last = loadLastDinner();
+    // 2.10.2: only offer the phone's "last choice" if that dish is on THIS service date's menu
+    // (it used to be injected into the dropdown, so yesterday's dish got booked for tomorrow).
+    const lastRaw = loadLastDinner();
+    const last = (lastRaw && dinnerChoiceOnMenu(lastRaw.mealChoice, menuItems)) ? lastRaw : null;
     $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-4" id="dinner-root">'+
       mealPillsHtml('dinner')+queueHostHtml('dinner')+
       '<div class="glass rounded-2xl p-4 space-y-3"><div><h3 class="font-semibold"><i class="fa-solid fa-moon text-teal-400 mr-2"></i>Dinner</h3>'+
