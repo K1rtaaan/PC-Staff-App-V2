@@ -37,5 +37,17 @@ var A31IO = {
   },
   appendLog: function (row) { ensureSheet(getSS(), A31_LOG_SHEET, A31_LOG_HEADERS); appendRow(A31_LOG_SHEET, row, A31_LOG_HEADERS); },
   logRows: function () { try { return sheetToObjectsRaw(A31_LOG_SHEET); } catch (e) { return []; } },
-  updateLog: function (id, patch) { return A31IO.update(A31_LOG_SHEET, 'id', id, patch); }
+  updateLog: function (id, patch) { return A31IO.update(A31_LOG_SHEET, 'id', id, patch); },
+  /** 3.1.0 report screenshots → Drive folder "PCR App Reports" (script owner); anyone with the link can view. */
+  saveImage: function (name, dataUrl) {
+    var m = String(dataUrl).match(/^data:(image\/(jpeg|png|webp));base64,(.+)$/);
+    if (!m) return null;
+    var props = PropertiesService.getScriptProperties(), fid = props.getProperty('REPORTS_FOLDER_ID'), folder = null;
+    if (fid) { try { folder = DriveApp.getFolderById(fid); } catch (e) { folder = null; } }
+    if (!folder) { var it = DriveApp.getFoldersByName('PCR App Reports'); folder = it.hasNext() ? it.next() : DriveApp.createFolder('PCR App Reports'); props.setProperty('REPORTS_FOLDER_ID', folder.getId()); }
+    var ext = m[2] === 'jpeg' ? 'jpg' : m[2];
+    var f = folder.createFile(Utilities.newBlob(Utilities.base64Decode(m[3]), m[1], name + '.' + ext));
+    try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+    return { id: f.getId(), url: 'https://drive.google.com/file/d/' + f.getId() + '/view', thumb: 'https://drive.google.com/thumbnail?id=' + f.getId() + '&sz=w400' };
+  }
 };

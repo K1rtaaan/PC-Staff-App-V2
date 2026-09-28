@@ -16,7 +16,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   page.on('pageerror', e => errors.push(cur + ' [pageerror] ' + e.message));
   page.on('dialog', d => d.accept());
   await page.goto(BASE + '?demo=1', { waitUntil: 'load' });
-  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('pcr_v2_coach_done','1'); });
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('pcr_v2_coach_done','1'); localStorage.setItem('pcr_guides_off','1'); });
   await page.reload({ waitUntil: 'load' });
   const txt = async sel => page.evaluate(s => { const e = document.querySelector(s); return e ? e.innerText : ''; }, sel);
   const shot = async n => page.screenshot({ path: SHOTS + n + '.png', fullPage: true });
@@ -25,7 +25,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   const login = async (email, pw) => {
     await page.evaluate(() => { try { doLogout(); } catch (e) {} });
     await page.waitForTimeout(300);
-    await page.evaluate(() => { localStorage.setItem('pcr_v2_coach_done','1'); });
+    await page.evaluate(() => { localStorage.setItem('pcr_v2_coach_done','1'); localStorage.setItem('pcr_guides_off','1'); });
     await page.fill('#login-email', email); await page.fill('#login-password', pw);
     await page.waitForSelector('#login-email', { state: 'visible' }).catch(()=>{}); await page.click('#login-form button[type=submit]');
     await page.waitForFunction(() => typeof state !== 'undefined' && state.user && state.user.email, null, { timeout: 15000 });

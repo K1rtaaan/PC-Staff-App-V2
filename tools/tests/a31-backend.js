@@ -95,7 +95,8 @@ ctx.A31IO = {
   append: (n, row) => { if (n === 'App Settings') { settings[row.key] = row.value; return true; } (store[n] = store[n] || []).push(clone(row)); return true; },
   appendLog: (row) => { (store['Admin Log'] = store['Admin Log'] || []).push(clone(row)); },
   logRows: () => clone(store['Admin Log'] || []),
-  updateLog: (id, patch) => { const r = (store['Admin Log'] || []).find(x => x.id === id); if (r) Object.assign(r, patch); return !!r; }
+  updateLog: (id, patch) => { const r = (store['Admin Log'] || []).find(x => x.id === id); if (r) Object.assign(r, patch); return !!r; },
+  saveImage: (name, d) => ({ id: name, url: 'https://drive.test/' + name, thumb: 'https://drive.test/t/' + name })
 };
 /** Full request path like handleRequest: bind identity, then a31Handle(routeAction). */
 function req(action, p) {
@@ -232,6 +233,42 @@ e = LOG().slice(-1)[0] || {};
 check("notification entry: logged, can't be reverted", r.success && e.action === 'adminNotifyUser' && e.revertable === 'FALSE' && /cannot be taken back/.test(e.noRevertReason), JSON.stringify(r).slice(0, 100));
 r = req('revertAdminLog', { sessionToken: tSuper, id: e.id });
 check("revert of a sent notification refused", r.success === false);
+
+// ---------- 3.1.0 Report a problem ----------
+const IMG = 'data:image/jpeg;base64,' + Buffer.from('fakejpeg').toString('base64');
+const out0 = mail.length + fetches.length, n0 = store.Notifications.length;
+r = req('submitReport', { sessionToken: tStaff, type: 'problem', description: 'Dinner page shows an error', images: [IMG, IMG, IMG, IMG], page: 'meals', appVersion: '3.1.0', device: 'test UA' });
+const rep = (store.Reports || [])[0] || {};
+check('staff submits a report (max 3 screenshots saved)', r.success && r.data.images === 3 && JSON.parse(rep.images).length === 3 && rep.status === 'new' && rep.page === 'meals' && rep.appVersion === '3.1.0', JSON.stringify(r));
+check('superadmins notified in-app about the new report', store.Notifications.slice(n0).some(n => n.userEmail === 'it@paradisecoveresortfiji.com' && n.kind === 'report'));
+check('developer emailed about the new report', mail.length + fetches.length > out0);
+r = req('submitReport', { sessionToken: tStaff, description: 'x' });
+check('empty description refused', r.success === false);
+r = req('submitReport', { sessionToken: tSuper, type: 'feature', description: 'Superadmin can report too' });
+check('superadmin can report (not a staff action)', r.success, JSON.stringify(r));
+r = req('getReports', { sessionToken: tStaff });
+check('staff cannot open the reports inbox', r.success === false);
+r = req('getReports', { sessionToken: tSuper });
+check('superadmin inbox: newest first + counts', r.success && r.data.reports[0].type === 'feature' && r.data.counts.new === 2, JSON.stringify(r).slice(0, 200));
+r = req('getReportCount', { sessionToken: tSuper });
+check('badge count = new reports', r.success && r.data.new === 2);
+const n1 = store.Notifications.length, m1 = mail.length + fetches.length;
+r = req('updateReport', { sessionToken: tSuper, id: rep.id, status: 'in_progress', reply: 'Looking into it' });
+check('superadmin sets status + reply', r.success && store.Reports[0].status === 'in_progress' && store.Reports[0].reply === 'Looking into it', JSON.stringify(r));
+check('reporter notified in-app', store.Notifications.slice(n1).some(n => n.userEmail === 'staff1@x.com' && /In progress/.test(n.title)));
+check('reporter emailed', mail.length + fetches.length > m1);
+r = req('updateReport', { sessionToken: tAdmin, id: rep.id, status: 'done' });
+check('admin (not super) cannot change a report', r.success === false);
+r = req('getMyReports', { sessionToken: tStaff });
+check('reporter sees own report with the reply', r.success && r.data.reports.length === 1 && r.data.reports[0].reply === 'Looking into it');
+// ---------- 3.1.0 role page guides ----------
+r = req('getMyGuides', { sessionToken: tChef });
+check('guides: none seen at first', r.success && r.data.seen.length === 0);
+r = req('markGuideSeen', { sessionToken: tChef, guide: 'kitchen' });
+r = req('getMyGuides', { sessionToken: tChef });
+check('guide seen remembered server-side', r.success && r.data.seen.join() === 'kitchen');
+r = req('markGuideSeen', { sessionToken: tChef, guide: 'bogus' });
+check('unknown guide refused', r.success === false);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

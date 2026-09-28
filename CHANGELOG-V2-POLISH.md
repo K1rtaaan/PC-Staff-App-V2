@@ -3,14 +3,16 @@
 Version **3.1.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 
-## 3.1.0 — Superadmin admin-only, activity logs, superadmin log + revert (2026-09-28)
+## 3.1.0 — Superadmin admin-only, activity logs, superadmin log + revert, page guides, Report a problem (2026-09-28)
 
 | ID | Change |
 |----|--------|
 | C134 | **Superadmin is an admin-only account**: no Meals, Boat, My bookings, My orders/history, My schedule or My leave; the server refuses staff actions for a superadmin (“Superadmin accounts can't place orders or bookings. Use a staff account.”). One-time notice at the next login (remembered on the server per user, column `superNotice31At`), and a small permanent note on the superadmin Home. |
 | C135 | **Activity log**: every change made from an admin/role page (Kitchen Admin, Boat Admin, Department Admin, Admin Settings) is written to a new **Admin Log** sheet tab (Fiji time, who, role, area, action, target, before/after JSON). Each admin page has an “Activity log” (that area only, newest first, 50 per page). |
 | C136 | **Superadmin log + Revert** (Manage → Logs): every superadmin change keeps its before-state; a Revert button restores it (refused if the row changed again since). Only the **revert owner** (App setting `revert_owner_email`, enforced on the server) may revert; empty = nobody. Things that can't be undone (sent notifications/emails, saved summaries) show “can't be reverted”. Reverts are logged too. |
-| C137 | Tests: `tools/tests/a31-backend.js` (58), `tools/tests/r310flows.js` (demo browser). `r301race.js` skips the staff pages for the superadmin. |
+| C138 | **First-time guides** on Kitchen Admin, Boat Admin, Department Admin, Admin Settings and superadmin Manage: a short step-by-step tour (same style as the first-login tour) the first time each page is opened; remembered per user on the server (Users column `guidesSeen31`) and on the phone. A “?” button at the top reopens it. |
+| C139 | **Report a problem** (flag button at the top of every page, and in More): type (Problem / Change request / New feature), description, up to 3 screenshots shrunk on the phone (JPEG ≤ ~300 KB each), plus page, app version, device and user. Saved to a new **Reports** tab; screenshots go to the Drive folder “PCR App Reports” (view-by-link). New reports notify superadmins in-app and email the developer (App setting `report_email`, else the revert owner, else it@paradisecoveresortfiji.com). Superadmin **Reports inbox** (Manage, badge on the Manage tab): filter by status, set New / Noted / In progress / Done, reply — the reporter gets an in-app notification and an email. Everyone sees their own reports and replies under More → My reports. Large requests are sent as POST. |
+| C137 | Tests: `tools/tests/a31-backend.js` (74), `tools/tests/r310flows.js` (demo browser, 55). `r301race.js` skips the staff pages for the superadmin; browser tests set `pcr_guides_off` so the guides don't cover their clicks. |
 
 ## 3.0.1 hotfix — My boat bookings console error, superadmin code box (2026-09-28)
 
