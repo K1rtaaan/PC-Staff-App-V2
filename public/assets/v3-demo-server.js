@@ -1364,6 +1364,7 @@ function r3PropDone(key) { try { return !!PropertiesService.getScriptProperties(
 function r3SetDone(key, v) { try { PropertiesService.getScriptProperties().setProperty(key, v || nowIso()); } catch (e) {} }
 function r3NotifyMany(rows) {
   if (!rows.length) return;
+  if (typeof a33FromNotif === 'function') rows.forEach(function (r) { try { a33FromNotif(r); } catch (e) {} }); // 3.2.0 phone notifications
   try {
     var sh = ensureSheet(getSS(), 'Notifications', NOTIF_HEADERS);
     var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
@@ -1413,7 +1414,7 @@ function mealTick(force) {
           if (!r3PropDone('dsum_saved_' + dc)) {
             var pend = sheetToObjects('Dinner Orders').filter(function (o) { return v3Date(o.serviceDate) === dc && String(o.status) === 'pending' && !truthy(o.late); });
             out.cutoffApproved = r3ApproveRows('dinner', pend, 'approved', 'ordering closed');
-            var row = dsumSaveSnapshot(dc, true, 'auto', 'auto at dinner cutoff ' + t.dinner_cutoff);
+            var row = dsumSaveSnapshot(dc, true, 'auto', 'auto at dinner cutoff ' + t.dinner_cutoff); if (typeof a33SummarySaved === 'function') a33SummarySaved(dc, 'cutoff');
             var pdf = dsumTryPdf(row);
             r3SetDone('dsum_saved_' + dc, nowIso() + (pdf.ok ? ' +pdf' : ''));
             out.cutoffSaved = dc;
@@ -1437,7 +1438,7 @@ function mealTick(force) {
           var rows = sheetToObjects(V3_MEAL_SHEETS[meal]).filter(function (o) { return v3Date(o.serviceDate) === d && String(o.status) === 'late_pending'; });
           var n = r3ApproveRows(meal, rows, 'late_approved', 'auto-approved at ' + r3Label(t['late_close_' + meal]));
           if (meal === 'dinner') {
-            var row2 = dsumSaveSnapshot(d, true, 'final', 'final list after late requests (' + t.late_close_dinner + ')');
+            var row2 = dsumSaveSnapshot(d, true, 'final', 'final list after late requests (' + t.late_close_dinner + ')'); if (typeof a33SummarySaved === 'function') a33SummarySaved(d, 'final');
             dsumTryPdf(row2);
           }
           r3SetDone(key, nowIso() + ' approved ' + n);
@@ -2149,7 +2150,7 @@ function routeReports31(action, p) {
   var map = { submitReport: submitReport, getReports: getReports, getReportCount: getReportCount, getMyReports: getMyReports, updateReport: updateReport,
     getMyGuides: getMyGuides, markGuideSeen: markGuideSeen };
   var fn = map[action];
-  if (!fn) return null;
+  if (!fn) return typeof routePush33 === 'function' ? routePush33(action, p) : null; // 3.2.0 push
   try { return fn(p || {}); } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
 }
 

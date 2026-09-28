@@ -135,7 +135,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   check('report form closes after sending', !(await page.isVisible('#rp31-form')), await page.evaluate(() => (document.getElementById('rp31-err')||{}).textContent + ' | ' + (document.getElementById('rp31-send')||{}).textContent));
   const reps = await page.evaluate(() => api('getMyReports', {}));
   const r0 = (reps.data && reps.data.reports[0]) || {};
-  check('report saved with page/version/device + 1 screenshot', reps.success && reps.data.reports.length === 1 && r0.type === 'change' && r0.page === 'meals' && /3\.1\.0/.test(r0.appVersion) && r0.images.length === 1 && !!r0.device, JSON.stringify({ page: r0.page, v: r0.appVersion, imgs: (r0.images || []).length, dev: r0.device, n: reps.data && reps.data.reports.length }));
+  check('report saved with page/version/device + 1 screenshot', reps.success && reps.data.reports.length === 1 && r0.type === 'change' && r0.page === 'meals' && /^3\.\d+\.\d+$/.test(r0.appVersion) && r0.images.length === 1 && !!r0.device, JSON.stringify({ page: r0.page, v: r0.appVersion, imgs: (r0.images || []).length, dev: r0.device, n: reps.data && reps.data.reports.length }));
   cur = 'super-reports'; await login(SUPER);
   await page.waitForTimeout(1500);
   check('Manage tab shows a report badge', /1/.test(await page.evaluate(() => (document.querySelector('#bottom-nav [data-tab="manage"] .v3-nav-badge') || {}).textContent || '')));
