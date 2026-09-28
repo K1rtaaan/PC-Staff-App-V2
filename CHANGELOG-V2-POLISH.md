@@ -3,12 +3,13 @@
 Version **3.0.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 
-## 3.0.1 hotfix — My boat bookings console error (2026-09-28)
+## 3.0.1 hotfix — My boat bookings console error, superadmin code box (2026-09-28)
 
 | ID | Change |
 |----|--------|
 | C131 | **My boat bookings**: leaving the page (Home / Boat / More…) before the bookings finished loading threw `Cannot set properties of null (setting 'innerHTML')` in `renderMyBookings` (its `#mb-root` box was already replaced by the new page) and showed a stray “Could not open My boat bookings” toast. It now keeps its own box and quietly stops if that box is gone. Same guard for the other screens that fill a box after loading: Suggestions, Reminders (classic), Meal statistics (classic), Staff directory (classic; also no error on a first visit with no saved list), Reports / Meal report “Generate”, and Boat (no longer paints over the page you moved to). Frontend only — backend stays 3.0.0. |
-| C132 | Tests: `tools/tests/r301race.js` (demo; slow API simulated, leave each page while loading — every role). Rollback: gh-pages 1be1334 (3.0.0 = main e6e030d). |
+| C133 | **Superadmin code box**: making someone Admin / Superadmin (Users & roles → Edit → Save) said “Enter the superadmin code” but never showed a box to type it, so the change could not be saved (same for Delete user, App settings, Role migration, Archive). The code box now opens on top of the Edit window (which stays open with its ticks); Cancel sends nothing, a wrong code shows the server error. Other role-only actions are unchanged (no code asked). |
+| C132 | Tests: `tools/tests/r301race.js` (demo; slow API simulated, leave each page while loading — every role), `tools/tests/r301code.js` (code box: cancel / wrong code / right code / restore), `archive.js` types the code. Rollback: gh-pages 1be1334 (3.0.0 = main e6e030d). |
 
 ## 3.0.0 — Roles, meal times, Brevo email, one Meals page (2026-09-28)
 
