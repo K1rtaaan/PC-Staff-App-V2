@@ -147,7 +147,7 @@ function v3DateLabel(ds){
   const d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2]));
   return WEEKDAY_NAMES[d.getUTCDay()].slice(0,3)+' '+(+p[2])+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1]-1];
 }
-function v3Ts(s){ return String(s||'').replace(/:\d\d(\.\d+)?Z?$/,'').replace('T',' ').replace(' FJT',''); }
+function v3Ts(s){ return String(s||'').replace(/ FJT$/,'').replace(/(\d\d:\d\d):\d\d(\.\d+)?Z?$/,'$1').replace(/^(\d{4}-\d\d-\d\d)T/,'$1 '); } // 3.1.0: "… FJT" no longer shows as "… FJ"
 async function v3Call(action, payload, okMsg){
   let r;
   try { r = await api(action, payload || {}); }
@@ -2534,7 +2534,7 @@ function a31EntryHtml(e, area){
     else if (area === 'super') rev = '<p class="text-[10px] text-slate-500 a31-norev">'+esc(e.revertable ? 'Only the revert owner can revert this' : (e.noRevertReason || "Can't be reverted"))+'</p>';
   }
   return '<article class="glass rounded-2xl p-3 space-y-1.5 min-w-0 a31-entry" data-log="'+esc(e.id)+'" data-action="'+esc(e.action)+'">'+
-    '<div class="v3-row"><p class="text-sm font-medium text-slate-100 min-w-0 break-words">'+esc(A31_ACTION_LABEL[e.action] || e.action)+'</p><span class="text-[10px] text-slate-400 shrink-0">'+esc(v3Ts(e.at))+'</span></div>'+
+    '<div class="v3-row"><p class="text-sm font-medium text-slate-100 min-w-0 break-words">'+esc(A31_ACTION_LABEL[e.action] || e.action)+'</p><span class="text-[10px] text-slate-400 shrink-0 whitespace-nowrap">'+esc(v3Ts(e.at))+'</span></div>'+
     '<p class="text-[11px] text-slate-300 break-words">'+esc(e.actorName || e.actorEmail)+' · '+esc(V3_ROLE_LABEL[e.actorRole] || e.actorRole)+(area === 'super' ? ' · '+esc(A31_AREA_LABEL[e.area] || e.area) : '')+'</p>'+
     '<p class="text-xs text-slate-200 break-words">'+esc(e.summary || e.target || '')+'</p>'+
     (det ? '<details><summary class="text-[11px] text-teal-300 cursor-pointer">Before / after</summary><div class="space-y-2 pt-1">'+det+'</div></details>' : '')+rev+'</article>';
