@@ -1,4 +1,4 @@
-/* 3.2.0 browser flows on the demo (?demo=1): admins get Overview + System tools + delete user (admin code),
+/* 3.2.0 (+3.2.1 footer: About button only) browser flows on the demo (?demo=1): admins get Overview + System tools + delete user (admin code),
  * footer credit + About modal on every page, superadmin About image (upload / reset). BASE=http://127.0.0.1:8765/ node tools/tests/r320flows.js */
 const { chromium } = require('playwright-core');
 const path = require('path');
@@ -16,7 +16,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   await page.goto(BASE + '?demo=1', { waitUntil: 'load' });
   await page.evaluate(() => { localStorage.clear(); localStorage.setItem('pcr_v2_coach_done', '1'); localStorage.setItem('pcr_guides_off', '1'); });
   await page.reload({ waitUntil: 'load' });
-  check('login screen shows the credit + About', await page.isVisible('#pcr-credit-login .pcr-rasta') && /Made by Pranav Kumar \(Group IT Manager\)/.test(await page.innerText('#pcr-credit-login')));
+  check('login screen shows the About button, no Made-by pill (3.2.1)', await page.isVisible('#pcr-credit-login .pcr-about-btn .pcr-rasta') && !/Made by/.test(await page.innerText('#pcr-credit-login')) && !(await page.$('#pcr-credit-login .pcr-credit')));
   const login = async ([email, pw]) => {
     await page.evaluate(() => { try { doLogout(); } catch (e) {} });
     await page.reload({ waitUntil: 'load' });
@@ -35,23 +35,20 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   cur = 'staff'; await login(STAFF);
   for (const t of ['home', 'meals', 'boat', 'more', 'profile', 'myreports']) {
     await go(`navigate('${t}')`);
-    const ok = await page.evaluate(() => { const mc = document.getElementById('main-content'), c = document.getElementById('pcr-credit'); return !!c && mc.lastElementChild === c && /Made by Pranav Kumar \(Group IT Manager\)/.test(c.innerText) && !!c.querySelector('.pcr-about-btn'); });
+    const ok = await page.evaluate(() => { const mc = document.getElementById('main-content'), c = document.getElementById('pcr-credit'); return !!c && mc.lastElementChild === c && !/Made by/.test(c.innerText) && !c.querySelector('.pcr-credit') && !!c.querySelector('.pcr-about-btn'); });
     check('credit + About at the bottom of ' + t, ok);
   }
   await go("navigate('more')");
-  check('credit sits under the version info', await page.evaluate(() => { const c = document.getElementById('pcr-credit'); const t = document.getElementById('main-content').innerText; return /PCR Staff App 3\.2\.0/.test(t) && t.lastIndexOf('3.2.0') < t.indexOf('Made by Pranav'); }));
-  const st = await page.evaluate(() => { const e = document.querySelector('#pcr-credit .pcr-credit'), t = document.querySelector('#pcr-credit .pcr-rasta'); const a = getComputedStyle(e), b = getComputedStyle(t); return { anim: a.animationName, clip: b.webkitBackgroundClip || b.backgroundClip, img: b.backgroundImage, shadow: a.boxShadow }; });
+  check('About sits under the version info (UI 3.2.1)', await page.evaluate(() => { const t = document.getElementById('main-content').innerText; return /PCR Staff App 3\.2\.1/.test(t) && t.lastIndexOf('3.2.1') < t.lastIndexOf('About'); }));
+  const st = await page.evaluate(() => { const e = document.querySelector('#pcr-credit .pcr-about-btn'), t = e.querySelector('.pcr-rasta'); const a = getComputedStyle(e), b = getComputedStyle(t), r = e.getBoundingClientRect(); return { op: +a.opacity, bg: a.backgroundColor, fs: parseFloat(a.fontSize), h: r.height, w: r.width, clip: b.webkitBackgroundClip || b.backgroundClip, img: b.backgroundImage, icon: !!t.querySelector('.fa-circle-info') }; });
   check('Rasta gradient text (red/yellow/green, clipped to text)', /text/.test(st.clip) && /255, 77, 77/.test(st.img) && /255, 210, 63/.test(st.img) && /47, 211, 95/.test(st.img), JSON.stringify(st));
-  check('golden glow animates', st.anim === 'pcrGlow' && /245, 215, 122/.test(st.shadow), JSON.stringify(st));
+  check('About button: small (≤10.5px text), see-through (opacity 0.75–0.85, translucent bg), tappable (≥32px)', st.fs <= 10.5 && st.op >= 0.75 && st.op <= 0.85 && /rgba\(.*0\.\d+\)/.test(st.bg) && st.h >= 32 && st.icon, JSON.stringify(st));
   await page.click('#pcr-credit .pcr-about-btn'); await page.waitForTimeout(800);
   const im = await page.evaluate(() => { const i = document.getElementById('about-img'); return i ? { src: i.getAttribute('src'), w: i.naturalWidth } : null; });
   check('About opens a modal with the default poster', im && /assets\/about-default\.jpg$/.test(im.src) && im.w > 100, JSON.stringify(im));
   await page.evaluate(() => closeModal());
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  check('prefers-reduced-motion: no animation', await page.evaluate(() => getComputedStyle(document.querySelector('#pcr-credit .pcr-credit')).animationName) === 'none');
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.setViewportSize({ width: 320, height: 640 }); await page.waitForTimeout(300);
-  check('small phone (320px): credit fits, no sideways scroll', await page.evaluate(() => { const c = document.querySelector('#pcr-credit .pcr-credit').getBoundingClientRect(); return c.right <= 320 && c.left >= 0 && document.documentElement.scrollWidth <= 320; }));
+  check('small phone (320px): About fits, no sideways scroll', await page.evaluate(() => { const c = document.querySelector('#pcr-credit .pcr-about-btn').getBoundingClientRect(); return c.right <= 320 && c.left >= 0 && document.documentElement.scrollWidth <= 320; }));
   await page.setViewportSize({ width: 390, height: 844 });
   let r = await api('getSuperDashboard', {});
   check('staff: no overview from the server', r.success === false);

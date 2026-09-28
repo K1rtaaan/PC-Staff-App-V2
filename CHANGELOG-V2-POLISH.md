@@ -1,7 +1,14 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.2.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.2.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
+
+## 3.2.1 — Footer: About button only (2026-09-28)
+
+| ID | Change |
+|---|---|
+| C149 | **Footer**: the “Made by Pranav Kumar (Group IT Manager)” pill (text, golden frame, glow) is removed from every page and the sign-in screen. The **About** button stays and opens the same picture as before (default poster or the superadmin's About image); its text and icon now use the red / yellow / green gradient, and it is smaller and lightly see-through (10px text, translucent background and border, 80% opacity, full on hover/focus; still 32px tall to tap; fits 320px phones). Frontend only — UI 3.2.1, API stays 3.2.0 (no Apps Script deploy). Service worker cache `pcr-staff-v3.2.1` so phones pick it up. |
+| C150 | Tests: `tools/tests/r320flows.js` updated (no Made-by text/pill, gradient on the About button, size / opacity / tap height, 320px), `swupdate3.js` for 3.2.1. Rollback: gh-pages files from 4735c9a (3.2.0 = main 0eeefcc). |
 
 ## 3.2.0 — Phone notifications (Web Push), reports owner-only, admin tools, footer credit (2026-09-28)
 

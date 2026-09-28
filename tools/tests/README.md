@@ -22,7 +22,7 @@ node a31-backend.js                              # 3.1.0: superadmin block, admi
 BASE=http://127.0.0.1:8765/ node r310flows.js   # 3.1.0: same in the demo browser
 node a33-push.js                                 # 3.2.0: Web Push (VAPID keys/JWT, subscribe, inbox, events, reminders, cleanup) (VM)
 node a34-admin.js                                # 3.2.0: admin tools + codes, one-time migration / role changes, About image (VM)
-BASE=http://127.0.0.1:8765/ node r320flows.js   # 3.2.0: footer credit + About, admin Overview / System tools / delete, About image (demo browser)
+BASE=http://127.0.0.1:8765/ node r320flows.js   # 3.2.0/3.2.1: footer About button (no Made-by pill), admin Overview / System tools / delete, About image (demo browser)
 ```
 
 No test calls the live Apps Script backend or writes to the Sheet.

@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" href="assets/golden-logo.jpg"/>
 <link rel="apple-touch-icon" href="assets/golden-logo.jpg"/>
-<link rel="stylesheet" href="assets/fa/fa.css?v=3.2.0"/>
+<link rel="stylesheet" href="assets/fa/fa.css?v=3.2.1"/>
 <style>
 :root {
   color-scheme: dark;
@@ -198,25 +198,19 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 .v3-bar > span { display:block; height:100%; background:#14b8a6; border-radius:999px; }
 .v3-countdown { font-variant-numeric: tabular-nums; }
 #main-content { overflow-x: hidden; }
-/* 3.2.0 footer credit: Rasta gradient text in a golden glowing frame; About button */
-.pcr-credit-wrap{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px 6px;max-width:32rem;margin:0 auto}
-.pcr-credit{position:relative;display:inline-block;max-width:100%;padding:6px 14px;border-radius:9999px;text-align:center;
-  background:linear-gradient(180deg,rgba(15,23,42,.92),rgba(2,6,23,.92)) padding-box,linear-gradient(135deg,#8a6d1d,#f5d77a 30%,#fff3c4 50%,#d4a93a 70%,#7a5c12) border-box;
-  border:1.5px solid transparent;box-shadow:0 0 6px rgba(245,215,122,.35),0 0 14px rgba(212,169,58,.18),inset 0 0 6px rgba(245,215,122,.12);
-  animation:pcrGlow 3.6s ease-in-out infinite}
-.pcr-rasta{font-size:11px;line-height:1.35;font-weight:700;letter-spacing:.02em;
-  background:linear-gradient(90deg,#ff4d4d 0%,#ff4d4d 30%,#ffd23f 38%,#ffd23f 62%,#2fd35f 70%,#2fd35f 100%);
+/* 3.2.1 footer: version line + small see-through About button with the red / yellow / green gradient text (the Made-by pill was removed) */
+.pcr-credit-wrap{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px 6px;max-width:32rem;margin:0 auto}
+.pcr-about-btn{display:inline-flex;align-items:center;justify-content:center;font-size:10px;line-height:1;font-weight:700;letter-spacing:.02em;
+  border:1px solid rgba(245,215,122,.28);border-radius:9999px;padding:3px 10px;background:rgba(15,23,42,.35);min-height:32px;opacity:.8;
+  transition:opacity .15s,border-color .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent}
+.pcr-about-btn:hover,.pcr-about-btn:focus-visible{opacity:1;border-color:rgba(245,215,122,.6);box-shadow:0 0 6px rgba(245,215,122,.25);outline:none}
+.pcr-rasta{background:linear-gradient(90deg,#ff4d4d 0%,#ff4d4d 30%,#ffd23f 38%,#ffd23f 62%,#2fd35f 70%,#2fd35f 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 .5px rgba(0,0,0,.9))}
-.pcr-about-btn{font-size:11px;color:#f5d77a;border:1px solid rgba(245,215,122,.45);border-radius:9999px;padding:4px 12px;background:rgba(15,23,42,.6);min-height:28px}
-.pcr-about-btn:hover,.pcr-about-btn:focus-visible{border-color:#f5d77a;box-shadow:0 0 8px rgba(245,215,122,.35);outline:none}
-@keyframes pcrGlow{0%,100%{box-shadow:0 0 5px rgba(245,215,122,.28),0 0 12px rgba(212,169,58,.14),inset 0 0 5px rgba(245,215,122,.10)}
-  50%{box-shadow:0 0 9px rgba(245,215,122,.55),0 0 20px rgba(212,169,58,.28),inset 0 0 7px rgba(245,215,122,.18)}}
-@media (prefers-reduced-motion: reduce){.pcr-credit{animation:none}}
-@media (max-width:360px){.pcr-rasta{font-size:10px}.pcr-credit{padding:5px 10px}}
+.pcr-rasta i{color:inherit;-webkit-text-fill-color:inherit}
 @media print{.pcr-credit-wrap{display:none}}
 </style>
 <!-- 2.10.0: self-hosted purged Tailwind (tools/ builds it); loaded after the inline styles like the old CDN -->
-<link rel="stylesheet" href="assets/app.css?v=3.2.0"/>
+<link rel="stylesheet" href="assets/app.css?v=3.2.1"/>
 </head>
 <body class="text-slate-100 antialiased">
 
@@ -224,7 +218,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.2.1';
 const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
 function deptSelectOptions(selected){
   selected = selected || '';
@@ -386,7 +380,7 @@ const LS_COACH_DONE = 'pcr_v2_coach_done';
       </div>
       <p class="text-[10px] text-center text-slate-500 mt-4">v<span id="ui-version"></span> · Fiji time UTC+12</p>
       <p class="text-[9px] text-center text-teal-600/60 mt-1">Paradise Cove Resort · Yasawa Islands Fiji</p>
-      <div class="pcr-credit-wrap" id="pcr-credit-login"><div class="pcr-credit"><span class="pcr-rasta">Made by Pranav Kumar (Group IT Manager)</span></div><button type="button" class="pcr-about-btn" onclick="a34OpenAbout()"><i class="fa-solid fa-circle-info mr-1"></i>About</button></div>
+      <div class="pcr-credit-wrap" id="pcr-credit-login"><button type="button" class="pcr-about-btn" onclick="a34OpenAbout()" aria-label="About"><span class="pcr-rasta"><i class="fa-solid fa-circle-info mr-1"></i>About</span></button></div>
     </div>
   </div>
 
@@ -6693,6 +6687,6 @@ async function openPending(){
 }
 // 3.0: boot() is called at the end of assets/v3.js (loaded next) so the 3.0 screens are in place first
 </script>
-<script src="assets/v3.js?v=3.2.0"></script>
+<script src="assets/v3.js?v=3.2.1"></script>
 </body>
 </html>
