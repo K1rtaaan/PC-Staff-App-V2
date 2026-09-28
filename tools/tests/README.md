@@ -16,6 +16,7 @@ node apicount.js http://127.0.0.1:8765/ local   # API calls on boot
 node bootfail.js                                # boot retry
 node swupdate3.js                               # needs a copy of public/ served on :8766 at /tmp/swtest
 node r3shots.js http://127.0.0.1:8765/ <outDir> # 3.0 review screenshots + checks
+BASE=http://127.0.0.1:8765/ node r301race.js    # 3.0.1: leave a page while it loads — no console errors, no repaint
 ```
 
 No test calls the live Apps Script backend or writes to the Sheet.

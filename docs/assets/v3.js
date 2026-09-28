@@ -2001,7 +2001,7 @@ async function v3RenderChefReports(){
     st.from = $('#rp-from').value; st.to = $('#rp-to').value; st.meal = $('#rp-meal').value;
     $('#rp-out').innerHTML = v3Card(v3Loading());
     const d = await v3Call('getMealReport', { from: st.from, to: st.to, meal: st.meal });
-    if (!d || state.tab !== 'mealstats') { $('#rp-out').innerHTML = ''; return; }
+    if (!d || state.tab !== 'mealstats') { const o = $('#rp-out'); if (o) o.innerHTML = ''; return; } // 3.0.1: #rp-out is gone if the page changed
     state.repData = d; v3PaintReport(d);
   };
   if (state.repData) v3PaintReport(state.repData);
@@ -2241,7 +2241,7 @@ async function v3RenderAdminStatus(){
     state.exFrom = $('#ex-from').value; state.exTo = $('#ex-to').value;
     $('#ex-out').innerHTML = v3Card(v3Loading());
     const d = await v3Call('getAdminExport', { from: state.exFrom, to: state.exTo });
-    if (!d || state.tab !== 'adminstatus') { $('#ex-out').innerHTML = ''; return; }
+    if (!d || state.tab !== 'adminstatus') { const o = $('#ex-out'); if (o) o.innerHTML = ''; return; } // 3.0.1: #ex-out is gone if the page changed
     const reqs = [].concat((d.breakfast||[]).map(function(o){ return Object.assign({ meal:'breakfast' }, o); }), (d.lunch||[]).map(function(o){ return Object.assign({ meal:'lunch' }, o); }), (d.dinner||[]).map(function(o){ return Object.assign({ meal:'dinner' }, o); }))
       .filter(function(o){ return o.orderType === 'special' || o.orderType === 'late_request' || o.status === 'late_pending' || String(o.late) === 'true' || o.late === true; });
     const orders = [].concat((d.breakfast||[]).map(function(o){ return Object.assign({ meal:'breakfast' }, o); }), (d.lunch||[]).map(function(o){ return Object.assign({ meal:'lunch' }, o); }), (d.dinner||[]).map(function(o){ return Object.assign({ meal:'dinner' }, o); }));

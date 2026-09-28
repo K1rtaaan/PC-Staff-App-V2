@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" href="assets/golden-logo.jpg"/>
 <link rel="apple-touch-icon" href="assets/golden-logo.jpg"/>
-<link rel="stylesheet" href="assets/fa/fa.css?v=3.0.0"/>
+<link rel="stylesheet" href="assets/fa/fa.css?v=3.0.1"/>
 <style>
 :root {
   color-scheme: dark;
@@ -200,7 +200,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 #main-content { overflow-x: hidden; }
 </style>
 <!-- 2.10.0: self-hosted purged Tailwind (tools/ builds it); loaded after the inline styles like the old CDN -->
-<link rel="stylesheet" href="assets/app.css?v=3.0.0"/>
+<link rel="stylesheet" href="assets/app.css?v=3.0.1"/>
 </head>
 <body class="text-slate-100 antialiased">
 
@@ -208,7 +208,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.0.1';
 const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
 function deptSelectOptions(selected){
   selected = selected || '';
@@ -3249,8 +3249,10 @@ async function renderBoat(){
     const r = await api('getBoatRuns', boatRunsRangeParams());
     const runs = (r.data && r.data.runs) || [];
     cacheSet('boatRuns', runs);
+    if (state.tab !== 'boat') return; // 3.0.1: left Boat while the runs were loading — don't paint over the new page
     paintBoat(runs);
   } catch(e) {
+    if (state.tab !== 'boat') return;
     if (!cachedRuns) {
       $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="boat-root"><div class="glass rounded-xl p-4 text-sm text-red-300">Couldn\'t reach kitchen / server — try again<button type="button" id="boat-retry" class="block mt-2 text-teal-400 text-xs">Retry</button></div></div>';
       const rb=$('#boat-retry'); if(rb) rb.onclick=()=>renderBoat();
@@ -3384,10 +3386,14 @@ async function loadBoatEmergencyInbox(){
 
 async function renderMyBookings(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="mb-root"></div>';
-  const stopMb = showLoadingTips($('#mb-root'));
+  // 3.0.1: keep this screen's own box. If the person opens another page while the bookings are loading,
+  // #main-content is repainted and #mb-root no longer exists — then quietly do nothing (was a null innerHTML error).
+  const mbRoot = $('#mb-root');
+  const stopMb = showLoadingTips(mbRoot);
   try {
     const r = await api('myBoatBookings');
     stopMb();
+    if (!mbRoot.isConnected) return;
     const list = (r.data && r.data.bookings) || [];
     let html = queueHostHtml('boat')+'<h3 class="font-semibold text-sm mb-2">My boat bookings</h3>';
     if (!list.length) html += '<p class="text-sm text-sand-200/50">No bookings yet.</p>';
@@ -3398,7 +3404,7 @@ async function renderMyBookings(){
         statusBadge(b.status)+'</div>'+
         (b.status==='confirmed'?'<button class="text-xs text-red-300 cancel-bb" data-id="'+b.id+'">Cancel</button>':'')+'</div>';
     });
-    $('#mb-root').innerHTML = html;
+    mbRoot.innerHTML = html;
     bindQueueButtons();
     $$('.cancel-bb').forEach(b => b.onclick = () => softConfirmCancel('Cancel this boat booking?', async () => {
       const res = await sendOrQueue('cancelBoatBooking',{ id:b.dataset.id }, { label: 'Cancel boat booking' });
@@ -3408,7 +3414,7 @@ async function renderMyBookings(){
       toastWithUndo('Booking cancelled', function(){ toast('Re-book from Boat tab if needed','info'); });
       renderMyBookings();
     }));
-  } catch(e){ stopMb(); $('#mb-root').innerHTML = queueHostHtml('boat')+'<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; bindQueueButtons(); }
+  } catch(e){ stopMb(); if (!mbRoot.isConnected) return; mbRoot.innerHTML = queueHostHtml('boat')+'<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; bindQueueButtons(); }
 }
 
 async function renderSchedule(){
@@ -3900,9 +3906,11 @@ async function checkHealth(){
 
 async function renderReminders(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="rem-root"></div>';
-  const stopTips = showLoadingTips($('#rem-root'));
+  const remRoot = $('#rem-root');
+  const stopTips = showLoadingTips(remRoot);
   const r = await api('getReminders');
   stopTips();
+  if (!remRoot.isConnected) return; // 3.0.1: left the page while loading
   let list = sortRemindersHome((r.data && r.data.reminders) || []).filter(x => !(x.done===true||x.done==='TRUE'));
   const adm = canAdmin();
   let html = '';
@@ -3924,7 +3932,7 @@ async function renderReminders(){
       (adm?'<button class="text-red-400/70 rem-del" data-id="'+x.id+'"><i class="fa-solid fa-trash text-xs"></i></button>':'')+
       '</div>';
   });
-  $('#rem-root').innerHTML = html;
+  remRoot.innerHTML = html;
   const addBtn = $('#btn-add-rem');
   if (addBtn) addBtn.onclick = async () => {
     const passcode = await askPasscode('admin'); if (!passcode) return;
@@ -3949,10 +3957,12 @@ async function renderReminders(){
 }
 async function renderSuggestions(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="sug-root"></div>';
-  const stopTips = showLoadingTips($('#sug-root'));
+  const sugRoot = $('#sug-root');
+  const stopTips = showLoadingTips(sugRoot);
   const adm = canAdmin();
   const r = await api('getSuggestions', adm ? { adminView: true } : {});
   stopTips();
+  if (!sugRoot.isConnected) return; // 3.0.1: left the page while loading
   let list = ((r.data && r.data.suggestions) || []).slice();
   list.sort(function(a,b){ return Number(b.likes!=null?b.likes:b.votes||0) - Number(a.likes!=null?a.likes:a.votes||0); });
   let html = '<button id="btn-add-sug" class="btn-primary w-full rounded-xl py-2 text-sm text-white"><i class="fa-solid fa-plus mr-1"></i>New suggestion</button>';
@@ -3985,7 +3995,7 @@ async function renderSuggestions(){
     }
     html += '</div></div>';
   });
-  $('#sug-root').innerHTML = html;
+  sugRoot.innerHTML = html;
   $('#btn-add-sug').onclick = () => openSuggestModal(() => renderSuggestions());
   $$('.vote-sug').forEach(b=>b.onclick=async()=>{
     const res = await api('voteSuggestion',{ id:b.dataset.id, vote:b.dataset.vote });
@@ -6313,8 +6323,10 @@ function renderMoreV2(){
 }
 async function renderMealStatsPage(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="stats-root"><p class="text-sm text-slate-400">Loading statistics…</p></div>';
+  const statsRoot = $('#stats-root');
   try {
     const r = await api('getMealStatistics');
+    if (!statsRoot.isConnected) return; // 3.0.1: left the page while loading
     if (!r.success) { toast(r.error||'Failed','error'); return; }
     const w = r.data.weekly || {}, m = r.data.monthly || {};
     const wt = w.totals || {}, mt = m.totals || {};
@@ -6331,7 +6343,7 @@ async function renderMealStatsPage(){
       '<p class="text-[10px] text-slate-500">Boat bookings (active sample window): '+(w.boatBookings!=null?w.boatBookings:'—')+'</p>'+
       '<button onclick="navigate(\'more\')" class="text-xs text-teal-400">← Back</button></div>';
     $('#main-content').innerHTML = html;
-  } catch(e){ $('#stats-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
+  } catch(e){ if (statsRoot.isConnected) statsRoot.innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
 }
 function openMealOnBehalfModal(){
   openModal('<h3 class="font-semibold mb-3">Meal on behalf</h3>'+
@@ -6389,7 +6401,7 @@ async function renderUsers(){
   $('#header-title').textContent = 'Staff Directory';
   renderNav();
   const cached = readUsersCache();
-  state.usersCache = cached.length ? cached : state.usersCache;
+  state.usersCache = cached.length ? cached : (state.usersCache || []); // 3.0.1: was undefined on a first visit with no saved list
   $('#main-content').innerHTML =
   '<div class="fade-in max-w-3xl mx-auto space-y-3" id="users-root">'+
     '<div class="flex flex-wrap gap-2 items-center">'+
@@ -6442,8 +6454,9 @@ async function refreshUsers(silent){
     state.usersCache = users;
     cacheUsers(users);
     if (r.data && r.data.version) state.backendVersion = r.data.version;
+    const uTable = $('#u-table'); if (!uTable) return; // 3.0.1: left the Staff Directory while loading (cache is still updated)
     const err = $('#u-error'); if (err) { err.classList.add('hidden'); err.innerHTML=''; }
-    $('#u-table').innerHTML = renderUsersTable(users);
+    uTable.innerHTML = renderUsersTable(users);
     $('#u-status').textContent = users.length+' active staff · updated '+formatFiji()+(state.demo?' · demo':'');
     $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
     $$('.u-del').forEach(b => b.onclick = async () => {
@@ -6460,7 +6473,8 @@ async function refreshUsers(silent){
       err.innerHTML = usersErrorUI(state.usersError);
       const tb = $('#u-try-again'); if (tb) tb.onclick = () => refreshUsers(false);
     }
-    if (!state.usersCache.length) $('#u-table').innerHTML = '';
+    if (!$('#u-table')) { /* 3.0.1: left the Staff Directory while loading — nothing to repaint */ }
+    else if (!state.usersCache.length) $('#u-table').innerHTML = '';
     else {
       $('#u-status').textContent = 'Cached data shown · refresh failed';
       $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
@@ -6611,6 +6625,6 @@ async function openPending(){
 }
 // 3.0: boot() is called at the end of assets/v3.js (loaded next) so the 3.0 screens are in place first
 </script>
-<script src="assets/v3.js?v=3.0.0"></script>
+<script src="assets/v3.js?v=3.0.1"></script>
 </body>
 </html>
