@@ -121,6 +121,7 @@ function handleRequest(e, method) {
       R3_AUTH = null;
       return jsonOut({ success: false, error: auth.error, sessionExpired: !!auth.sessionExpired, needsSignIn: !!auth.sessionExpired });
     }
+    if (typeof a320OwnerOnce === 'function') a320OwnerOnce(); // 3.2.0 one-time: revert/report owner = it@ (Reports31.gs)
     var result = a31Handle(action, payload, routeAction); // 3.1.0: superadmin staff-action block + admin activity log (Admin31.gs)
     if (result && result.success === false && R3_AUTH && R3_AUTH.staffView) { result.needsSignIn = true; }
     if (typeof a33AfterAction === 'function') { a33AfterAction(action, payload, result); try { a33Flush(); } catch (e) {} } // 3.2.0 phone notifications (Push33.gs)

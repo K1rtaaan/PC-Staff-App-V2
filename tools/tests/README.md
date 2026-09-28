@@ -20,6 +20,7 @@ BASE=http://127.0.0.1:8765/ node r301race.js    # 3.0.1: leave a page while it l
 BASE=http://127.0.0.1:8765/ node r301code.js    # 3.0.1: superadmin code box on top of Edit user (cancel / wrong / right code)
 node a31-backend.js                              # 3.1.0: superadmin block, admin log, revert owner, one-time notice (VM)
 BASE=http://127.0.0.1:8765/ node r310flows.js   # 3.1.0: same in the demo browser
+node a33-push.js                                 # 3.2.0: Web Push (VAPID keys/JWT, subscribe, inbox, events, reminders, cleanup) (VM)
 ```
 
 No test calls the live Apps Script backend or writes to the Sheet.
