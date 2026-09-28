@@ -17,7 +17,8 @@ const { chromium } = require('playwright-core');
   await page.click('#arch-run'); await page.waitForTimeout(400);
   console.log('confirm disabled before tick:', await page.locator('#arch-go').isDisabled());
   await page.check('#arch-ok'); await page.click('#arch-go'); await page.waitForTimeout(500);
-  // live model (2.10.0): superadmin role is enough, no password prompt
+  // 3.0.1: the server confirms an archive with the superadmin code — type it in the code box
+  if (await page.waitForSelector('#code-input', { state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) { await page.fill('#code-input', '2026'); await page.click('#code-ok'); console.log('code box shown: PASS'); } else console.log('code box shown: FAIL');
   await page.waitForTimeout(900);
   console.log('result:', (await page.locator('#arch-out').innerText()).replace(/\n/g, ' | '));
   const after = await page.evaluate(() => { const d = loadDemo(); return { dinner: d.dinnerOrders.length, arch: Object.fromEntries(Object.entries(d.archive||{}).map(([k,v]) => [k, v.length])) }; });

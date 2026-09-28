@@ -2531,7 +2531,7 @@ function passOk(code, level){
   return true;
 }
 /** C66: no unlock modal — role permissions alone gate Admin. Returns truthy sentinel for legacy call sites. */
-function askPasscode(level){
+function askPasscode(level, needCode){
   level = level || 'admin';
   if (level === 'super' && !hasPerm('super_admin')) {
     toast('Superadmin permission required','error');
@@ -2541,7 +2541,41 @@ function askPasscode(level){
     toast('Admin permission required','error');
     return Promise.resolve(null);
   }
+  // 3.0.1: actions the server confirms with the superadmin code (role change to/from Admin/Superadmin, delete user,
+  // app settings, role migration, archive) now show a code box. It opens ON TOP of any open window (e.g. Edit user),
+  // so that window and its ticks stay as they are. Other callers keep the role sentinel (unchanged).
+  if (level === 'super' && needCode) return askSuperCode();
   return Promise.resolve('role');
+}
+function askSuperCode(){
+  return new Promise(function(resolve){
+    const old = document.getElementById('code-modal'); if (old) old.remove();
+    const wrap = document.createElement('div');
+    wrap.id = 'code-modal';
+    wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true'); wrap.setAttribute('aria-labelledby', 'code-modal-title');
+    wrap.className = 'fixed inset-0 flex items-center justify-center p-4 modal-bg';
+    wrap.style.zIndex = '150';
+    wrap.innerHTML = '<form id="code-form" class="glass rounded-2xl p-4 w-full max-w-sm space-y-3" autocomplete="off">'+
+      '<h3 id="code-modal-title" class="font-semibold text-slate-100"><i class="fa-solid fa-key text-teal-400 mr-2"></i>Superadmin code</h3>'+
+      '<p class="text-xs text-slate-400">Enter the superadmin code to confirm this change.</p>'+
+      '<input id="code-input" type="password" inputmode="numeric" autocomplete="off" class="ui-input w-full" placeholder="Code"/>'+
+      '<div class="flex gap-2"><button type="button" id="code-cancel" class="flex-1 rounded-xl py-2.5 text-sm border border-slate-600 text-slate-300">Cancel</button>'+
+      '<button type="submit" id="code-ok" class="flex-1 btn-primary rounded-xl py-2.5 text-sm font-semibold text-white">Confirm</button></div></form>';
+    document.body.appendChild(wrap);
+    const input = wrap.querySelector('#code-input');
+    const done = function(v){ document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
+    const onKey = function(e){ if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
+    document.addEventListener('keydown', onKey, true);
+    wrap.querySelector('#code-cancel').onclick = function(){ done(null); };
+    wrap.addEventListener('click', function(e){ if (e.target === wrap) done(null); });
+    wrap.querySelector('#code-form').onsubmit = function(e){
+      e.preventDefault();
+      const v = String(input.value || '').trim();
+      if (!v) { toast('Enter the superadmin code','error'); input.focus(); return; }
+      done(v);
+    };
+    setTimeout(function(){ try { input.focus(); } catch (e) {} }, 30);
+  });
 }
 function roleLabel(r){
   return ({ super_admin:'Super Admin', admin:'Admin', hod:'HOD', assistant_hod:'Assistant HOD', chef:'Chef', kitchen:'Kitchen', boat_manager:'Boat Manager', boat_captain:'Boat Captain', boat:'Boat', staff:'Staff' })[r]||r;
@@ -5080,7 +5114,7 @@ async function renderAdminFeaturesTab(){
         '<button type="button" id="arch-run" class="ui-btn bg-rose-700/80 text-xs px-3 py-2 rounded-lg min-h-[40px] hidden">Archive now…</button></div>'+
         '<div id="arch-out" class="text-[11px] text-slate-300"></div></div></div>';
     async function toggle(key, cur){
-      const passcode = await askPasscode('super'); if (!passcode) return;
+      const passcode = await askPasscode('super', true); if (!passcode) return;
       const res = await api('setAppSetting',{ key, value: !cur, passcode });
       if (!res.success) toast(res.error,'error');
       else { toast(key+' → '+(!cur?'ON':'OFF'),'ok'); state.featureFlags[key]=!cur; if (state.tab === 'settings' && typeof v3RenderSettings === 'function') v3RenderSettings(); else renderAdmin(); }
@@ -5130,7 +5164,7 @@ function bindArchiveCard(){
       this.disabled = true; this.textContent = 'Archiving…';
       try {
         closeModal();
-        const passcode = await askPasscode('super');
+        const passcode = await askPasscode('super', true);
         if (!passcode) return;
         const r = await api('archiveOldRows', { passcode });
         if (!r.success) { out.innerHTML = '<span class="text-rose-300">'+esc(r.error||'Failed')+'</span>'; toast(r.error||'Archive failed','error'); return; }
@@ -6425,7 +6459,7 @@ async function renderUsers(){
     $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
     $$('.u-del').forEach(b => b.onclick = async () => {
       if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super'); if (!passcode) return;
+      const passcode = await askPasscode('super', true); if (!passcode) return;
       const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
       if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
     });
@@ -6461,7 +6495,7 @@ async function refreshUsers(silent){
     $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
     $$('.u-del').forEach(b => b.onclick = async () => {
       if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super'); if (!passcode) return;
+      const passcode = await askPasscode('super', true); if (!passcode) return;
       const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
       if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
     });
@@ -6480,7 +6514,7 @@ async function refreshUsers(silent){
       $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
     $$('.u-del').forEach(b => b.onclick = async () => {
       if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super'); if (!passcode) return;
+      const passcode = await askPasscode('super', true); if (!passcode) return;
       const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
       if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
     });
