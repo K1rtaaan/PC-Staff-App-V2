@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" href="assets/golden-logo.jpg"/>
 <link rel="apple-touch-icon" href="assets/golden-logo.jpg"/>
-<link rel="stylesheet" href="assets/fa/fa.css?v=3.0.1"/>
+<link rel="stylesheet" href="assets/fa/fa.css?v=3.1.0"/>
 <style>
 :root {
   color-scheme: dark;
@@ -200,7 +200,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 #main-content { overflow-x: hidden; }
 </style>
 <!-- 2.10.0: self-hosted purged Tailwind (tools/ builds it); loaded after the inline styles like the old CDN -->
-<link rel="stylesheet" href="assets/app.css?v=3.0.1"/>
+<link rel="stylesheet" href="assets/app.css?v=3.1.0"/>
 </head>
 <body class="text-slate-100 antialiased">
 
@@ -208,7 +208,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '3.0.1';
+const APP_VERSION = '3.1.0';
 const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
 function deptSelectOptions(selected){
   selected = selected || '';
@@ -1323,6 +1323,7 @@ async function api(action, payload={}) {
     body.userEmail = body.userEmail || state.user.email;
   }
   if (state.token && String(state.token).indexOf('v3.') === 0) body.sessionToken = state.token; // 3.0.0 signed session (role pages need it)
+  if (state._roleMode && body.logArea === undefined) body.logArea = state._roleMode; // 3.1.0: which admin page made the change (activity log)
   Object.keys(body).forEach(function(key) {
     var v = body[key];
     if (v === undefined || v === null) return;
@@ -6659,6 +6660,6 @@ async function openPending(){
 }
 // 3.0: boot() is called at the end of assets/v3.js (loaded next) so the 3.0 screens are in place first
 </script>
-<script src="assets/v3.js?v=3.0.1"></script>
+<script src="assets/v3.js?v=3.1.0"></script>
 </body>
 </html>

@@ -12,7 +12,7 @@ const { chromium } = require('playwright-core'); const fs = require('fs');
   const keys = await page.evaluate(async () => { const ks = await caches.keys(); const c = await caches.open(ks[0]); return { ks, entries: (await c.keys()).map(r => r.url.replace(location.origin, '')) }; });
   console.log('caches after first open:', JSON.stringify(keys));
   // simulate a new release
-  fs.writeFileSync('/tmp/swtest/sw.js', fs.readFileSync('/tmp/swtest/sw.js', 'utf8').replace("const VERSION = '3.0.1'", "const VERSION = '3.0.1-test2'"));
+  fs.writeFileSync('/tmp/swtest/sw.js', fs.readFileSync('/tmp/swtest/sw.js', 'utf8').replace("const VERSION = '3.1.0'", "const VERSION = '3.1.0-test2'"));
   await page.reload(); await page.waitForTimeout(500);
   await page.evaluate(() => navigator.serviceWorker.getRegistration().then(r => r.update()));
   await page.waitForSelector('#sw-update:not(.hidden)', { timeout: 20000 }).then(() => console.log('PASS update prompt shown')).catch(() => console.log('FAIL no update prompt'));

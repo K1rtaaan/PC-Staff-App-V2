@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.0.0';
+var APP_VERSION = '3.1.0';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -121,7 +121,7 @@ function handleRequest(e, method) {
       R3_AUTH = null;
       return jsonOut({ success: false, error: auth.error, sessionExpired: !!auth.sessionExpired, needsSignIn: !!auth.sessionExpired });
     }
-    var result = routeAction(action, payload);
+    var result = a31Handle(action, payload, routeAction); // 3.1.0: superadmin staff-action block + admin activity log (Admin31.gs)
     if (result && result.success === false && R3_AUTH && R3_AUTH.staffView) { result.needsSignIn = true; }
     R3_AUTH = null;
     return jsonOut(result);
@@ -266,6 +266,8 @@ function routeAction(action, p) {
       if (v3res) return v3res;
       var r3res = routeRelease3(action, p); // 3.0.0 meal times, mail test, role migration (Release3.gs)
       if (r3res) return r3res;
+      var a31res = routeAdmin31(action, p); // 3.1.0 admin log, revert, superadmin notice (Admin31.gs)
+      if (a31res) return a31res;
       return { success: false, error: 'Unknown action: ' + action };
     }
   }

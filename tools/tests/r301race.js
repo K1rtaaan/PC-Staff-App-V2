@@ -47,16 +47,19 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   for (const [k, email, pw] of users) {
     cur = k; await login(email, pw);
     await slow(['myBoatBookings', 'getBoatRuns', 'getReminders', 'getSuggestions', 'getUsers'], 1200);
+    if (k !== 'super') { // 3.1.0: a superadmin has no staff tabs (bookings / boat send them Home)
     await leaveWhileLoading('bookings', 'more', ['More page not replaced by bookings', () => !document.getElementById('mb-root')]);
     await leaveWhileLoading('bookings', 'home', ['Home not replaced by bookings', () => !document.getElementById('mb-root')]);
     await leaveWhileLoading('bookings', 'boat');
+    }
     await leaveWhileLoading('suggestions', 'more', ['More page not replaced by suggestions', () => !document.getElementById('sug-root')]);
     await page.evaluate(() => { try { cacheInvalidate(['boatRuns']); } catch (e) {} });
-    await leaveWhileLoading('boat', 'more', ['More page not replaced by Boat', () => !document.getElementById('boat-root')]);
+    if (k !== 'super') await leaveWhileLoading('boat', 'more', ['More page not replaced by Boat', () => !document.getElementById('boat-root')]);
     if (k === 'super') await leaveWhileLoading('users', 'more');
     await fast();
     // normal open still works
     cur = k + ':bookings'; await page.evaluate(() => navigate('bookings')); await page.waitForTimeout(1200);
+    if (k === 'super') { check(cur + ': superadmin sent Home (3.1.0)', await page.evaluate(() => state.tab === 'home' && !document.getElementById('mb-root'))); continue; }
     check(cur + ': My boat bookings still renders', /My boat bookings/.test(await page.evaluate(() => (document.getElementById('mb-root') || {}).innerText || '')));
   }
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
