@@ -51,7 +51,8 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
   check('orange TEST SITE banner visible', await page.evaluate(() => { const b = document.getElementById('test-site-banner'); return !!b && b.getBoundingClientRect().height > 10 && /TEST SITE/.test(b.innerText); }));
   check('title says TEST', /TEST/.test(await page.title()));
   check('API_URL is the TEST backend (not live)', await page.evaluate(L => API_URL.indexOf(L) < 0, LIVE));
-  const ver = await page.evaluate(() => api('getVersion', {}));
+  const ver = await page.evaluate(() => api('getVersion', {}).catch(e => ({ error: String(e.message || e) })));
+  if (!ver || ver.error) { check('TEST backend reachable (owner must authorise the TEST project once)', false, JSON.stringify(ver)); await browser.close(); process.exit(1); }
   check('backend getVersion ends with -test', ver && /-test$/.test(ver.version || (ver.data && ver.data.version) || ''), JSON.stringify(ver));
   check('storage keys are test-only (pcrtest_)', await page.evaluate(() => Object.keys(localStorage).every(k => k.indexOf('pcr_') !== 0)), await page.evaluate(() => Object.keys(localStorage).join(',')));
   await shot('00-login');
