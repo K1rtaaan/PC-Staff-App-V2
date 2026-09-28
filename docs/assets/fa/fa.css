@@ -186,6 +186,7 @@
 .fa-minus::before{content: "\f068";}
 .fa-gear::before{content: "\f013";}
 .fa-clock::before{content: "\f017";}
+.fa-mobile-screen::before{content: "\f3cf";}
 .fa-sliders::before{content: "\f1de";}
 .fa-flask::before{content: "\f0c3";}
 .fa-ticket::before{content: "\f145";}

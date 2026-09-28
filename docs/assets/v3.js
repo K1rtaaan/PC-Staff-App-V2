@@ -740,7 +740,7 @@ const V3_TITLES = { home:'Home', meals:'Meals', boat:'Boat', more:'More', bookin
   leavecal:'Leave calendar', users:'Staff directory', settings:'App settings', admin:'Classic admin tools', suggestions:'Suggestions', approvals:'Approvals', special:'Special meal order', schedule:'My schedule',
   kitchenadmin:'Kitchen Admin', boatadmin:'Boat Admin', deptadmin:'Department Admin', adminhub:'Admin Settings', mealtimes:'Meal times', mealstats:'Meal statistics', offmenu:'Orders not on the menu',
   boatruns:'Boat runs (admin)', emergency:'Emergency travel', leavesummary:'Leave summary', mealbehalf:'Meal on behalf', migrate:'Role migration', deptupdatespost:'Department updates',
-  adminlog:'Activity log', superlog:'Superadmin log', reports:'Reports', myreports:'My reports' };
+  adminlog:'Activity log', superlog:'Superadmin log', reports:'Reports', myreports:'My reports', pushsettings:'Phone notifications' };
 navigate = function(tab){
   if (tab === 'myorders') tab = 'history';
   if (tab === 'breakfast' || tab === 'lunch' || tab === 'dinner') { state.mealFocus = tab; tab = 'meals'; }
@@ -765,7 +765,7 @@ navigate = function(tab){
     settings: v3RenderSettings, admin: renderAdmin, suggestions: renderSuggestions, approvals: v3RenderApprovals, special: v3RenderSpecialPage,
     kitchenadmin: v3RenderKitchenAdmin, boatadmin: v3RenderBoatAdmin, deptadmin: v3RenderDeptAdmin, adminhub: v3RenderAdminHub, mealtimes: v3RenderMealTimes,
     mealstats: v3RenderMealStats, offmenu: v3RenderOffMenu, boatruns: v3RenderBoatRuns, emergency: v3RenderEmergency, leavesummary: v3RenderLeaveSummary, mealbehalf: v3RenderMealBehalf, migrate: v3RenderMigrate,
-    adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports
+    adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports, pushsettings: a33RenderSettings
   };
   if (['home','meals','boat','kitchen'].includes(tab)) paintSkeleton({ cards: 3 });
   try { history.replaceState(null, '', location.pathname + location.search + (tab === 'home' ? '' : '#'+tab)); } catch (e) {}
@@ -1689,12 +1689,13 @@ function renderMore(){
     }).join('')+'</div>'+(state.rolesNeedSignIn && !state.demo ? '<button type="button" onclick="v3AskReauth()" class="w-full text-[11px] text-sky-300 py-1"><i class="fa-solid fa-lock mr-1"></i>Sign in again to open role pages</button>' : '')+'</section>';
   }
   if (v3IsSuper()) {
-    html += group('Account', v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) + v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) + v3Row(v3Nav('reports'),'fa-bug','Reports','Problems & requests from staff', state._a32RepNew||0) + v3Row('a32OpenReport()','fa-flag','Report a problem','')) + a31SuperNoteHtml(); // 3.1.0: no staff features
+    html += group('Account', v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) + v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) + v3Row(v3Nav('reports'),'fa-bug','Reports','Problems & requests from staff', state._a32RepNew||0) + v3Row(v3Nav('pushsettings'),'fa-bell','Phone notifications','New reports on your phone') + v3Row('a32OpenReport()','fa-flag','Report a problem','')) + a31SuperNoteHtml(); // 3.1.0: no staff features
   } else {
     html += group('Me', v3Row(v3Nav('leave'),'fa-plane-departure','Leave requests','Request, track or cancel') +
       v3Row(v3Nav('history'),'fa-clock-rotate-left','My orders & history','Orders, boats, leave, requests, feedback') +
       v3Row(v3Nav('bookings'),'fa-ticket','My boat bookings','') +
       v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) +
+      v3Row(v3Nav('pushsettings'),'fa-mobile-screen','Phone notifications','Alerts on your phone, meal reminders') +
       v3Row(v3Nav('deptupdates'),'fa-bullhorn','Department updates', esc(u.department||'')) +
       (featureOn('feature_my_schedule') ? v3Row(v3Nav('schedule'),'fa-calendar-check','My schedule','') : '')) +
       group('Help', v3Row('a32OpenReport()','fa-flag','Report a problem','Error, change request or idea') + v3Row(v3Nav('myreports'),'fa-inbox','My reports','Status and replies'));
@@ -2658,6 +2659,7 @@ function a32HeaderButtons(){
 }
 function a32AfterNav(tab){
   a32HeaderButtons();
+  if (tab === 'home') a33MaybePrompt(); // 3.2.0 phone notifications
   const g = A32_GUIDE_TABS[tab];
   const gb = $('#btn-guide'); if (gb) gb.classList.toggle('hidden', !g);
   if (g) setTimeout(function(){ a32MaybeGuide(g); }, 900);
@@ -2771,6 +2773,151 @@ async function a32RenderMyReports(){
       (x.reply ? '<p class="text-xs text-teal-200 break-words"><i class="fa-solid fa-reply mr-1"></i>'+esc(x.reply)+'</p>' : '')+'</article>';
   }).join('') : v3Card(v3Empty('You haven’t sent any reports.'));
 }
+/* ============ 3.2.0: phone notifications (standard Web Push / VAPID, no Firebase) ============ */
+function a33Supported(){ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+function a33IsIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+function a33Standalone(){ return !!((window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true); }
+function a33K(k){ return 'pcr_push_'+k+'_'+String((state.user && state.user.email) || '').toLowerCase(); }
+function a33Bytes(s){ s = String(s).replace(/-/g,'+').replace(/_/g,'/'); while (s.length % 4) s += '='; const b = atob(s), a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+function a33Idb(mode, fn){
+  return new Promise(function(resolve){
+    try {
+      const rq = indexedDB.open('pcr-push', 1);
+      rq.onupgradeneeded = function(){ rq.result.createObjectStore('cfg'); };
+      rq.onerror = function(){ resolve(null); };
+      rq.onsuccess = function(){ try { const tx = rq.result.transaction('cfg', mode), st = tx.objectStore('cfg'), r = fn(st); tx.oncomplete = function(){ resolve(r && r.result !== undefined ? r.result : true); }; tx.onerror = function(){ resolve(null); }; } catch (e) { resolve(null); } };
+    } catch (e) { resolve(null); }
+  });
+}
+async function a33Reg(){
+  if (!('serviceWorker' in navigator)) return null;
+  const t = new Promise(function(r){ setTimeout(function(){ r(null); }, 10000); });
+  return Promise.race([navigator.serviceWorker.ready, t]);
+}
+async function a33Sub(){ const reg = await a33Reg(); return reg ? { reg: reg, sub: await reg.pushManager.getSubscription() } : { reg: null, sub: null }; }
+function a33SameKey(sub, key){
+  try { const k = sub && sub.options && sub.options.applicationServerKey; if (!k) return true; const a = new Uint8Array(k), b = a33Bytes(key); if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; } catch (e) { return true; }
+}
+/** Turn phone notifications on for this device (interactive = may ask the permission question). */
+async function a33Enable(interactive){
+  if (state.demo) { if (interactive) toast('Phone notifications are not available in the demo','error'); return false; }
+  if (!a33Supported()) { if (interactive) { if (a33IsIOS() && !a33Standalone()) a33IosHelp(); else toast('This browser can’t show phone notifications','error'); } return false; }
+  let perm = Notification.permission;
+  if (perm === 'default') { if (!interactive) return false; try { perm = await Notification.requestPermission(); } catch (e) { perm = 'default'; } }
+  if (perm !== 'granted') { if (interactive) toast(perm === 'denied' ? 'Notifications are blocked for this app — allow them in the phone / browser settings, then try again.' : 'Notifications were not turned on','error'); return false; }
+  const cfg = await api('getPushConfig', {}).catch(function(){ return null; });
+  if (!cfg || !cfg.success) { if (interactive) toast('Couldn’t reach the server — try again','error'); return false; }
+  const x = await a33Sub(); if (!x.reg) { if (interactive) toast('The app isn’t fully installed yet — reload and try again','error'); return false; }
+  let sub = x.sub;
+  try {
+    if (sub && !a33SameKey(sub, cfg.data.publicKey)) { await sub.unsubscribe(); sub = null; }
+    if (!sub) sub = await x.reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: a33Bytes(cfg.data.publicKey) });
+  } catch (e) { if (interactive) toast('Couldn’t turn on notifications: '+((e && e.message) || e),'error'); return false; }
+  const r = await api('pushSubscribe', { endpoint: sub.endpoint, userAgent: String(navigator.userAgent || '').slice(0, 200) }).catch(function(){ return null; });
+  if (!r || !r.success) { if (interactive) toast((r && r.error) || 'Couldn’t register this phone — try again','error'); return false; }
+  const scope = x.reg.scope;
+  await a33Idb('readwrite', function(st){ return st.put({ api: API_URL, subId: r.data.subId, key: r.data.key, email: state.user.email, endpoint: sub.endpoint }, scope); });
+  state._a33Device = true;
+  return true;
+}
+async function a33DisableDevice(){
+  const x = await a33Sub();
+  if (x.sub) { const ep = x.sub.endpoint; try { await api('pushUnsubscribe', { endpoint: ep }); } catch (e) {} try { await x.sub.unsubscribe(); } catch (e) {} }
+  if (x.reg) { const scope = x.reg.scope; await a33Idb('readwrite', function(st){ return st.delete(scope); }); }
+  state._a33Device = false;
+}
+async function a33DeviceOn(){
+  if (!a33Supported() || state.demo || Notification.permission !== 'granted') return false;
+  const x = await a33Sub(); if (!x.sub || !x.reg) return false;
+  const scope = x.reg.scope;
+  const cfg = await a33Idb('readonly', function(st){ return st.get(scope); });
+  return !!(cfg && cfg.email && state.user && String(cfg.email).toLowerCase() === String(state.user.email).toLowerCase() && cfg.endpoint === x.sub.endpoint);
+}
+function a33IosHelp(){
+  openModal('<div class="space-y-3" id="a33-ios"><h3 class="font-semibold text-slate-100"><i class="fa-solid fa-mobile-screen text-teal-400 mr-2"></i>iPhone: add the app to your Home Screen first</h3>'+
+    '<p class="text-sm text-slate-300">On iPhone, notifications only work for apps on the Home Screen (iOS 16.4 or newer).</p>'+
+    '<ol class="text-sm text-slate-200 list-decimal pl-5 space-y-1"><li>Open this page in <b>Safari</b>.</li><li>Tap the <b>Share</b> button (square with an arrow).</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</li><li>Open the app from the new icon, sign in, and turn on notifications (More → Phone notifications).</li></ol>'+
+    '<button type="button" id="a33-ios-ok" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white">OK</button></div>');
+  $('#a33-ios-ok').onclick = function(){ closeModal(); };
+}
+/** After login (Home): offer notifications once; re-register silently if already allowed. */
+async function a33MaybePrompt(){
+  if (state.demo || !state.user || state._a33Prompted) return;
+  state._a33Prompted = true;
+  await new Promise(function(r){ setTimeout(r, 2500); });
+  const cfg = await api('getPushConfig', {}).catch(function(){ return null; });
+  if (!cfg || !cfg.success) { state._a33Prompted = false; return; }
+  if (!cfg.data.on) return; // turned off for this account
+  const supported = a33Supported();
+  if (supported && Notification.permission === 'granted') { if (!(await a33DeviceOn())) a33Enable(false); return; }
+  if (supported && Notification.permission === 'denied') return;
+  const ios = a33IsIOS() && !a33Standalone();
+  if (!supported && !ios) return;
+  try { const later = Number(localStorage.getItem(a33K('later')) || 0); if (later && Date.now() - later < 7 * 86400000) return; } catch (e) {}
+  for (let i = 0; i < 6; i++) { const m = $('#modal'); if (!m || m.classList.contains('hidden')) break; await new Promise(function(r){ setTimeout(r, 4000); }); }
+  const m = $('#modal'); if ((m && !m.classList.contains('hidden')) || !state.user) { state._a33Prompted = false; return; }
+  openModal('<div class="space-y-3" id="a33-prompt"><h3 class="font-semibold text-slate-100"><i class="fa-solid fa-bell text-teal-400 mr-2"></i>Get notifications on this phone?</h3>'+
+    '<p class="text-sm text-slate-300">We’ll tell you when your meal, leave or boat booking is approved, changed or cancelled — and remind you 1 hour before meal orders close if you haven’t ordered.</p>'+
+    (ios ? '<p class="text-xs text-amber-200"><i class="fa-solid fa-circle-info mr-1"></i>On iPhone, first add this app to your Home Screen (Share → Add to Home Screen) and open it from the icon.</p>' : '')+
+    '<div class="flex gap-2"><button type="button" id="a33-yes" class="btn-primary flex-1 rounded-xl py-2.5 text-sm font-semibold text-white">'+(ios ? 'Show me how' : 'Turn on')+'</button>'+
+    '<button type="button" id="a33-later" class="flex-1 rounded-xl py-2.5 text-sm text-slate-300 border border-slate-600">Not now</button></div>'+
+    '<p class="text-[10px] text-slate-500 text-center">Change it any time: More → Phone notifications.</p></div>');
+  $('#a33-later').onclick = function(){ try { localStorage.setItem(a33K('later'), String(Date.now())); } catch (e) {} closeModal(); };
+  $('#a33-yes').onclick = async function(){
+    if (ios) { a33IosHelp(); return; }
+    closeModal();
+    const ok = await a33Enable(true);
+    if (ok) toast('Notifications are on for this phone','success'); else { try { localStorage.setItem(a33K('later'), String(Date.now())); } catch (e) {} }
+  };
+}
+async function a33RenderSettings(){
+  const tab = state.tab;
+  $('#main-content').innerHTML = v3Page(v3Back('more','More') + '<div id="ps-body" class="space-y-3">'+v3Card(v3Loading())+'</div>', 'push-root');
+  const cfg = state.demo ? { success: true, data: { on: true, devices: 0 } } : await api('getPushConfig', {}).catch(function(){ return null; });
+  const dev = await a33DeviceOn();
+  const box = $('#ps-body'); if (!box || state.tab !== tab) return;
+  const on = !!(cfg && cfg.success && cfg.data.on), supported = a33Supported(), perm = supported ? Notification.permission : 'unsupported';
+  const ios = a33IsIOS() && !a33Standalone();
+  let devTxt = dev ? '<span class="text-emerald-300">On</span>' : (state.demo ? 'Not available in the demo' : (!supported ? (ios ? 'iPhone: add the app to your Home Screen first' : 'This browser can’t show notifications') : (perm === 'denied' ? '<span class="text-rose-300">Blocked in the phone / browser settings</span>' : 'Off')));
+  const u = state.user || {};
+  const what = ['Your meal, leave and boat booking approved / declined / changed / cancelled', 'Replies to your problem reports and messages from admin', 'A reminder 1 hour before breakfast, lunch and dinner orders close — only if you haven’t ordered'];
+  if (v3CanDept()) what.push('Department: new leave and late meal requests');
+  if (v3IsAdmin()) what.push('Admin: leave waiting for final approval');
+  if (v3CanChef()) what.push('Kitchen: late / special meal requests, summary saved at the cutoff');
+  if (v3HasBoat()) what.push('Boat: new bookings, cancellations, emergency travel');
+  if (v3IsSuper()) { what.length = 0; what.push('New problem reports', 'Messages to you'); }
+  let html = v3Card('<div class="space-y-2"><div class="v3-row"><p class="text-sm text-slate-100">This phone</p><p class="text-sm" id="ps-dev">'+devTxt+'</p></div>'+
+      (dev ? '<button type="button" id="ps-off" class="w-full rounded-xl py-2 text-sm border border-slate-600 text-slate-200">Turn off for this phone</button>' :
+        (supported && perm !== 'denied' && !state.demo ? '<button type="button" id="ps-on" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white">Turn on for this phone</button>' : '')+
+        (ios ? '<button type="button" id="ps-ios" class="w-full rounded-xl py-2 text-sm border border-teal-500/40 text-teal-200">How to add to the Home Screen</button>' : ''))+
+      (dev ? '<button type="button" id="ps-test" class="w-full rounded-xl py-2 text-sm border border-teal-500/40 text-teal-200">Send me a test notification</button>' : '')+'</div>') +
+    v3Card('<label class="flex items-center justify-between gap-3"><span class="text-sm text-slate-100">Send phone notifications to me<br/><span class="text-[11px] text-slate-400">All your phones. Off = nothing is sent.</span></span><input type="checkbox" id="ps-acc" class="h-5 w-5 accent-teal-500"'+(on ? ' checked' : '')+(state.demo ? ' disabled' : '')+'/></label>'+
+      (cfg && cfg.success && cfg.data.devices ? '<p class="text-[11px] text-slate-400 mt-1">'+cfg.data.devices+' phone'+(cfg.data.devices === 1 ? '' : 's')+' registered</p>' : '')) +
+    v3Card('<p class="text-xs font-semibold text-slate-200 mb-1">What you’ll get</p><ul class="text-xs text-slate-300 list-disc pl-5 space-y-0.5">'+what.map(function(w){ return '<li>'+esc(w)+'</li>'; }).join('')+'</ul>'+
+      '<p class="text-[11px] text-slate-500 mt-2">iPhone: works only when the app was added to the Home Screen (iOS 16.4+) and opened from its icon. Android: Chrome, allow notifications when asked.</p>') +
+    (v3IsSuper() ? '<div id="ps-status"></div>' : '');
+  box.innerHTML = html;
+  const again = function(){ if (state.tab === tab) a33RenderSettings(); };
+  const bOn = $('#ps-on'); if (bOn) bOn.onclick = async function(){ bOn.disabled = true; bOn.textContent = 'Turning on…'; const ok = await a33Enable(true); if (ok) toast('Notifications are on for this phone','success'); again(); };
+  const bOff = $('#ps-off'); if (bOff) bOff.onclick = async function(){ bOff.disabled = true; await a33DisableDevice(); toast('Turned off for this phone','success'); again(); };
+  const bIos = $('#ps-ios'); if (bIos) bIos.onclick = a33IosHelp;
+  const bT = $('#ps-test'); if (bT) bT.onclick = async function(){ bT.disabled = true; const d = await v3Call('pushTest', {}, 'Test sent — it should appear in a few seconds'); bT.disabled = false; };
+  const acc = $('#ps-acc'); if (acc) acc.onchange = async function(){ const d = await v3Call('setPushPref', { on: acc.checked }, acc.checked ? 'Phone notifications on' : 'Phone notifications off'); if (!d) acc.checked = !acc.checked; };
+  if (v3IsSuper() && !state.demo) api('pushStatus', {}).then(function(r){ const el = $('#ps-status'); if (el && r && r.success) el.innerHTML = v3Card('<p class="text-[11px] text-slate-400">Push service: '+(r.data.keys ? 'keys ready' : 'no keys yet')+' · reminder timer '+(r.data.trigger ? 'on' : 'not installed yet')+(r.data.lastTick ? ' (last run '+esc(v3Ts(r.data.lastTick))+')' : '')+' · '+r.data.devices+' phones, '+r.data.users+' people</p>'); }).catch(function(){});
+}
+/* logout: this phone stops getting the previous person's notifications */
+const _v32Logout = doLogout;
+doLogout = function(){
+  if (state.user && !state.demo && a33Supported()) { a33DisableDevice().catch(function(){}); }
+  state._a33Prompted = false;
+  return _v32Logout.apply(this, arguments);
+};
+/* tapping a notification while the app is open: go to that page */
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function(e){
+  if (!e.data || e.data.type !== 'PCR_OPEN' || !state.user) return;
+  let t = 'notifications'; try { t = (new URL(e.data.url).hash || '').replace('#', '') || 'notifications'; } catch (x) {}
+  navigate(V3_TITLES[t] ? t : 'notifications');
+});
 /* demo mode: the same Admin31.gs rules run around every demo action (block · snapshot · log) */
 const _v30DemoApiCore = demoApiCore;
 demoApiCore = async function(action, p){

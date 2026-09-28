@@ -134,6 +134,6 @@ function routeReports31(action, p) {
   var map = { submitReport: submitReport, getReports: getReports, getReportCount: getReportCount, getMyReports: getMyReports, updateReport: updateReport,
     getMyGuides: getMyGuides, markGuideSeen: markGuideSeen };
   var fn = map[action];
-  if (!fn) return null;
+  if (!fn) return typeof routePush33 === 'function' ? routePush33(action, p) : null; // 3.2.0 push
   try { return fn(p || {}); } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
 }

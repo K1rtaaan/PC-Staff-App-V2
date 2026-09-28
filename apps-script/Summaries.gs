@@ -263,7 +263,9 @@ function dsumMaybeAutoSave() {
 /** Time-driven trigger target (~8:10pm Fiji). Runs the usual approval waves first, then saves. */
 function dinnerSummaryTick() {
   try { processDinnerWorkflow({}); } catch (e) {}
-  return mealTick(false);
+  var r = mealTick(false);
+  if (typeof a33Flush === 'function') { try { a33Flush(); } catch (e) {} } // 3.2.0: phone notifications from the tick
+  return r;
 }
 function installDinnerSummaryTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {

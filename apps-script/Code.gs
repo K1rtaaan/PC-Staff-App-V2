@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.1.0';
+var APP_VERSION = '3.2.0';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -123,6 +123,7 @@ function handleRequest(e, method) {
     }
     var result = a31Handle(action, payload, routeAction); // 3.1.0: superadmin staff-action block + admin activity log (Admin31.gs)
     if (result && result.success === false && R3_AUTH && R3_AUTH.staffView) { result.needsSignIn = true; }
+    if (typeof a33AfterAction === 'function') { a33AfterAction(action, payload, result); try { a33Flush(); } catch (e) {} } // 3.2.0 phone notifications (Push33.gs)
     R3_AUTH = null;
     return jsonOut(result);
   } catch (err) {
@@ -611,6 +612,7 @@ function sheetToObjectsRaw(sheetName) {
 }
 
 function appendRow(sheetName, obj, headers) {
+  if (sheetName === 'Notifications' && typeof a33FromNotif === 'function') { try { a33FromNotif(obj); } catch (e) {} } // 3.2.0: in-app notification → phone
   var sh = getSS().getSheetByName(sheetName);
   if (headers && headers.length) ensureColumns(sh, headers);
   var lastCol = Math.max(sh.getLastColumn(), 1);
