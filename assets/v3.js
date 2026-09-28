@@ -2001,7 +2001,7 @@ async function v3RenderChefReports(){
     st.from = $('#rp-from').value; st.to = $('#rp-to').value; st.meal = $('#rp-meal').value;
     $('#rp-out').innerHTML = v3Card(v3Loading());
     const d = await v3Call('getMealReport', { from: st.from, to: st.to, meal: st.meal });
-    if (!d || state.tab !== 'mealstats') { $('#rp-out').innerHTML = ''; return; }
+    if (!d || state.tab !== 'mealstats') { const o = $('#rp-out'); if (o) o.innerHTML = ''; return; } // 3.0.1: #rp-out is gone if the page changed
     state.repData = d; v3PaintReport(d);
   };
   if (state.repData) v3PaintReport(state.repData);
@@ -2114,7 +2114,7 @@ async function v3RenderMigrate(){
   $('#mg-apply').onclick = async function(){
     const d0 = await v3Call('migrateRoles', { dryRun: 1 }); if (!d0) return; show(d0);
     if (!confirm('Write the roles column for '+d0.count+' account(s)? A backup copy of the Users tab is made first.')) return;
-    const pass = await askPasscode('super'); if (!pass) return;
+    const pass = await askPasscode('super', true); if (!pass) return;
     const d = await v3Call('migrateRoles', { dryRun: 0, passcode: pass }, 'Roles written'); if (d) show(d);
   };
 }
@@ -2180,7 +2180,7 @@ function v3EditUser(u){
     const dept = $('#eu3-dept').value;
     if (dept !== u.department) p.department = dept;
     const top = function(l){ return l.filter(function(x){ return x === 'admin' || x === 'super_admin'; }).sort().join(','); };
-    if (!same && top(roles) !== top(cur)) { const pass = await askPasscode('super'); if (!pass) return; p.passcode = pass; }
+    if (!same && top(roles) !== top(cur)) { const pass = await askPasscode('super', true); if (!pass) return; p.passcode = pass; }
     this.disabled = true;
     const r = await v3Call('setUserAccess', p, 'Saved');
     this.disabled = false;
@@ -2195,7 +2195,7 @@ function v3EditUser(u){
   const del = $('#v3-del-user');
   if (del) del.onclick = async function(){
     if (!confirm('Delete '+u.email+' permanently? Their past orders stay in the sheets.')) return;
-    const pass = await askPasscode('super'); if (!pass) return;
+    const pass = await askPasscode('super', true); if (!pass) return;
     const r = await v3Call('deleteUser', { targetEmail: u.email, passcode: pass }, 'User deleted');
     if (r) { closeModal(); v3RenderUsers(); }
   };
@@ -2241,7 +2241,7 @@ async function v3RenderAdminStatus(){
     state.exFrom = $('#ex-from').value; state.exTo = $('#ex-to').value;
     $('#ex-out').innerHTML = v3Card(v3Loading());
     const d = await v3Call('getAdminExport', { from: state.exFrom, to: state.exTo });
-    if (!d || state.tab !== 'adminstatus') { $('#ex-out').innerHTML = ''; return; }
+    if (!d || state.tab !== 'adminstatus') { const o = $('#ex-out'); if (o) o.innerHTML = ''; return; } // 3.0.1: #ex-out is gone if the page changed
     const reqs = [].concat((d.breakfast||[]).map(function(o){ return Object.assign({ meal:'breakfast' }, o); }), (d.lunch||[]).map(function(o){ return Object.assign({ meal:'lunch' }, o); }), (d.dinner||[]).map(function(o){ return Object.assign({ meal:'dinner' }, o); }))
       .filter(function(o){ return o.orderType === 'special' || o.orderType === 'late_request' || o.status === 'late_pending' || String(o.late) === 'true' || o.late === true; });
     const orders = [].concat((d.breakfast||[]).map(function(o){ return Object.assign({ meal:'breakfast' }, o); }), (d.lunch||[]).map(function(o){ return Object.assign({ meal:'lunch' }, o); }), (d.dinner||[]).map(function(o){ return Object.assign({ meal:'dinner' }, o); }));
@@ -2279,7 +2279,7 @@ async function v3RenderSettings(){
     const okMail = function(x){ return !x || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); };
     if (!okMail(from) || !okMail(bm)) { toast('Enter a valid email or leave it blank','error'); return; }
     if (pv === 'brevo' && !bm) { toast('Brevo needs a sender address','error'); return; }
-    const passcode = await askPasscode('super'); if (!passcode) return;
+    const passcode = await askPasscode('super', true); if (!passcode) return;
     const sets = [['mail_provider', pv], ['mail_from', from], ['brevo_sender_email', bm], ['mail_sender_name', name], ['brevo_sender_name', name]];
     for (let i = 0; i < sets.length; i++) { const a = await v3Call('setAppSetting', { key: sets[i][0], value: sets[i][1], passcode: passcode }, i === sets.length-1 ? 'Sender saved' : null); if (!a) return; }
     state.appSettings = Object.assign({}, state.appSettings, { mail_provider: pv, mail_from: from, brevo_sender_email: bm, mail_sender_name: name, brevo_sender_name: name }); cacheInvalidate(['featureFlags','v3home']);

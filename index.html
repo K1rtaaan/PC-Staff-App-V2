@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" href="assets/golden-logo.jpg"/>
 <link rel="apple-touch-icon" href="assets/golden-logo.jpg"/>
-<link rel="stylesheet" href="assets/fa/fa.css?v=3.0.0"/>
+<link rel="stylesheet" href="assets/fa/fa.css?v=3.0.1"/>
 <style>
 :root {
   color-scheme: dark;
@@ -200,7 +200,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 #main-content { overflow-x: hidden; }
 </style>
 <!-- 2.10.0: self-hosted purged Tailwind (tools/ builds it); loaded after the inline styles like the old CDN -->
-<link rel="stylesheet" href="assets/app.css?v=3.0.0"/>
+<link rel="stylesheet" href="assets/app.css?v=3.0.1"/>
 </head>
 <body class="text-slate-100 antialiased">
 
@@ -208,7 +208,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.0.1';
 const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
 function deptSelectOptions(selected){
   selected = selected || '';
@@ -2531,7 +2531,7 @@ function passOk(code, level){
   return true;
 }
 /** C66: no unlock modal — role permissions alone gate Admin. Returns truthy sentinel for legacy call sites. */
-function askPasscode(level){
+function askPasscode(level, needCode){
   level = level || 'admin';
   if (level === 'super' && !hasPerm('super_admin')) {
     toast('Superadmin permission required','error');
@@ -2541,7 +2541,41 @@ function askPasscode(level){
     toast('Admin permission required','error');
     return Promise.resolve(null);
   }
+  // 3.0.1: actions the server confirms with the superadmin code (role change to/from Admin/Superadmin, delete user,
+  // app settings, role migration, archive) now show a code box. It opens ON TOP of any open window (e.g. Edit user),
+  // so that window and its ticks stay as they are. Other callers keep the role sentinel (unchanged).
+  if (level === 'super' && needCode) return askSuperCode();
   return Promise.resolve('role');
+}
+function askSuperCode(){
+  return new Promise(function(resolve){
+    const old = document.getElementById('code-modal'); if (old) old.remove();
+    const wrap = document.createElement('div');
+    wrap.id = 'code-modal';
+    wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true'); wrap.setAttribute('aria-labelledby', 'code-modal-title');
+    wrap.className = 'fixed inset-0 flex items-center justify-center p-4 modal-bg';
+    wrap.style.zIndex = '150';
+    wrap.innerHTML = '<form id="code-form" class="glass rounded-2xl p-4 w-full max-w-sm space-y-3" autocomplete="off">'+
+      '<h3 id="code-modal-title" class="font-semibold text-slate-100"><i class="fa-solid fa-key text-teal-400 mr-2"></i>Superadmin code</h3>'+
+      '<p class="text-xs text-slate-400">Enter the superadmin code to confirm this change.</p>'+
+      '<input id="code-input" type="password" inputmode="numeric" autocomplete="off" class="ui-input w-full" placeholder="Code"/>'+
+      '<div class="flex gap-2"><button type="button" id="code-cancel" class="flex-1 rounded-xl py-2.5 text-sm border border-slate-600 text-slate-300">Cancel</button>'+
+      '<button type="submit" id="code-ok" class="flex-1 btn-primary rounded-xl py-2.5 text-sm font-semibold text-white">Confirm</button></div></form>';
+    document.body.appendChild(wrap);
+    const input = wrap.querySelector('#code-input');
+    const done = function(v){ document.removeEventListener('keydown', onKey, true); wrap.remove(); resolve(v); };
+    const onKey = function(e){ if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
+    document.addEventListener('keydown', onKey, true);
+    wrap.querySelector('#code-cancel').onclick = function(){ done(null); };
+    wrap.addEventListener('click', function(e){ if (e.target === wrap) done(null); });
+    wrap.querySelector('#code-form').onsubmit = function(e){
+      e.preventDefault();
+      const v = String(input.value || '').trim();
+      if (!v) { toast('Enter the superadmin code','error'); input.focus(); return; }
+      done(v);
+    };
+    setTimeout(function(){ try { input.focus(); } catch (e) {} }, 30);
+  });
 }
 function roleLabel(r){
   return ({ super_admin:'Super Admin', admin:'Admin', hod:'HOD', assistant_hod:'Assistant HOD', chef:'Chef', kitchen:'Kitchen', boat_manager:'Boat Manager', boat_captain:'Boat Captain', boat:'Boat', staff:'Staff' })[r]||r;
@@ -3249,8 +3283,10 @@ async function renderBoat(){
     const r = await api('getBoatRuns', boatRunsRangeParams());
     const runs = (r.data && r.data.runs) || [];
     cacheSet('boatRuns', runs);
+    if (state.tab !== 'boat') return; // 3.0.1: left Boat while the runs were loading — don't paint over the new page
     paintBoat(runs);
   } catch(e) {
+    if (state.tab !== 'boat') return;
     if (!cachedRuns) {
       $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="boat-root"><div class="glass rounded-xl p-4 text-sm text-red-300">Couldn\'t reach kitchen / server — try again<button type="button" id="boat-retry" class="block mt-2 text-teal-400 text-xs">Retry</button></div></div>';
       const rb=$('#boat-retry'); if(rb) rb.onclick=()=>renderBoat();
@@ -3384,10 +3420,14 @@ async function loadBoatEmergencyInbox(){
 
 async function renderMyBookings(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="mb-root"></div>';
-  const stopMb = showLoadingTips($('#mb-root'));
+  // 3.0.1: keep this screen's own box. If the person opens another page while the bookings are loading,
+  // #main-content is repainted and #mb-root no longer exists — then quietly do nothing (was a null innerHTML error).
+  const mbRoot = $('#mb-root');
+  const stopMb = showLoadingTips(mbRoot);
   try {
     const r = await api('myBoatBookings');
     stopMb();
+    if (!mbRoot.isConnected) return;
     const list = (r.data && r.data.bookings) || [];
     let html = queueHostHtml('boat')+'<h3 class="font-semibold text-sm mb-2">My boat bookings</h3>';
     if (!list.length) html += '<p class="text-sm text-sand-200/50">No bookings yet.</p>';
@@ -3398,7 +3438,7 @@ async function renderMyBookings(){
         statusBadge(b.status)+'</div>'+
         (b.status==='confirmed'?'<button class="text-xs text-red-300 cancel-bb" data-id="'+b.id+'">Cancel</button>':'')+'</div>';
     });
-    $('#mb-root').innerHTML = html;
+    mbRoot.innerHTML = html;
     bindQueueButtons();
     $$('.cancel-bb').forEach(b => b.onclick = () => softConfirmCancel('Cancel this boat booking?', async () => {
       const res = await sendOrQueue('cancelBoatBooking',{ id:b.dataset.id }, { label: 'Cancel boat booking' });
@@ -3408,7 +3448,7 @@ async function renderMyBookings(){
       toastWithUndo('Booking cancelled', function(){ toast('Re-book from Boat tab if needed','info'); });
       renderMyBookings();
     }));
-  } catch(e){ stopMb(); $('#mb-root').innerHTML = queueHostHtml('boat')+'<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; bindQueueButtons(); }
+  } catch(e){ stopMb(); if (!mbRoot.isConnected) return; mbRoot.innerHTML = queueHostHtml('boat')+'<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; bindQueueButtons(); }
 }
 
 async function renderSchedule(){
@@ -3900,9 +3940,11 @@ async function checkHealth(){
 
 async function renderReminders(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="rem-root"></div>';
-  const stopTips = showLoadingTips($('#rem-root'));
+  const remRoot = $('#rem-root');
+  const stopTips = showLoadingTips(remRoot);
   const r = await api('getReminders');
   stopTips();
+  if (!remRoot.isConnected) return; // 3.0.1: left the page while loading
   let list = sortRemindersHome((r.data && r.data.reminders) || []).filter(x => !(x.done===true||x.done==='TRUE'));
   const adm = canAdmin();
   let html = '';
@@ -3924,7 +3966,7 @@ async function renderReminders(){
       (adm?'<button class="text-red-400/70 rem-del" data-id="'+x.id+'"><i class="fa-solid fa-trash text-xs"></i></button>':'')+
       '</div>';
   });
-  $('#rem-root').innerHTML = html;
+  remRoot.innerHTML = html;
   const addBtn = $('#btn-add-rem');
   if (addBtn) addBtn.onclick = async () => {
     const passcode = await askPasscode('admin'); if (!passcode) return;
@@ -3949,10 +3991,12 @@ async function renderReminders(){
 }
 async function renderSuggestions(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="sug-root"></div>';
-  const stopTips = showLoadingTips($('#sug-root'));
+  const sugRoot = $('#sug-root');
+  const stopTips = showLoadingTips(sugRoot);
   const adm = canAdmin();
   const r = await api('getSuggestions', adm ? { adminView: true } : {});
   stopTips();
+  if (!sugRoot.isConnected) return; // 3.0.1: left the page while loading
   let list = ((r.data && r.data.suggestions) || []).slice();
   list.sort(function(a,b){ return Number(b.likes!=null?b.likes:b.votes||0) - Number(a.likes!=null?a.likes:a.votes||0); });
   let html = '<button id="btn-add-sug" class="btn-primary w-full rounded-xl py-2 text-sm text-white"><i class="fa-solid fa-plus mr-1"></i>New suggestion</button>';
@@ -3985,7 +4029,7 @@ async function renderSuggestions(){
     }
     html += '</div></div>';
   });
-  $('#sug-root').innerHTML = html;
+  sugRoot.innerHTML = html;
   $('#btn-add-sug').onclick = () => openSuggestModal(() => renderSuggestions());
   $$('.vote-sug').forEach(b=>b.onclick=async()=>{
     const res = await api('voteSuggestion',{ id:b.dataset.id, vote:b.dataset.vote });
@@ -5070,7 +5114,7 @@ async function renderAdminFeaturesTab(){
         '<button type="button" id="arch-run" class="ui-btn bg-rose-700/80 text-xs px-3 py-2 rounded-lg min-h-[40px] hidden">Archive now…</button></div>'+
         '<div id="arch-out" class="text-[11px] text-slate-300"></div></div></div>';
     async function toggle(key, cur){
-      const passcode = await askPasscode('super'); if (!passcode) return;
+      const passcode = await askPasscode('super', true); if (!passcode) return;
       const res = await api('setAppSetting',{ key, value: !cur, passcode });
       if (!res.success) toast(res.error,'error');
       else { toast(key+' → '+(!cur?'ON':'OFF'),'ok'); state.featureFlags[key]=!cur; if (state.tab === 'settings' && typeof v3RenderSettings === 'function') v3RenderSettings(); else renderAdmin(); }
@@ -5120,7 +5164,7 @@ function bindArchiveCard(){
       this.disabled = true; this.textContent = 'Archiving…';
       try {
         closeModal();
-        const passcode = await askPasscode('super');
+        const passcode = await askPasscode('super', true);
         if (!passcode) return;
         const r = await api('archiveOldRows', { passcode });
         if (!r.success) { out.innerHTML = '<span class="text-rose-300">'+esc(r.error||'Failed')+'</span>'; toast(r.error||'Archive failed','error'); return; }
@@ -6313,8 +6357,10 @@ function renderMoreV2(){
 }
 async function renderMealStatsPage(){
   $('#main-content').innerHTML = '<div class="fade-in max-w-lg mx-auto space-y-3" id="stats-root"><p class="text-sm text-slate-400">Loading statistics…</p></div>';
+  const statsRoot = $('#stats-root');
   try {
     const r = await api('getMealStatistics');
+    if (!statsRoot.isConnected) return; // 3.0.1: left the page while loading
     if (!r.success) { toast(r.error||'Failed','error'); return; }
     const w = r.data.weekly || {}, m = r.data.monthly || {};
     const wt = w.totals || {}, mt = m.totals || {};
@@ -6331,7 +6377,7 @@ async function renderMealStatsPage(){
       '<p class="text-[10px] text-slate-500">Boat bookings (active sample window): '+(w.boatBookings!=null?w.boatBookings:'—')+'</p>'+
       '<button onclick="navigate(\'more\')" class="text-xs text-teal-400">← Back</button></div>';
     $('#main-content').innerHTML = html;
-  } catch(e){ $('#stats-root').innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
+  } catch(e){ if (statsRoot.isConnected) statsRoot.innerHTML = '<p class="text-red-300 text-sm">'+esc(e.message)+'</p>'; }
 }
 function openMealOnBehalfModal(){
   openModal('<h3 class="font-semibold mb-3">Meal on behalf</h3>'+
@@ -6389,7 +6435,7 @@ async function renderUsers(){
   $('#header-title').textContent = 'Staff Directory';
   renderNav();
   const cached = readUsersCache();
-  state.usersCache = cached.length ? cached : state.usersCache;
+  state.usersCache = cached.length ? cached : (state.usersCache || []); // 3.0.1: was undefined on a first visit with no saved list
   $('#main-content').innerHTML =
   '<div class="fade-in max-w-3xl mx-auto space-y-3" id="users-root">'+
     '<div class="flex flex-wrap gap-2 items-center">'+
@@ -6413,7 +6459,7 @@ async function renderUsers(){
     $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
     $$('.u-del').forEach(b => b.onclick = async () => {
       if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super'); if (!passcode) return;
+      const passcode = await askPasscode('super', true); if (!passcode) return;
       const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
       if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
     });
@@ -6442,13 +6488,14 @@ async function refreshUsers(silent){
     state.usersCache = users;
     cacheUsers(users);
     if (r.data && r.data.version) state.backendVersion = r.data.version;
+    const uTable = $('#u-table'); if (!uTable) return; // 3.0.1: left the Staff Directory while loading (cache is still updated)
     const err = $('#u-error'); if (err) { err.classList.add('hidden'); err.innerHTML=''; }
-    $('#u-table').innerHTML = renderUsersTable(users);
+    uTable.innerHTML = renderUsersTable(users);
     $('#u-status').textContent = users.length+' active staff · updated '+formatFiji()+(state.demo?' · demo':'');
     $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
     $$('.u-del').forEach(b => b.onclick = async () => {
       if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super'); if (!passcode) return;
+      const passcode = await askPasscode('super', true); if (!passcode) return;
       const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
       if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
     });
@@ -6460,13 +6507,14 @@ async function refreshUsers(silent){
       err.innerHTML = usersErrorUI(state.usersError);
       const tb = $('#u-try-again'); if (tb) tb.onclick = () => refreshUsers(false);
     }
-    if (!state.usersCache.length) $('#u-table').innerHTML = '';
+    if (!$('#u-table')) { /* 3.0.1: left the Staff Directory while loading — nothing to repaint */ }
+    else if (!state.usersCache.length) $('#u-table').innerHTML = '';
     else {
       $('#u-status').textContent = 'Cached data shown · refresh failed';
       $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
     $$('.u-del').forEach(b => b.onclick = async () => {
       if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super'); if (!passcode) return;
+      const passcode = await askPasscode('super', true); if (!passcode) return;
       const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
       if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
     });
@@ -6611,6 +6659,6 @@ async function openPending(){
 }
 // 3.0: boot() is called at the end of assets/v3.js (loaded next) so the 3.0 screens are in place first
 </script>
-<script src="assets/v3.js?v=3.0.0"></script>
+<script src="assets/v3.js?v=3.0.1"></script>
 </body>
 </html>
