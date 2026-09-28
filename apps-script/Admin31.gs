@@ -90,7 +90,8 @@ var A31_LOGGED = {
   archiveOldRows: ['admin', [], 'Archiving moves many rows to archive tabs — restore them from the archive tabs by hand.'],
   uploadRosterParsed: ['admin', [], 'Roster uploads are not reverted from here.'],
   backfillDinnerSummaries: ['admin', [], 'Saved summaries cannot be un-saved.'],
-  runMealTick: ['kitchen', a31MealSheets, 'Automatic approvals already notified staff.']
+  runMealTick: ['kitchen', a31MealSheets, 'Automatic approvals already notified staff.'],
+  updateReport: ['admin', ['Reports'], 'The reporter was already notified of the reply / status.']
 };
 var A31_AREAS = ['kitchen', 'boat', 'dept', 'admin'];
 var A31_KEYS = { 'Users': 'email', 'App Settings': 'key', 'Alert Emails': 'email' };
@@ -355,6 +356,6 @@ function a31CheckOwnerSetting(p, me) {
 function routeAdmin31(action, p) {
   var map = { getAdminLog: getAdminLog, revertAdminLog: revertAdminLog, getSuperNotice: getSuperNotice, ackSuperNotice: ackSuperNotice };
   var fn = map[action];
-  if (!fn) return null;
+  if (!fn) return typeof routeReports31 === 'function' ? routeReports31(action, p) : null; // 3.1.0 reports + guides
   try { return fn(p || {}); } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
 }

@@ -99,6 +99,58 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   check('staff still opens Meals', await page.evaluate(() => state.tab === 'meals'));
   r = await api('getAdminLog', { area: 'kitchen' });
   check('staff cannot read logs', r.success === false);
+
+  // 6) first-time role page guide (chef → Kitchen Admin), remembered server-side, "?" reopens
+  cur = 'chef-guide'; await login(CHEF);
+  await go("navigate('kitchenadmin')"); await page.waitForTimeout(1200);
+  check('Kitchen Admin guide shows the first time', await page.isVisible('#guide-root[data-guide="kitchen"]'));
+  let steps = 0; while (await page.$('#guide-next')) { await page.click('#guide-next'); steps++; if (steps > 8) break; }
+  check('guide has 3–6 steps', steps + 1 >= 3 && steps + 1 <= 6, steps + 1);
+  await page.click('#guide-done'); await page.waitForTimeout(300);
+  check('guide closed', !(await page.isVisible('#guide-root')));
+  await go("navigate('more')"); await go("navigate('kitchenadmin')"); await page.waitForTimeout(1200);
+  check('guide not shown again', !(await page.isVisible('#guide-root')));
+  await page.evaluate(() => Object.keys(localStorage).filter(k => /^pcr_guide_/.test(k)).forEach(k => localStorage.removeItem(k)));
+  await login(CHEF); await go("navigate('kitchenadmin')"); await page.waitForTimeout(1200);
+  check('guide not shown on a "new device" (server remembers)', !(await page.isVisible('#guide-root')));
+  check('"?" button visible on a role page', await page.isVisible('#btn-guide'));
+  await page.click('#btn-guide'); await page.waitForTimeout(300);
+  check('"?" reopens the guide', await page.isVisible('#guide-root[data-guide="kitchen"]'));
+  await page.click('#guide-skip');
+  await go("navigate('meals')");
+  check('"?" hidden on staff pages', !(await page.isVisible('#btn-guide')));
+
+  // 7) Report a problem (staff, with a screenshot) → superadmin inbox → reply → reporter notified
+  cur = 'staff-report'; await login(STAFF);
+  check('report button on every page (header)', await page.isVisible('#btn-report'));
+  await page.click('#btn-report'); await page.waitForSelector('#rp31-form');
+  await page.selectOption('#rp31-type', 'change');
+  await page.fill('#rp31-desc', 'Please add a vegetarian filter on the dinner menu');
+  const png = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 2400; c.height = 1600; const x = c.getContext('2d'); for (let i = 0; i < 400; i++) { x.fillStyle = 'hsl(' + (i * 37 % 360) + ',70%,50%)'; x.fillRect(Math.random() * 2400, Math.random() * 1600, 200, 120); } return c.toDataURL('image/png').split(',')[1]; });
+  await page.setInputFiles('#rp31-file', { name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  await page.waitForSelector('#rp31-thumbs img');
+  const shrunk = await page.evaluate(() => document.querySelector('#rp31-thumbs img').src);
+  check('screenshot shrunk on the phone (JPEG, < 400 KB)', /^data:image\/jpeg/.test(shrunk) && shrunk.length < 400000, shrunk.length + ' chars (png ' + png.length + ')');
+  await page.click('#rp31-send'); await page.waitForSelector('#rp31-form', { state: 'hidden', timeout: 8000 }).catch(() => {});
+  check('report form closes after sending', !(await page.isVisible('#rp31-form')), await page.evaluate(() => (document.getElementById('rp31-err')||{}).textContent + ' | ' + (document.getElementById('rp31-send')||{}).textContent));
+  const reps = await page.evaluate(() => api('getMyReports', {}));
+  const r0 = (reps.data && reps.data.reports[0]) || {};
+  check('report saved with page/version/device + 1 screenshot', reps.success && reps.data.reports.length === 1 && r0.type === 'change' && r0.page === 'meals' && /3\.1\.0/.test(r0.appVersion) && r0.images.length === 1 && !!r0.device, JSON.stringify({ page: r0.page, v: r0.appVersion, imgs: (r0.images || []).length, dev: r0.device, n: reps.data && reps.data.reports.length }));
+  cur = 'super-reports'; await login(SUPER);
+  await page.waitForTimeout(1500);
+  check('Manage tab shows a report badge', /1/.test(await page.evaluate(() => (document.querySelector('#bottom-nav [data-tab="manage"] .v3-nav-badge') || {}).textContent || '')));
+  await go("navigate('reports')");
+  check('Reports inbox lists the report', /vegetarian filter/.test(await page.innerText('#rep-body')));
+  check('inbox shows the screenshot', !!(await page.$('#rep-body .rep-item img')));
+  await page.selectOption('#rep-body .rep-item .rep-st', 'in_progress');
+  await page.fill('#rep-body .rep-item .rep-reply', 'Good idea — on the list');
+  await page.click('#rep-body .rep-item .rep-save'); await page.waitForTimeout(1800);
+  check('status saved', /In progress/.test(await page.innerText('#rep-body')));
+  cur = 'staff-reply'; await login(STAFF);
+  const mr = await page.evaluate(() => api('getMyReports', {}));
+  check('reporter sees status + reply', mr.success && mr.data.reports[0].status === 'in_progress' && /on the list/.test(mr.data.reports[0].reply));
+  const nt = await page.evaluate(() => api('getMyNotifications', {}));
+  check('reporter got an in-app notification', nt.success && JSON.stringify(nt.data).includes('Your report'), JSON.stringify(nt).slice(0, 200));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (errors.length) console.log('console errors:\n' + errors.join('\n'));
   await browser.close();
