@@ -1,7 +1,23 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.10.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.0.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
+
+## 3.0.0 — Roles, meal times, Brevo email, one Meals page (2026-09-28)
+
+| ID | Change |
+|----|--------|
+| C120 | **Role model**: superadmin, admin, HOD, assistant HOD, chef, boat manager, boat captain, staff — one person can hold several roles (`roles` column). Everyone uses the normal staff layout (Home · Meals · Boat · More); roles only add buttons in **More**: Admin Settings, Kitchen Admin, Boat Admin, Department Admin. Superadmin keeps Dashboard · Approvals · Manage · More. Stations (shared chef/boat logins) removed. |
+| C121 | Role pages need the signed session token from login; an expired/missing token asks for the password again (staff pages keep working). |
+| C122 | Superadmin **Role migration** (Manage): preview, then apply — copies the Users tab to “Users backup …” first; nobody gains or loses a role. |
+| C123 | **Meal times** (Kitchen Admin): dinner orders close **11:55pm** the day before, late requests until **8:00am** on the dinner day; breakfast & lunch late requests until midnight. At the late close late requests are **approved automatically**, added to the list and the dinner summary/PDF re-saved (extra run at 11:55pm). All times editable. |
+| C124 | **Meals page** rewritten: my meals today/tomorrow with countdowns and tomorrow's menu, Dinner (tonight + tomorrow), Lunch, Breakfast, Late Meal Request forms, feedback to the chef, and an “order completed” overlay (CSS only, respects reduced motion). |
+| C125 | **Kitchen Admin**: lists & saved summaries, late/special requests, **7-day dinner menu editor** (add/rename/reorder/hide/delete per weekday), meal times, **Not on the menu** list, food feedback, meal statistics, meal on behalf; today/tomorrow orders with Served / **Cancel**. |
+| C126 | **Cancel with reason** always stores the reason (+ who/when) on the order row (columns added if missing). Kitchen Admin/admin cancel notifies the staff member in-app; admin/superadmin can also notify another chosen user, add a message, or send nothing. Admin/superadmin can send an in-app notification to any user from Users & roles. |
+| C127 | **Boat Admin** (boat manager/captain): runs & passengers, PDFs, emergency travel; staff Boat tab never shows role tools. **Department Admin** (HOD/assistant HOD): approvals, staff, updates, leave calendar & summary, meal on behalf. No department join approval any more. |
+| C128 | **Email**: Brevo is the primary sender (API key in Script Properties), MailApp fallback; superadmin test email + status in App settings. Login box says “Email”. |
+| C129 | 2.10.2 menu-day fix carried into 3.0: dropdown shows only the dinner date's weekday menu, server rejects off-menu dishes (“That dish isn't on <Day>'s menu – please pick again” + menu reload), prep lists/summaries flag off-menu orders separately, sortOrder NaN → 99. |
+| C130 | Tests: `tools/tests/v300-backend.js`, `tools/tests/r300flows.js` (demo browser, every role), `dinner-menu-day.js`, `menu-day-demo.js`. Rollback: backend deployment @40, gh-pages 2d2f8fd, tag `v2.10.2-pre-3.0`. |
 
 ## 2.10.2 hotfix — Dinner menu day fix (2026-09-28)
 

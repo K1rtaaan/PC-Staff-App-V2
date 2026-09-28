@@ -1,5 +1,6 @@
 /**
- * PCR Staff App 2.10.1 — Kitchen order summaries by date (hotfix).
+ * PCR Staff App 2.10.1 — Kitchen order summaries by date (hotfix). 3.0.0: the save follows the dinner_cutoff setting
+ * (default 11:55pm) and is re-saved after the late-request close (default 12pm) — see Release3.gs mealTick.
  *
  * - The Kitchen page can open the dinner order summary / prep list (plus breakfast & lunch headcounts) for the last
  *   3 days, today and tomorrow (getKitchenDaySummary). Read only: past dates never run the approval workflow.
@@ -39,7 +40,7 @@ function dsumExpand(c, serviceDate) {
 /** Dinner order rows for a service date (not cancelled / rejected), decorated with notes + preferred names. */
 function dsumDinnerRows(serviceDate, nameMap) {
   var orders = sheetToObjects('Dinner Orders').filter(function (o) {
-    return dsumDate(o.serviceDate) === serviceDate && o.status !== 'cancelled' && o.status !== 'rejected';
+    return dsumDate(o.serviceDate) === serviceDate && o.status !== 'cancelled' && o.status !== 'rejected' && o.status !== 'special_pending';
   });
   decorateOrderNotes(orders, nameMap || preferredNameMap());
   return orders;
@@ -62,7 +63,7 @@ function dsumPrepFromOrders(serviceDate, orders) {
       denied: o.status === 'rejected' || o.status === 'cancelled', late: truthy(o.late), servedCheck: '' });
   });
   function cnt(f) { return orders.filter(f).length; }
-  return {
+  return flagOffMenu({
     serviceDate: serviceDate,
     totalOrders: orders.length,
     tally: tally,
@@ -72,7 +73,7 @@ function dsumPrepFromOrders(serviceDate, orders) {
     late: cnt(function (o) { return truthy(o.late); }),
     specialNotes: kitchenNoteEntries('dinner', orders, nameMap),
     orders: orders
-  };
+  });
 }
 
 /** payloadJson(+2..4) text for a snapshot row: compact v2 format, split across cells so it never hits the 50k limit. */
@@ -176,9 +177,17 @@ function dsumPrepHtml(serviceDate, prep, meta) {
     });
     h += '</table>';
   }
-  h += '</div><h2 style="font-size:14px;margin-top:14px">Breakdown (sorted by food)</h2>';
+  h += '</div>';
+  var off = prep.offMenu || [];
+  if (off.length) {
+    h += '<div style="margin:10px 0;padding:8px;border:2px solid #d97706;background:#fffbeb"><h2 style="margin:0 0 6px;font-size:14px;color:#b45309">&#9888; Not on this day\'s menu (' + off.length + ') — check with the staff member</h2><ul style="margin:0;font-size:12px">';
+    off.forEach(function (o) { h += '<li><strong>' + dsumEsc(o.name) + '</strong> (' + dsumEsc(o.department) + ') — ' + dsumEsc(o.dish) + '</li>'; });
+    h += '</ul></div>';
+  }
+  h += '<h2 style="font-size:14px;margin-top:14px">Breakdown (sorted by food)</h2>';
   Object.keys(tally).sort().forEach(function (k) {
-    h += '<div style="margin:4px 0;padding:4px 0;border-bottom:1px solid #ddd"><strong>' + dsumEsc(k) + '</strong>: ' + tally[k] + ' &nbsp; Given out: ______</div>';
+    var offK = (prep.menu || []).length && !(prep.menu || []).some(function (n) { return String(n).trim().toLowerCase() === String(k).trim().toLowerCase(); });
+    h += '<div style="margin:4px 0;padding:4px 0;border-bottom:1px solid #ddd"><strong>' + dsumEsc(k) + '</strong>' + (offK ? ' <span style="color:#b45309">(NOT ON MENU)</span>' : '') + ': ' + tally[k] + ' &nbsp; Given out: ______</div>';
   });
   Object.keys(byItem).sort().forEach(function (k) {
     var list = byItem[k] || [];
@@ -221,8 +230,10 @@ function dsumTryPdf(row) {
 /** Saves tomorrow's dinner summary (+ PDF when Drive is authorised). Idempotent per night via a script property. */
 function dsumAutoSave(by, force) {
   var now = getFijiNow();
-  if (now.getUTCHours() < DSUM_CUTOFF_HOUR && !force) return { skipped: 'before 8pm Fiji' };
-  var date = fijiDateString(addFijiDays(now, 1));
+  // 3.0.0: the dinner cutoff is an App Setting (dinner_cutoff, default 23:55) — save the latest date whose cutoff passed
+  var date = r3LastPassed(now, -1, mealTimes().dinner_cutoff);
+  if (force && !date) date = fijiDateString(addFijiDays(now, 1));
+  if (!date) return { skipped: 'no dinner cutoff passed yet' };
   var key = 'dsum_saved_' + date;
   var props = PropertiesService.getScriptProperties();
   var done = props.getProperty(key);
@@ -246,26 +257,19 @@ function dsumAutoSave(by, force) {
 }
 /** Cheap check run before normal requests: after 8pm, the first request of the night saves the summary. Never throws. */
 function dsumMaybeAutoSave() {
-  try {
-    var now = getFijiNow();
-    if (now.getUTCHours() < DSUM_CUTOFF_HOUR) return;
-    var date = fijiDateString(addFijiDays(now, 1));
-    var cache = CacheService.getScriptCache();
-    if (cache.get('dsum_ok_' + date) === '1') return;
-    if (PropertiesService.getScriptProperties().getProperty('dsum_saved_' + date)) { cache.put('dsum_ok_' + date, '1', 21600); return; }
-    dsumAutoSave('auto 8pm cutoff (first request)');
-  } catch (e) {}
+  // 3.0.0: cutoff save + late-window auto-approval + final re-save (Release3.gs mealTick; lazy, cached)
+  mealTickSafe();
 }
 /** Time-driven trigger target (~8:10pm Fiji). Runs the usual approval waves first, then saves. */
 function dinnerSummaryTick() {
   try { processDinnerWorkflow({}); } catch (e) {}
-  return dsumAutoSave('auto 8pm cutoff (trigger)');
+  return mealTick(false);
 }
 function installDinnerSummaryTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'dinnerSummaryTick') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('dinnerSummaryTick').timeBased().everyDays(1).atHour(20).nearMinute(10).inTimezone('Pacific/Fiji').create();
+  ScriptApp.newTrigger('dinnerSummaryTick').timeBased().everyHours(1).create(); // 3.0.0: hourly (cutoff / late close are settings)
   return listDinnerSummaryTriggers();
 }
 function listDinnerSummaryTriggers() {
@@ -353,7 +357,7 @@ function getKitchenDaySummary(p) {
   var want = String(p.source || '');
   var useSnap = snapPrep && want !== 'rows';
   var tomorrow = fijiDateString(addFijiDays(now, 1));
-  var dinnerOpen = date === tomorrow && now.getUTCHours() < DSUM_CUTOFF_HOUR;
+  var dinnerOpen = mealPhase('dinner', date, now) === 'open';
   var out = {
     serviceDate: date,
     fijiNow: formatFiji(now),
@@ -388,7 +392,7 @@ function getSavedSummaryPdf(p) {
 /** GET saveDinnerSummary&serviceDate= — superadmin/admin: save (or re-save) a snapshot now (+PDF when possible). */
 function saveDinnerSummary(p) {
   var u = getRequester(p);
-  if (!u || !(isAdminPerm(u) || isSuperPerm(u))) return { success: false, error: 'Admin / superadmin only' };
+  if (!u || !isChefPerm(u)) return { success: false, error: 'Chef / admin only' };
   var date = dsumDate(p.serviceDate);
   if (!date) return { success: false, error: 'serviceDate required' };
   var row = dsumSaveSnapshot(date, false, 'manual', 'saved by ' + u.email);

@@ -71,7 +71,7 @@ const ctx = {
   ScriptApp: { getProjectTriggers: () => { throw new Error('no scriptapp permission'); } }
 };
 vm.createContext(ctx);
-for (const f of ['Code.gs', 'Speed.gs', 'Summaries.gs']) vm.runInContext(fs.readFileSync(path.join(root, 'apps-script', f), 'utf8'), ctx, { filename: f });
+for (const f of fs.readdirSync(path.join(root, 'apps-script')).filter(f => f.endsWith('.gs'))) vm.runInContext(fs.readFileSync(path.join(root, 'apps-script', f), 'utf8'), ctx, { filename: f });
 const call = (action, p) => JSON.parse(ctx.handleRequest({ parameter: Object.assign({ action }, p || {}) }, 'GET').getContent ? ctx.handleRequest({ parameter: Object.assign({ action }, p || {}) }, 'GET').getContent() : '{}');
 ctx.ContentService = undefined;
 // jsonOut uses ContentService — stub it

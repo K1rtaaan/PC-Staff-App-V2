@@ -3,7 +3,7 @@
  *   cd tools && npm install && npm run build
  */
 module.exports = {
-  content: ['../public/index.html'],
+  content: ['../public/index.html', '../public/assets/v3.js'],
   safelist: [
     // toggled from JS / status helpers — keep even if a future edit builds them dynamically
     'hidden', 'text-teal-400', 'text-red-400', 'text-emerald-400', 'text-amber-300', 'text-rose-300'

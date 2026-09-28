@@ -1,4 +1,4 @@
-// 2.10.1 backend unit tests for Summaries.gs (kitchen order summaries by date, 8pm auto save, snapshots).
+// 2.10.1 (updated for 3.0.0: configurable dinner cutoff 23:55, late close 08:00, signed session tokens) backend unit tests for Summaries.gs (kitchen order summaries by date, 8pm auto save, snapshots).
 // No network, no real Sheet: Code.gs + Speed.gs + Summaries.gs run in a Node VM against an in-memory fake spreadsheet.
 // Run: node tools/tests/summaries-unit.js
 const fs = require('fs'), path = require('path'), vm = require('vm'), crypto = require('crypto');
@@ -59,7 +59,11 @@ class FakeDate extends RealDate { constructor(...a) { if (a.length) super(...a);
 const ctx = {
   console, JSON, Math, Date: FakeDate,
   SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss },
-  Utilities: { getUuid: () => crypto.randomUUID(), formatDate: (d) => d.toISOString(), base64Encode: (b) => Buffer.from(b).toString('base64') },
+  Utilities: { getUuid: () => crypto.randomUUID(), formatDate: (d) => d.toISOString(), base64Encode: (b) => Buffer.from(b).toString('base64'),
+    computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', k).update(v).digest()),
+    base64EncodeWebSafe: (v) => Buffer.from(typeof v === 'string' ? Buffer.from(v, 'utf8') : Buffer.from(v.map(b => b & 255))).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
+    base64DecodeWebSafe: (s) => Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
+    newBlob: (bytes) => ({ getDataAsString: () => Buffer.from(bytes.map(b => b & 255)).toString('utf8') }) },
   PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = v; }, getKeys: () => Object.keys(props), deleteProperty: k => { delete props[k]; } }) },
   CacheService: { getScriptCache: () => ({ get: k => (k in cache ? cache[k] : null), put: (k, v) => { cache[k] = v; }, remove: k => { delete cache[k]; }, getAll: () => ({}), putAll: () => {} }) },
   LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {} }) },
@@ -68,40 +72,42 @@ const ctx = {
   ScriptApp: { getProjectTriggers: () => { throw new Error('no scriptapp permission'); } }
 };
 vm.createContext(ctx);
-for (const f of ['Code.gs', 'Speed.gs', 'Summaries.gs']) vm.runInContext(fs.readFileSync(path.join(root, 'apps-script', f), 'utf8'), ctx, { filename: f });
+for (const f of fs.readdirSync(path.join(root, 'apps-script')).filter(f => f.endsWith('.gs'))) vm.runInContext(fs.readFileSync(path.join(root, 'apps-script', f), 'utf8'), ctx, { filename: f });
 const call = (action, p) => JSON.parse(ctx.handleRequest({ parameter: Object.assign({ action }, p || {}) }, 'GET').getContent ? ctx.handleRequest({ parameter: Object.assign({ action }, p || {}) }, 'GET').getContent() : '{}');
 ctx.ContentService = undefined;
 // jsonOut uses ContentService — stub it
 ctx.ContentService = { createTextOutput: (t) => ({ setMimeType: function () { return this; }, getContent: () => t, _t: t }), MimeType: { JSON: 'json' } };
-const api = (action, p) => JSON.parse(ctx.handleRequest({ parameter: Object.assign({ action }, p || {}) }, 'GET').getContent());
+// 3.0.0: role calls carry the signed session token the app gets at login
+const tok = (email) => ctx.makeSessionToken(ctx.findUserByEmail(email));
+const api = (action, p) => { p = Object.assign({}, p || {}); if (p.requesterEmail) p.sessionToken = tok(p.requesterEmail); return JSON.parse(ctx.handleRequest({ parameter: Object.assign({ action }, p) }, 'GET').getContent()); };
 const snapRows = () => { const d = sheets['Dinner Prep Snapshots']._data; const h = d[0]; return d.slice(1).map(r => Object.fromEntries(h.map((k, i) => [k, r[i]]))); };
 const dinnerBefore = JSON.stringify(sheets['Dinner Orders']._data);
 
-check('getVersion is 2.10.2', api('getVersion').version === '2.10.2');
+check('getVersion is 3.0.0', api('getVersion').version === '3.0.0');
 let r = api('getKitchenDaySummary', { serviceDate: '2026-09-28', requesterEmail: 'staff@x.com' });
 check('staff cannot read kitchen summaries', r.success === false);
 r = api('getKitchenDaySummary', { serviceDate: '2026-09-28', requesterEmail: 'chef@x.com' });
 check('chef reads 28 Sep summary', r.success === true, r.error);
-check('28 Sep built live from rows when no snapshot (400 orders, cancelled excluded)', r.data.dinner.source === 'rows' && r.data.dinner.prep.totalOrders === 400 && r.data.dinner.liveTotal === 400);
+check('28 Sep list saved by the lazy tick (cutoff 27 Sep 11:55pm passed; 400 orders, cancelled excluded)', r.data.dinner.source === 'snapshot' && r.data.dinner.prep.totalOrders === 400 && r.data.dinner.liveTotal === 400);
 check('tally + byItem present', Object.keys(r.data.dinner.prep.tally).length === 3 && Object.keys(r.data.dinner.prep.byItem).length === 3);
 check('allergy/diet notes flagged', r.data.dinner.prep.specialNotes.some(e => e.flag === 'allergy') && r.data.dinner.prep.specialNotes.some(e => e.flag === 'diet'));
 check('days = 25..29 Sep (last 3 days, today, tomorrow)', r.data.days.map(d => d.date).join(',') === '2026-09-25,2026-09-26,2026-09-27,2026-09-28,2026-09-29', r.data.days.map(d => d.date).join(','));
 check('day counts from rows', r.data.days.find(d => d.date === '2026-09-28').dinnerOrders === 400 && r.data.days.find(d => d.date === '2026-09-27').dinnerOrders === 7);
-check('breakfast headcount excludes late_pending', r.data.breakfast.totalCounted === 1 && r.data.breakfast.orders.length === 2);
+check('breakfast: late request auto-approved at the midnight late close → counted', r.data.breakfast.totalCounted === 2 && r.data.breakfast.orders.length === 2 && r.data.breakfast.orders.some(o => o.status === 'late_approved'));
 check('lunch headcount', r.data.lunch.totalCounted === 1);
-check('29 Sep still open before 8pm', api('getKitchenDaySummary', { serviceDate: '2026-09-29', requesterEmail: 'chef@x.com' }).data.dinner.stillOpen === true);
+check('29 Sep still open before the 11:55pm cutoff', api('getKitchenDaySummary', { serviceDate: '2026-09-29', requesterEmail: 'chef@x.com' }).data.dinner.stillOpen === true);
 r = api('getKitchenDaySummary', { serviceDate: '2026-09-26', requesterEmail: 'chef@x.com' });
 check('26 Sep uses the old 2.10.0 snapshot format', r.data.dinner.source === 'snapshot' && r.data.dinner.prep.totalOrders === 4 && r.data.dinner.liveTotal === 5);
 r = api('getKitchenDaySummary', { serviceDate: '2026-09-26', requesterEmail: 'chef@x.com', source: 'rows' });
 check('source=rows forces live rows', r.data.dinner.source === 'rows' && r.data.dinner.prep.totalOrders === 5);
-check('summary reads never touched Dinner Orders', JSON.stringify(sheets['Dinner Orders']._data) === dinnerBefore);
-check('no auto save before 8pm', !Object.keys(props).some(k => k.indexOf('dsum_saved_') === 0));
+check('summary reads never touched Dinner Orders rows', JSON.stringify(sheets['Dinner Orders']._data.map(r => r.slice(0, 11))) === JSON.stringify(JSON.parse(dinnerBefore).map(r => r.slice(0, 11))));
+check('29 Sep not saved before its cutoff; 28 Sep saved + final after 8am late close', !props['dsum_saved_2026-09-29'] && !!props['dsum_saved_2026-09-28'] && !!props['late_done_dinner_2026-09-28']);
 
-// ---- 8pm Fiji: first request saves tomorrow's (29th) summary; 400-order payload > 50k chars must still save (split cells)
-NOW = Date.parse('2026-09-28T08:03:00Z'); // 20:03 Fiji 28 Sep
+// ---- after the 11:55pm cutoff: first request saves tomorrow's (29th) summary; 400-order payload > 50k chars must still save (split cells)
+NOW = Date.parse('2026-09-28T11:56:00Z'); // 23:56 Fiji 28 Sep
 api('getCutoffInfo', { requesterEmail: 'staff@x.com' });
 let s29 = snapRows().find(s => String(s.serviceDate).indexOf('2026-09-29') >= 0);
-check('first request after 8pm saved the 29 Sep snapshot', !!s29 && Number(s29.totalOrders) === 3 && s29.kind === 'auto', JSON.stringify(props));
+check('first request after the 11:55pm cutoff saved the 29 Sep snapshot', !!s29 && Number(s29.totalOrders) === 3 && s29.kind === 'auto', JSON.stringify(props));
 check('property marks the night done', !!props['dsum_saved_2026-09-29']);
 const n1 = snapRows().length; api('getCutoffInfo', {}); api('getCutoffInfo', {});
 check('later requests do not save again', snapRows().length === n1);
@@ -113,20 +119,20 @@ check('400-order snapshot saved despite 50k cell limit', r.success && !!s28 && S
 check('saveDinnerSummary reports pdf failure (Drive scope) without failing', r.success && r.data.pdf && r.data.pdf.ok === false);
 r = api('getKitchenDaySummary', { serviceDate: '2026-09-28', requesterEmail: 'chef@x.com' });
 check('28 Sep now read from the saved snapshot, same totals + notes', r.data.dinner.source === 'snapshot' && r.data.dinner.prep.totalOrders === 400 && r.data.dinner.prep.specialNotes.length === r.data.dinner.prep.specialNotes.length && r.data.dinner.prep.specialNotes.some(e => e.flag === 'allergy'));
-check('staff cannot saveDinnerSummary', api('saveDinnerSummary', { serviceDate: '2026-09-28', requesterEmail: 'chef@x.com' }).success === false);
+check('staff cannot saveDinnerSummary; chef can (3.0.0 Kitchen Admin)', api('saveDinnerSummary', { serviceDate: '2026-09-28', requesterEmail: 'staff@x.com' }).success === false && api('saveDinnerSummary', { serviceDate: '2026-09-28', requesterEmail: 'chef@x.com' }).success === true);
 // 2.10.0 8:30pm upsert still works and no longer throws for big payloads
-NOW = Date.parse('2026-09-28T08:40:00Z'); // 20:40 Fiji
+NOW = Date.parse('2026-09-28T11:58:00Z'); // 23:58 Fiji
 const up = ctx.upsertDinnerPrepSnapshot('2026-09-28', true);
 check('upsertDinnerPrepSnapshot (8:30pm path) saves big payload, returns row', up && up.totalOrders === 400);
 r = api('getDinnerPrepList', { requesterEmail: 'chef@x.com' });
-check('getDinnerPrepList (2.10.0) still works after 8:30pm', r.success === true && r.data.serviceDate === '2026-09-29' && r.data.snapshot && Number(r.data.snapshot.totalOrders) === 3, r.error || JSON.stringify(r.data && r.data.snapshot));
+check('getDinnerPrepList (2.10.0) still works after the cutoff', r.success === true && r.data.serviceDate === '2026-09-29' && r.data.snapshot && Number(r.data.snapshot.totalOrders) === 3, r.error || JSON.stringify(r.data && r.data.snapshot));
 check('backfill needs superadmin', api('backfillDinnerSummaries', { requesterEmail: 'chef@x.com' }).success === false);
 r = api('backfillDinnerSummaries', { requesterEmail: 'it@paradisecoveresortfiji.com' });
 check('backfill keeps readable snapshots, adds missing (27th)', r.success && r.data.backfill.find(x => x.serviceDate === '2026-09-27').saved === true && !!r.data.backfill.find(x => x.serviceDate === '2026-09-26').kept, JSON.stringify(r.data && r.data.backfill));
 check('prep HTML (PDF) builder has allergy section + dishes', /Allergies &amp; special requests/.test(ctx.dsumPrepHtml('2026-09-28', ctx.dsumPrepFromOrders('2026-09-28', ctx.dsumDinnerRows('2026-09-28')), 'x')));
 check('Dinner Orders never modified by any summary code', JSON.stringify(sheets['Dinner Orders']._data.map(r => r.slice(0, 11))) === JSON.stringify(JSON.parse(dinnerBefore).map(r => r.slice(0, 11))));
 const fe = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-check('frontend: date picker + api call present', /kit-days-card/.test(fe) && /getKitchenDaySummary/.test(fe) && /APP_VERSION = '2\.10\.2'/.test(fe));
+check('frontend: date picker + api call present', /kit-days-card/.test(fe) && /getKitchenDaySummary/.test(fe) && /APP_VERSION = '3\.0\.0'/.test(fe));
 check('docs mirrors public', fs.readFileSync(path.join(root, 'docs', 'index.html'), 'utf8') === fe && fs.readFileSync(path.join(root, 'docs', 'sw.js'), 'utf8') === fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8'));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -5,7 +5,8 @@
   "scripts": {
     "build:css": "tailwindcss -c tailwind.config.js -i tailwind.input.css -o ../public/assets/app.css --minify",
     "build:fa": "python3 fa-subset.py",
-    "build": "npm run build:css && npm run build:fa"
+    "build": "npm run build:css && npm run build:fa && npm run build:demo",
+    "build:demo": "node build-demo-server.js"
   },
   "devDependencies": {
     "tailwindcss": "3.4.17",

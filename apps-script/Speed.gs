@@ -120,7 +120,9 @@ function getBootstrap(p) {
   REQ_MEMO = {};
   var reads = [];
   try {
-    var u = email ? findUserByEmail(email) : null;
+    // 3.0.0: role data only for a signed-in (token) requester — getRequester returns a staff view otherwise
+    var u = email ? getRequester({ requesterEmail: email }) : null;
+    var realUser = email ? findUserByEmail(email) : null;
     var now = getFijiNow();
     var hour = now.getUTCHours();
     var bi = breakfastCutoffInfo(now), li = lunchCutoffInfo(now), di = dinnerCutoffInfo(now);
@@ -128,9 +130,7 @@ function getBootstrap(p) {
     // Keep the old app-open side effects for real users only, and only when there is work to do
     // (old clients ran these via getBreakfastOrders / getDinnerOrders on every open).
     if (u) {
-      var needB = hour >= 18 && sheetToObjects('Breakfast Orders').some(function (o) {
-        return String(o.serviceDate).indexOf(bi.serviceDate) === 0 && o.status === 'late_pending';
-      });
+      var needB = false; // 3.0.0: late breakfasts are auto-approved at the late close (mealTick), not declined at 6pm
       var wave = hour >= 19 ? 19 : (hour >= 17 ? 17 : (hour >= 12 ? 12 : 0));
       var needD = wave > 0 && sheetToObjects('Dinner Orders').some(function (o) {
         return String(o.serviceDate).indexOf(di.serviceDate) === 0 && String(o.status) === 'pending' &&
@@ -185,6 +185,8 @@ function getBootstrap(p) {
     }
 
     var doThisNow = bootstrapDoThisNow(orders, boatRuns, dailyOps, kitchenLite, bi, li, di, now);
+    var v3Block = null; // 3.0 home data (roles, dept status, leave, updates, HOD/chef/super dashboards)
+    if (u) { try { v3Block = getV3Home(u); } catch (eV3) { v3Block = { error: String(eV3.message || eV3) }; } }
     reads = reads.concat(Object.keys(REQ_MEMO || {}));
     return {
       success: true,
@@ -192,6 +194,9 @@ function getBootstrap(p) {
         version: APP_VERSION,
         fijiNow: formatFiji(now),
         user: u ? publicUser(u) : null,
+        rolesNeedSignIn: !!(u && u._staffView),
+        heldRoles: realUser && u && u._staffView ? userRoles(realUser) : undefined,
+        mealTimes: mealTimesOut(),
         userFound: !!u,
         features: settings.features,
         settings: settings.settings,
@@ -206,6 +211,7 @@ function getBootstrap(p) {
         mealStats: mealStats,
         kitchenLite: kitchenLite,
         doThisNow: doThisNow,
+        v3: v3Block,
         sheetsRead: reads,
         ms: Date.now() - t0
       }
@@ -227,7 +233,7 @@ function bootstrapDoThisNow(orders, runs, ops, kit, bi, li, di, now) {
   if (di.open && !(din && bad.indexOf(String(din.status)) < 0)) out.push({ id: 'dtn-dinner', label: 'Book dinner', tab: 'dinner' });
   var bfCounted = bf && ['ordered', 'late_approved', 'approved'].indexOf(String(bf.status)) >= 0;
   if (bi.open && !bfCounted) out.push({ id: 'dtn-bf', label: 'Count in breakfast', tab: 'breakfast' });
-  else if (bi.lateOpen && !bfCounted && !(bf && bf.status === 'late_pending')) out.push({ id: 'dtn-bf-late', label: 'Late breakfast', tab: 'breakfast' });
+  else if (bi.lateOpen && !bfCounted && !(bf && bf.status === 'late_pending')) out.push({ id: 'dtn-bf-late', label: 'Late breakfast request', tab: 'meals' });
   if (li.open && !(lu && lu.status && lu.status !== 'cancelled')) out.push({ id: 'dtn-lunch', label: 'Count in lunch', tab: 'lunch' });
   if (bf && bf.status === 'late_pending') out.push({ id: 'dtn-bf-wait', label: 'Late breakfast pending', tab: 'breakfast' });
   if (din && din.status === 'late_pending') out.push({ id: 'dtn-din-wait', label: 'Late dinner pending', tab: 'dinner' });
@@ -399,6 +405,7 @@ function archiveOldRows(p) {
   p = p || {};
   try { requirePasscode(p, 'super'); } catch (e) { return { success: false, error: 'Superadmin permission required' }; }
   var dry = p.dryRun === true || p.dryRun === 'true' || p.dryRun === '1' || p.dryRun === 1;
+  if (!dry) { try { requireSuperCode(p); } catch (eC) { return { success: false, error: eC.message, needsCode: true }; } } // 3.0.0
   var ss = getSS();
   var cutoffDate = fijiDateString(addFijiDays(getFijiNow(), -ARCHIVE_DAYS));
   function summary(plan) {
