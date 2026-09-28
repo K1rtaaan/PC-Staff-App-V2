@@ -1,7 +1,16 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **2.10.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **2.10.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
+
+## 2.10.2 hotfix — Dinner menu day fix (2026-09-28)
+
+| ID | Change |
+|----|--------|
+| C110 | Dinner form: the phone's saved "last dinner" dish (and **Same as last time**) is only used if that dish is on the **service-date (tomorrow's) menu**. Before, a dish not on tomorrow's menu was injected into the dropdown and pre-selected, so today's dish was booked for tomorrow (live 28 Sep: 16 off-menu Sunday dishes on Monday's list, 15 of them the person's previous-day dish). |
+| C111 | Backend `placeDinnerOrder` rejects a dish that is not on the service-date weekday menu (`notOnMenu`, case/space-insensitive; re-saving your current dish still allowed; weekday with no menu rows accepts anything as before). App shows “That dish isn't on <weekday>'s menu – please pick again” and refreshes the menu. Demo mode mirrors it. |
+| C112 | Kitchen Admin menu edit: a non-number sort order is saved as 99 (was written as `#NUM!`). |
+| C113 | Tests: `tools/tests/dinner-menu-day.js` (backend, fake sheet), `tools/tests/menu-day-demo.js` (demo browser). Rollback tag `v2.10.1-pre-menufix`. |
 
 ## 2.10.1 hotfix — Kitchen order summaries by date (2026-09-28)
 

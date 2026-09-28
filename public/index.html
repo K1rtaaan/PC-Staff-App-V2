@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" href="assets/golden-logo.jpg"/>
 <link rel="apple-touch-icon" href="assets/golden-logo.jpg"/>
-<link rel="stylesheet" href="assets/fa/fa.css?v=2.10.1"/>
+<link rel="stylesheet" href="assets/fa/fa.css?v=2.10.2"/>
 <style>
 :root {
   color-scheme: dark;
@@ -181,7 +181,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 [data-queue-host]:empty{display:none}
 </style>
 <!-- 2.10.0: self-hosted purged Tailwind (tools/ builds it); loaded after the inline styles like the old CDN -->
-<link rel="stylesheet" href="assets/app.css?v=2.10.1"/>
+<link rel="stylesheet" href="assets/app.css?v=2.10.2"/>
 </head>
 <body class="text-slate-100 antialiased">
 
@@ -189,7 +189,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '2.10.1';
+const APP_VERSION = '2.10.2';
 const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
 function deptSelectOptions(selected){
   selected = selected || '';
@@ -1787,6 +1787,13 @@ function demoApiCore(action, p) {
       const u = db.users.find(x=>x.email===email);
       const status = late ? 'late_pending' : 'pending';
       let o = db.dinnerOrders.find(x=>x.userEmail===email && x.serviceDate===(p.serviceDate||info.serviceDate) && x.status!=='cancelled' && x.status!=='rejected');
+      { // 2.10.2 demo mirror of dinnerChoiceError
+        const sd = p.serviceDate||info.serviceDate, swd = new Date(sd+'T12:00:00Z').getUTCDay();
+        const menu = (db.dinnerMenus||[]).filter(m=>Number(m.weekday)===swd && m.active!==false);
+        const same = o && String(o.mealChoice||'').trim().toLowerCase()===String(p.mealChoice||'').trim().toLowerCase();
+        if (p.mealChoice && !same && !dinnerChoiceOnMenu(p.mealChoice, menu))
+          return Promise.resolve({ success:false, notOnMenu:true, error:'"'+p.mealChoice+'" is not on the '+WEEKDAY_NAMES[swd]+' '+sd+' dinner menu.', cutoff:info });
+      }
       if (o) { const n = demoNoteParam(p, kitchenNoteOf(o)); o.mealChoice=p.mealChoice||o.mealChoice; o.notes=n; o.specialNote=n; o.late=late; o.status=status; }
       else {
         const n = demoNoteParam(p, '');
@@ -3389,6 +3396,11 @@ async function renderDinner(){
       const choice = $('#dinner-choice').value, notes = mealNoteValue('dinner-notes') || '';
       const r = await sendOrQueue('placeDinnerOrder',{ mealChoice:choice, notes:notes, specialNote:notes, allowLate: !di.open },
         { label: 'Dinner — '+choice+' ('+di.serviceDate+')', serviceDate: di.serviceDate });
+      if (!r.success && r.notOnMenu) {
+        // 2.10.2: dish not on the service-date menu (e.g. yesterday's dish) — refresh tomorrow's menu and ask again
+        toast('That dish isn\'t on '+WEEKDAY_NAMES[wd]+'\'s menu – please pick again','error');
+        cacheInvalidate([menuKey]); renderDinner(); return;
+      }
       if (!r.success) { toast(r.error||'Couldn\'t reach kitchen / server — try again','error'); return; }
       saveLastDinner(choice, notes);
       if (r.queued) { toast('No connection — dinner saved on this phone, will send automatically','info'); renderDinner(); return; }

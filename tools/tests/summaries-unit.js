@@ -77,7 +77,7 @@ const api = (action, p) => JSON.parse(ctx.handleRequest({ parameter: Object.assi
 const snapRows = () => { const d = sheets['Dinner Prep Snapshots']._data; const h = d[0]; return d.slice(1).map(r => Object.fromEntries(h.map((k, i) => [k, r[i]]))); };
 const dinnerBefore = JSON.stringify(sheets['Dinner Orders']._data);
 
-check('getVersion is 2.10.1', api('getVersion').version === '2.10.1');
+check('getVersion is 2.10.2', api('getVersion').version === '2.10.2');
 let r = api('getKitchenDaySummary', { serviceDate: '2026-09-28', requesterEmail: 'staff@x.com' });
 check('staff cannot read kitchen summaries', r.success === false);
 r = api('getKitchenDaySummary', { serviceDate: '2026-09-28', requesterEmail: 'chef@x.com' });
@@ -126,7 +126,7 @@ check('backfill keeps readable snapshots, adds missing (27th)', r.success && r.d
 check('prep HTML (PDF) builder has allergy section + dishes', /Allergies &amp; special requests/.test(ctx.dsumPrepHtml('2026-09-28', ctx.dsumPrepFromOrders('2026-09-28', ctx.dsumDinnerRows('2026-09-28')), 'x')));
 check('Dinner Orders never modified by any summary code', JSON.stringify(sheets['Dinner Orders']._data.map(r => r.slice(0, 11))) === JSON.stringify(JSON.parse(dinnerBefore).map(r => r.slice(0, 11))));
 const fe = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-check('frontend: date picker + api call present', /kit-days-card/.test(fe) && /getKitchenDaySummary/.test(fe) && /APP_VERSION = '2\.10\.1'/.test(fe));
+check('frontend: date picker + api call present', /kit-days-card/.test(fe) && /getKitchenDaySummary/.test(fe) && /APP_VERSION = '2\.10\.2'/.test(fe));
 check('docs mirrors public', fs.readFileSync(path.join(root, 'docs', 'index.html'), 'utf8') === fe && fs.readFileSync(path.join(root, 'docs', 'sw.js'), 'utf8') === fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8'));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
