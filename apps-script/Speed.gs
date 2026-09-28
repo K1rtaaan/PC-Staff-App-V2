@@ -403,9 +403,10 @@ function archivePlan(ss, cutoffDate) {
 
 function archiveOldRows(p) {
   p = p || {};
-  try { requirePasscode(p, 'super'); } catch (e) { return { success: false, error: 'Superadmin permission required' }; }
+  var req0 = getRequester(p);
+  if (!req0 || !isAdminPerm(req0)) return { success: false, error: 'Admin permission required' }; // 3.2.0: admins too
   var dry = p.dryRun === true || p.dryRun === 'true' || p.dryRun === '1' || p.dryRun === 1;
-  if (!dry) { try { requireSuperCode(p); } catch (eC) { return { success: false, error: eC.message, needsCode: true }; } } // 3.0.0
+  if (!dry) { try { requireAdminCode(p); } catch (eC) { return { success: false, error: eC.message, needsCode: true }; } } // 3.2.0: admin or superadmin code
   var ss = getSS();
   var cutoffDate = fijiDateString(addFijiDays(getFijiNow(), -ARCHIVE_DAYS));
   function summary(plan) {

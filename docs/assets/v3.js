@@ -468,11 +468,12 @@ demoApiCore = async function(action, p){
       return _v2DemoApiCore(action, p);
     }
     case 'deleteUser': {
-      if (!meU || !v3ParsePerms(meU).includes('super_admin')) return { success:false, error:'Only super_admin can delete users' }; // same as live deleteUser
+      if (!meU || !(v3ParsePerms(meU).includes('super_admin') || v3ParsePerms(meU).includes('admin'))) return { success:false, error:'Admin only' }; // 3.2.0: same as live deleteUser (admins too)
+      { const sup = v3ParsePerms(meU).includes('super_admin'), code = String(p.passcode || ''); if (code !== (sup ? SUPER_PASS : ADMIN_PASS)) return { success:false, error: 'Enter the '+(sup ? 'superadmin' : 'admin')+' code to confirm this change', needsCode: true }; }
       const t = db.users.find(function(u){ return u.email === String(p.targetEmail||'').toLowerCase(); });
       if (!t) return { success:false, error:'User not found' };
       if (t.email === me) return { success:false, error:'You cannot delete yourself' };
-      if (v3ParsePerms(t).includes('super_admin') || (v3ParsePerms(t).includes('admin') && !v3ParsePerms(meU).includes('super_admin'))) return { success:false, error:'Only superadmin can delete admins' };
+      if (v3ParsePerms(t).includes('super_admin')) return { success:false, error:'Superadmin accounts cannot be deleted here' };
       db.users = db.users.filter(function(u){ return u !== t; }); saveDemo(db);
       return { success:true, data:{ deleted: t.email } };
     }
@@ -694,7 +695,8 @@ const V3_ROLE_TABS = {
   kitchenadmin:'kitchen', kitchen:'kitchen', chefreq:'kitchen', chefmenu:'kitchen', chefcomments:'kitchen', mealtimes:'kitchen', mealstats:'kitchen', special:'kitchen', offmenu:'kitchen',
   boatadmin:'boat', boatruns:'boat', emergency:'boat',
   deptadmin:'dept', approvals:'dept', deptstaff:'dept', deptupdatespost:'dept', leavecal:'dept', leavesummary:'dept', mealbehalf:'dept',
-  adminhub:'admin', usersv3:'admin', users:'admin', reminders:'admin', suggestions:'admin', adminstatus:'admin', settings:'admin', admin:'admin', manage:'admin', migrate:'admin'
+  adminhub:'admin', usersv3:'admin', users:'admin', reminders:'admin', suggestions:'admin', adminstatus:'admin', settings:'admin', admin:'admin', manage:'admin', migrate:'admin',
+  adminoverview:'admin', admintools:'admin', aboutimage:'admin' // 3.2.0
 };
 const V3_TAB_PARENT = { breakfast:'meals', lunch:'meals', dinner:'meals', myorders:'more', history:'more', leave:'more', profile:'more', notifications:'more', bookings:'more', deptupdates:'more', schedule:'more' };
 renderNav = function(targetSel){
@@ -728,7 +730,7 @@ canPrivilegedTab = function(tab){
   if (kind === 'kitchen') return v3CanChef();
   if (kind === 'boat') return v3HasBoat();
   if (kind === 'dept') return v3CanDept();
-  if (kind === 'admin') return (tab === 'settings' || tab === 'admin' || tab === 'migrate') ? v3IsSuper() : v3IsAdmin();
+  if (kind === 'admin') return (tab === 'settings' || tab === 'admin' || tab === 'migrate' || tab === 'aboutimage') ? v3IsSuper() : v3IsAdmin();
   return true;
 };
 roleLandingTab = function(){
@@ -741,7 +743,7 @@ const V3_TITLES = { home:'Home', meals:'Meals', boat:'Boat', more:'More', bookin
   leavecal:'Leave calendar', users:'Staff directory', settings:'App settings', admin:'Classic admin tools', suggestions:'Suggestions', approvals:'Approvals', special:'Special meal order', schedule:'My schedule',
   kitchenadmin:'Kitchen Admin', boatadmin:'Boat Admin', deptadmin:'Department Admin', adminhub:'Admin Settings', mealtimes:'Meal times', mealstats:'Meal statistics', offmenu:'Orders not on the menu',
   boatruns:'Boat runs (admin)', emergency:'Emergency travel', leavesummary:'Leave summary', mealbehalf:'Meal on behalf', migrate:'Role migration', deptupdatespost:'Department updates',
-  adminlog:'Activity log', superlog:'Superadmin log', reports:'Reports', myreports:'My reports', pushsettings:'Phone notifications' };
+  adminlog:'Activity log', superlog:'Superadmin log', reports:'Reports', myreports:'My reports', pushsettings:'Phone notifications', adminoverview:'Overview', admintools:'System tools', aboutimage:'About image' };
 navigate = function(tab){
   if (tab === 'myorders') tab = 'history';
   if (tab === 'breakfast' || tab === 'lunch' || tab === 'dinner') { state.mealFocus = tab; tab = 'meals'; }
@@ -766,7 +768,8 @@ navigate = function(tab){
     settings: v3RenderSettings, admin: renderAdmin, suggestions: renderSuggestions, approvals: v3RenderApprovals, special: v3RenderSpecialPage,
     kitchenadmin: v3RenderKitchenAdmin, boatadmin: v3RenderBoatAdmin, deptadmin: v3RenderDeptAdmin, adminhub: v3RenderAdminHub, mealtimes: v3RenderMealTimes,
     mealstats: v3RenderMealStats, offmenu: v3RenderOffMenu, boatruns: v3RenderBoatRuns, emergency: v3RenderEmergency, leavesummary: v3RenderLeaveSummary, mealbehalf: v3RenderMealBehalf, migrate: v3RenderMigrate,
-    adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports, pushsettings: a33RenderSettings
+    adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports, pushsettings: a33RenderSettings,
+    adminoverview: a34RenderOverview, admintools: a34RenderTools, aboutimage: a34RenderAboutImage
   };
   if (['home','meals','boat','kitchen'].includes(tab)) paintSkeleton({ cards: 3 });
   try { history.replaceState(null, '', location.pathname + location.search + (tab === 'home' ? '' : '#'+tab)); } catch (e) {}
@@ -2090,7 +2093,7 @@ function v3ManageGroups(){
     v3Row(v3Nav('users'),'fa-address-book','Staff directory (classic)','2.x list · add user, import CSV'));
   html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
   html += g('Reports & system', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Reports & downloads','Download all app data') +
-    (v3IsSuper() ? v3Row(v3Nav('settings'),'fa-gear','App settings','Email (Brevo), test email, features, alert emails, revert owner') + v3Row(v3Nav('migrate'),'fa-right-left','Role migration','Preview / apply the 3.0.0 roles list') : ''));
+    (v3IsSuper() ? v3Row(v3Nav('settings'),'fa-gear','App settings','Email (Brevo), test email, features, alert emails, revert owner') + v3Row(v3Nav('migrate'),'fa-right-left','Role migration','Preview / apply the 3.0.0 roles list') + v3Row(v3Nav('aboutimage'),'fa-image','About image','The picture behind the footer “About” button') : ''));
   if (a32Owner()) html += g('Reports', v3Row(v3Nav('reports'),'fa-bug','Reports inbox','Problems, change requests, ideas', state._a32RepNew||0));
   if (v3IsSuper()) html += g('Logs', v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) +
     v3Row(a31LogNav('admin'),'fa-user-shield','Activity log · Admin Settings','') + v3Row(a31LogNav('kitchen'),'fa-fire-burner','Activity log · Kitchen Admin','') +
@@ -2108,6 +2111,8 @@ function v3RenderAdminHub(){
   html += g('Leave', v3Row("state.leaveTabForce='final';navigate('leave')",'fa-stamp','Leave — final approval','After the HOD step', hb.leaveMgmt||0) +
     v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','All departments') + v3Row(v3Nav('leavesummary'),'fa-table','Leave summary','Per department'));
   html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
+  html += g('Overview & system', v3Row(v3Nav('adminoverview'),'fa-chart-line','Overview','Meals, approvals, boat load, people') +
+    v3Row(v3Nav('admintools'),'fa-screwdriver-wrench','System tools','Alert emails, archive old records, kitchen summaries')); // 3.2.0
   html += g('Reports', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Reports & downloads','Meals, boats, leave, users (CSV)') +
     v3Row(a31LogNav('admin'),'fa-clock-rotate-left','Activity log','Users & roles, leave, reminders, suggestions, settings'));
   $('#main-content').innerHTML = v3Page(html, 'adminhub-root');
@@ -2213,7 +2218,7 @@ function v3EditUser(u){
     '<label class="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" id="eu3-active"'+(u.active?' checked':'')+'/> Account active</label>'+
     '<div class="flex gap-2 pt-1"><button type="button" id="eu3-cancel" class="flex-1 rounded-xl py-2.5 text-sm border border-slate-600 text-slate-300">Close</button><button type="button" id="eu3-save" class="flex-1 btn-primary rounded-xl py-2.5 text-sm font-semibold text-white">Save changes</button></div>'+
     '<button type="button" id="v3-msg-user" class="text-teal-300 text-xs mr-4"><i class="fa-solid fa-bell mr-1"></i>Send an in-app notification</button>'+
-    (v3IsSuper() ? '<button type="button" id="v3-del-user" class="text-rose-300 text-xs"><i class="fa-solid fa-trash mr-1"></i>Delete this user</button>' : '')+'</div>';
+    (v3IsAdmin() && v3Perms(u).indexOf('super_admin') < 0 ? '<button type="button" id="v3-del-user" class="text-rose-300 text-xs"><i class="fa-solid fa-trash mr-1"></i>Delete this user</button>' : '')+'</div>';
   openModal(html);
   $('#eu3-cancel').onclick = closeModal;
   $('#eu3-save').onclick = async function(){
@@ -2239,7 +2244,7 @@ function v3EditUser(u){
   const del = $('#v3-del-user');
   if (del) del.onclick = async function(){
     if (!confirm('Delete '+u.email+' permanently? Their past orders stay in the sheets.')) return;
-    const pass = await askPasscode('super', true); if (!pass) return;
+    const pass = await askAdminCode(); if (!pass) return; // 3.2.0: admins too (admin code)
     const r = await v3Call('deleteUser', { targetEmail: u.email, passcode: pass }, 'User deleted');
     if (r) { closeModal(); v3RenderUsers(); }
   };
@@ -2351,12 +2356,114 @@ async function v3RenderSettings(){
   api('getSuperDashboard', {}).then(function(r){ const hl = r && r.success && r.data && r.data.health; if (hl && hl.mail) paintMail(hl.mail); else if (hl) paintMail({ effective: hl.mailProvider, brevoKeySet: !!hl.brevoKeySet, brevoSender: hl.mailFrom||'' }); }).catch(function(){});
   try { await renderAdminFeaturesTab(); } catch (e) {}
 }
-async function v3RenderSuperHome(){
-  const paint = function(sd){
-    const u = state.user;
-    const head = '<section class="glass rounded-2xl p-4 min-w-0" id="v3-greet"><div class="flex items-center gap-3 min-w-0">'+homeAvatarHtml(u)+'<div class="min-w-0"><h2 class="text-lg font-semibold text-slate-100 truncate">Bula, '+esc(displayName(u))+'</h2>'+
-      '<p class="text-[11px] text-slate-400">Superadmin · <span id="v3-clock" class="v3-countdown">'+formatFiji()+'</span></p></div></div></section>';
-    if (!sd) { $('#main-content').innerHTML = v3Page(head + v3Card(v3Loading()), 'home'); return; }
+/* ============ 3.2.0: admin Overview + System tools (admins and superadmins) · About image (superadmin) ============ */
+function a34Back(){ return v3IsSuper() && state._a34From === 'manage' ? v3Back('manage','Manage') : v3Back('adminhub','Admin Settings'); }
+async function a34RenderOverview(){
+  const tab = state.tab;
+  $('#main-content').innerHTML = v3Page(a34Back() + '<div id="ov-body" class="space-y-4">'+v3Card(v3Loading())+'</div>', 'adminoverview-root');
+  let r = null; try { r = await v3ApiShared('getSuperDashboard', {}); } catch (e) {}
+  const box = $('#ov-body'); if (!box || state.tab !== tab) return;
+  if (!r || !r.success) { box.innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load the overview')+'</p>'); return; }
+  const sec = v3DashSections(r.data || {});
+  box.innerHTML = sec.pend + sec.meals + sec.boat + sec.people;
+}
+async function a34RenderTools(){
+  const tab = state.tab;
+  $('#main-content').innerHTML = v3Page(a34Back() +
+    v3Card(v3Title('fa-envelope','Alert emails')+'<p class="text-[11px] text-slate-400">Who gets the app’s alert emails (one per line).</p><button type="button" id="at-alerts" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Manage alert emails</button>', 'at-alerts-card')+
+    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="archive-card">'+v3Title('fa-box-archive','Archive old records')+
+      '<p class="text-[11px] text-slate-400">Moves rows older than 60 days from Dinner / Breakfast / Lunch Orders, Boat Bookings and Boat Runs into matching <strong>Archive_</strong> tabs (copy → check → delete). Check the counts first; the real move asks for your '+(v3IsSuper() ? 'superadmin' : 'admin')+' code.</p>'+
+      '<div class="flex gap-2 flex-wrap"><button type="button" id="arch-dry" class="rounded-xl px-3 py-2 text-xs border border-slate-600 text-slate-200">Check counts (dry run)</button>'+
+      '<button type="button" id="arch-run" class="rounded-xl px-3 py-2 text-xs bg-rose-700/80 text-white hidden">Archive now…</button></div><div id="arch-out" class="text-[11px] text-slate-300"></div></section>'+
+    v3Card(v3Title('fa-file-pdf','Kitchen summaries')+'<p class="text-[11px] text-slate-400">Saved dinner summaries (the 8pm snapshot + PDF). Check the automatic save and the Drive folder, or back-fill the last days.</p>'+
+      '<div class="flex gap-2 flex-wrap"><button type="button" id="ks-status" class="rounded-xl px-3 py-2 text-xs border border-slate-600 text-slate-200">Check status</button><button type="button" id="ks-backfill" class="rounded-xl px-3 py-2 text-xs border border-teal-500/40 text-teal-200">Back-fill last days</button></div><div id="ks-out" class="text-[11px] text-slate-300 break-words"></div>', 'ks-card'),
+    'admintools-root');
+  if (state.tab !== tab) return;
+  $('#at-alerts').onclick = function(){ openAlertEmails(); };
+  bindArchiveCard();
+  const out = $('#ks-out');
+  $('#ks-status').onclick = async function(){
+    out.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Checking…';
+    const r = await api('dinnerSummaryStatus', {}).catch(function(){ return null; });
+    if (!r || !r.success) { out.innerHTML = '<span class="text-rose-300">'+esc((r && r.error) || 'Failed')+'</span>'; return; }
+    const d = r.data || {}, tr = d.triggers;
+    out.innerHTML = '<p>Server time '+esc(d.fijiNow||'')+'</p>'+
+      '<p>Automatic save: '+(d.triggersError ? '<span class="text-amber-200">'+esc(d.triggersError)+'</span>' : (tr && (tr.length || tr.count) ? '<span class="text-emerald-300">on</span>' : '<span class="text-amber-200">not set</span>'))+'</p>'+
+      '<p>Drive folder: '+(d.driveError ? '<span class="text-amber-200">'+esc(d.driveError)+'</span>' : (d.folder ? '<a class="text-teal-300 underline" target="_blank" rel="noopener" href="'+esc(d.folder)+'">open</a>' : '—'))+'</p>'+
+      (Array.isArray(d.days) ? '<p>'+d.days.map(function(x){ return esc(x.serviceDate||x.date||'')+(x.saved||x.snapshot ? ' ✓' : ' –'); }).join(' · ')+'</p>' : '');
+  };
+  $('#ks-backfill').onclick = async function(){
+    if (!confirm('Save any missing dinner summaries for the last days? Existing ones are kept.')) return;
+    out.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Saving…';
+    const r = await api('backfillDinnerSummaries', {}).catch(function(){ return null; });
+    if (!r || !r.success) { out.innerHTML = '<span class="text-rose-300">'+esc((r && r.error) || 'Failed')+'</span>'; return; }
+    out.innerHTML = (r.data.backfill||[]).map(function(x){ return '<p>'+esc(x.serviceDate)+': '+(x.saved ? 'saved' : x.kept ? 'already saved' : esc(x.error || 'skipped'))+'</p>'; }).join('') || 'Nothing to do.';
+    toast('Summaries checked','ok');
+  };
+}
+/* ---- footer credit + About ---- */
+const A34_ABOUT_DEFAULT = 'assets/about-default.jpg';
+function a34AboutUrl(){ const s = state.appSettings || {}; return String(s.about_image_url || '') || A34_ABOUT_DEFAULT; }
+function a34CreditHtml(withVer){
+  return '<div class="pcr-credit-wrap no-print" id="pcr-credit">'+
+    (withVer ? '<p class="text-[10px] text-slate-500 text-center">PCR Staff App '+esc(APP_VERSION)+(state.backendVersion ? ' · API '+esc(state.backendVersion) : '')+(state.demo ? ' · demo' : '')+'</p>' : '')+
+    '<div class="pcr-credit"><span class="pcr-rasta">Made by Pranav Kumar (Group IT Manager)</span></div>'+
+    '<button type="button" class="pcr-about-btn" onclick="a34OpenAbout()"><i class="fa-solid fa-circle-info mr-1"></i>About</button></div>';
+}
+function a34OpenAbout(){
+  openModal('<div class="space-y-3 min-w-0" id="about-modal"><h3 class="font-semibold text-slate-100"><i class="fa-solid fa-circle-info text-teal-400 mr-2"></i>About</h3>'+
+    '<img id="about-img" src="'+esc(a34AboutUrl())+'" alt="About" class="w-full rounded-xl border border-amber-400/40 object-contain max-h-[70vh] bg-slate-900" onerror="if(this.src.indexOf(\''+A34_ABOUT_DEFAULT+'\')<0){this.src=\''+A34_ABOUT_DEFAULT+'\';}"/>'+
+    '<p class="text-[11px] text-slate-400 text-center">PCR Staff App '+esc(APP_VERSION)+' · Made by Pranav Kumar (Group IT Manager)</p>'+
+    '<button type="button" onclick="closeModal()" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-300">Close</button></div>');
+}
+/** keeps the credit at the bottom of every page (pages repaint #main-content after loading) */
+function a34EnsureCredit(){
+  const mc = document.getElementById('main-content'); if (!mc) return;
+  const last = mc.lastElementChild;
+  if (last && last.id === 'pcr-credit') return;
+  const old = document.getElementById('pcr-credit'); if (old && old.parentNode === mc) old.remove();
+  mc.insertAdjacentHTML('beforeend', a34CreditHtml(!mc.querySelector('#home-ver')));
+}
+(function(){
+  let t = null;
+  const start = function(){
+    const mc = document.getElementById('main-content'); if (!mc || mc._a34) return; mc._a34 = true;
+    new MutationObserver(function(){ if (t) return; t = setTimeout(function(){ t = null; a34EnsureCredit(); }, 60); }).observe(mc, { childList: true });
+    a34EnsureCredit();
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();
+async function a34RenderAboutImage(){
+  const cur = String((state.appSettings||{}).about_image_url || '');
+  $('#main-content').innerHTML = v3Page(v3Back('manage','Manage') +
+    v3Card(v3Title('fa-image','About image')+'<p class="text-[11px] text-slate-400">Shown when anyone taps “About” at the bottom of a page. The picture is made smaller on this phone, then saved to Drive (like report screenshots).</p>'+
+      '<img id="ai-prev" src="'+esc(cur || A34_ABOUT_DEFAULT)+'" alt="About image preview" class="w-full rounded-xl border border-amber-400/40 object-contain max-h-80 bg-slate-900"/>'+
+      '<p class="text-[11px] text-slate-400" id="ai-state">'+(cur ? 'Custom image' : 'Default poster')+'</p>'+
+      '<input type="file" id="ai-file" accept="image/*" class="hidden"/>'+
+      '<div class="grid grid-cols-2 gap-2"><button type="button" id="ai-pick" class="rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200"><i class="fa-solid fa-upload mr-1"></i>Choose image</button>'+
+      '<button type="button" id="ai-reset" class="rounded-xl py-2.5 text-sm border border-slate-600 text-slate-300"'+(cur ? '' : ' disabled')+'>Reset to default</button></div>'+
+      '<button type="button" id="ai-save" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white hidden">Save this image</button>', 'aboutimage-card'), 'aboutimage-root');
+  let data = '';
+  $('#ai-pick').onclick = function(){ $('#ai-file').click(); };
+  $('#ai-file').onchange = async function(){
+    const f = this.files && this.files[0]; if (!f) return;
+    try { data = await a32Shrink(f); $('#ai-prev').src = data; $('#ai-state').textContent = 'New image (not saved yet) · '+Math.round(data.length*0.75/1024)+' KB'; $('#ai-save').classList.remove('hidden'); }
+    catch (e) { toast('That file is not an image','error'); }
+  };
+  const done = function(url){ state.appSettings = Object.assign({}, state.appSettings, { about_image_url: url }); cacheInvalidate(['featureFlags']); a34RenderAboutImage(); };
+  $('#ai-save').onclick = async function(){
+    if (!data) return; this.disabled = true; this.textContent = 'Saving…';
+    const r = await v3Call('setAboutImage', { image: data }, 'About image saved');
+    if (r) done(r.url || ''); else { this.disabled = false; this.textContent = 'Save this image'; }
+  };
+  $('#ai-reset').onclick = async function(){
+    if (!confirm('Go back to the default About poster?')) return;
+    const r = await v3Call('setAboutImage', { reset: true }, 'Back to the default image');
+    if (r) done('');
+  };
+}
+/** 3.2.0: dashboard sections (superadmin Home and Admin Settings → Overview). */
+function v3DashSections(sd){
     const m = sd.meals || { today:{}, tomorrow:{} }, p = sd.pending || {};
     const stat = function(label, val, sub, tab){ return '<button type="button" '+(tab?'onclick="navigate(\''+tab+'\')"':'')+' class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-2.5 text-left min-w-0"><p class="text-[10px] text-slate-400 truncate">'+label+'</p><p class="text-xl font-semibold text-slate-100">'+val+'</p>'+(sub?'<p class="text-[10px] text-slate-500 truncate">'+sub+'</p>':'')+'</button>'; };
     const totalPending = (p.leaveHod||0)+(p.leaveMgmt||0)+(p.late||0)+(p.special||0);
@@ -2373,6 +2480,15 @@ async function v3RenderSuperHome(){
       '<div class="grid grid-cols-3 gap-2">'+stat('Users', users.total||0, (users.active||0)+' active', 'usersv3')+stat('New this week', users.newThisWeek||0, '', 'usersv3')+stat('Version', esc(String(hl.version||APP_VERSION).replace('-demo','')), state.demo?'demo':'live', 'settings')+'</div>'+
       '<p class="text-[11px] text-slate-400">'+Object.keys(users.byRole||{}).map(function(r){ return esc(V3_ROLE_LABEL[r]||r)+' '+users.byRole[r]; }).join(' · ')+'</p>'+
       '<p class="text-[11px] text-slate-400">Codes: sent by email · '+(hl.mailProvider === 'brevo' ? 'Brevo' : 'Google'+(hl.mailFrom?' ('+esc(hl.mailFrom)+')':''))+' · server time '+esc(v3Ts(hl.fijiNow))+'</p></section>';
+    return { pend: pend, meals: meals, boat: boat, people: people };
+}
+async function v3RenderSuperHome(){
+  const paint = function(sd){
+    const u = state.user;
+    const head = '<section class="glass rounded-2xl p-4 min-w-0" id="v3-greet"><div class="flex items-center gap-3 min-w-0">'+homeAvatarHtml(u)+'<div class="min-w-0"><h2 class="text-lg font-semibold text-slate-100 truncate">Bula, '+esc(displayName(u))+'</h2>'+
+      '<p class="text-[11px] text-slate-400">Superadmin · <span id="v3-clock" class="v3-countdown">'+formatFiji()+'</span></p></div></div></section>';
+    if (!sd) { $('#main-content').innerHTML = v3Page(head + v3Card(v3Loading()), 'home'); return; }
+    const sec = v3DashSections(sd), pend = sec.pend, meals = sec.meals, boat = sec.boat, people = sec.people;
     $('#main-content').innerHTML = v3Page(head + a31SuperNoteHtml() + pend + meals + boat + people + '<p class="text-center text-[10px] text-slate-500" id="home-ver">UI '+APP_VERSION+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>', 'home');
     v3StartTicker();
   };

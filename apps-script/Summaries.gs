@@ -404,13 +404,13 @@ function saveDinnerSummary(p) {
 /** GET backfillDinnerSummaries — superadmin: snapshots (+PDFs when Drive is authorised) for the last 3 days + today. */
 function backfillDinnerSummaries(p) {
   var u = getRequester(p);
-  if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (!u || !isAdminPerm(u)) return { success: false, error: 'Admin only' };
   return { success: true, data: { backfill: dsumBackfill(Number(p.days || DSUM_DAYS_BACK), true) } };
 }
 /** GET dinnerSummaryStatus — superadmin: trigger + Drive permission check. */
 function dinnerSummaryStatus(p) {
   var u = getRequester(p);
-  if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (!u || !isAdminPerm(u)) return { success: false, error: 'Admin only' };
   var out = { fijiNow: formatFiji(getFijiNow()) };
   try { out.triggers = listDinnerSummaryTriggers(); } catch (e) { out.triggersError = String((e && e.message) || e); }
   try { out.folder = dsumFolder().getUrl(); } catch (e) { out.driveError = String((e && e.message) || e); }

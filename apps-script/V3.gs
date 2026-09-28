@@ -992,7 +992,7 @@ function getAdminExport(p) {
 }
 function getSuperDashboard(p) {
   var u = v3Requester(p);
-  if (!isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (!isAdminPerm(u)) return { success: false, error: 'Admin only' }; // 3.2.0: admins get the overview (Admin Settings → Overview)
   return { success: true, data: v3SuperDash() };
 }
 function v3SuperDash() {

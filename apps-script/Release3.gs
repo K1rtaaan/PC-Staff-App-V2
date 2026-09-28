@@ -189,6 +189,15 @@ function requireSuperCode(p) {
   return u;
 }
 
+/** 3.2.0: admin-level confirm. Superadmin → the superadmin code; admin (not super) → the admin code (ADMIN_PASS). */
+function requireAdminCode(p) {
+  var u = getRequester(p);
+  if (!u || !isAdminPerm(u)) throw new Error('Admin only');
+  if (isSuperPerm(u)) return requireSuperCode(p);
+  if (String(p.passcode || '') !== ADMIN_PASS) { var e = new Error('Enter the admin code to confirm this change'); e.needsCode = true; throw e; }
+  return u;
+}
+
 /* ---------- lazy meal tick: dinner cutoff save + late window auto-approve ---------- */
 function r3PropDone(key) { try { return !!PropertiesService.getScriptProperties().getProperty(key); } catch (e) { return false; } }
 function r3SetDone(key, v) { try { PropertiesService.getScriptProperties().setProperty(key, v || nowIso()); } catch (e) {} }
