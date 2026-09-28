@@ -1,7 +1,16 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.1.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.2.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
+
+## 3.2.0 — Phone notifications (Web Push), reports owner-only (2026-09-28)
+
+| ID | Change |
+|---|---|
+| C141 | **Phone notifications** (standard Web Push with VAPID, no Firebase): a “Turn on phone notifications” prompt on Home (once per session; “Not now” hides it for 7 days; iPhone users see the Add to Home Screen steps), and More → **Phone notifications** (this phone on/off, account on/off, send a test, what you'll get). One subscription per user per device (new **Push Subscriptions** tab); dead ones (404/410 or 5 failures) are switched off automatically; logging out switches this phone off. The VAPID key pair is made on the server the first time and kept only in Script Properties (`VAPID_D` / `VAPID_PUB`); the public key is sent to the app. Pushes carry no data: the service worker fetches the text (`getPushInbox`, new **Push Queue** tab) and shows it, or a generic “open the app” message if offline. The service worker's fetch/caching behaviour is unchanged. |
+| C142 | **What is pushed**: meal / late meal / special meal approved, declined, cancelled; leave requests and decisions; HOD notices; boat bookings (to boat admins, and to the staff member if booked for them), booking cancelled, run time changed or run cancelled (to the booked staff), emergency travel request (to boat admins) and decision; late / special meal requests (to chefs); messages from admin; replies and status changes on your problem reports; new problem reports (report owner only). Plus a **reminder 1 hour before each meal's cutoff** only to staff who have not ordered that meal (checked every 10 minutes, 60–40 min before cutoff, sent once per meal per day; text = App setting `push_cutoff_text`, placeholders {Meal} {time}). Superadmins and station accounts get no meal reminders. |
+| C143 | **Reports owner-only**: new problem reports no longer email anyone. They show only in the Reports inbox of the report owner (App setting `revert_owner_email`, else it@paradisecoveresortfiji.com), who alone gets the in-app / phone alert and the Manage badge and can reply / change status; other superadmins don't see the inbox. Reporter notifications (in-app, email, push) on a reply or status change are unchanged. One-time update on the first request after deploy: if `revert_owner_email` is empty and it@paradisecoveresortfiji.com is an active superadmin, it is set to that address (logged in the Superadmin log, never overwrites an existing value). |
+| C144 | Tests: `tools/tests/a33-push.js` (39: keys, ES256 JWT verified with node crypto, subscribe, VAPID header, inbox, every event, off switch, 410 cleanup, reminders, owner-only report push), `a31-backend.js` now 83 (owner-only reports, no email, one-time owner update). Real end to end on the TEST site with headless Chrome: FCM accepted the push (201) and the service worker fetched the text and showed the notification. |
 
 ## 3.1.0 — Superadmin admin-only, activity logs, superadmin log + revert, page guides, Report a problem (2026-09-28)
 

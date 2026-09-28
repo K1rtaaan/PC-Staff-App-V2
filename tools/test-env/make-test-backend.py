@@ -94,6 +94,8 @@ for f in files:
         s = sub(s, "var DSUM_FOLDER_NAME = 'PCR Kitchen Order Summaries';", "var DSUM_FOLDER_NAME = 'PCR Kitchen Order Summaries — TEST';")
     if f == 'Admin31Io.gs':
         s = s.replace("'PCR App Reports'", "'PCR App Reports — TEST'")
+    if f == 'Reports31.gs':
+        s = sub(s, "var A320_OWNER = 'it@paradisecoveresortfiji.com';", "var A320_OWNER = '" + TEST_SUPER + "'; // TEST: report / revert owner fallback")
     if LIVE_ID in s: sys.exit('live sheet id found in ' + f)
     open(os.path.join(out, f), 'w').write(s)
 te = open(os.path.join(ROOT, 'tools', 'test-env', 'TestEnv.gs')).read()

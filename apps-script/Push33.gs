@@ -112,7 +112,7 @@ function a33Jwt(aud) {
 
 /* ---------- queue + send ---------- */
 function a33Url(kind, email) {
-  if (kind === 'report') { var u = findUserByEmail(email); return u && isSuperPerm(u) ? './#reports' : './#myreports'; }
+  if (kind === 'report') { var u = findUserByEmail(email); return (typeof a32IsReportOwner === 'function' ? a32IsReportOwner(u) : (u && isSuperPerm(u))) ? './#reports' : './#myreports'; }
   if (kind === 'cutoff') return './#meals';
   if (kind === 'boat' || kind === 'boat_admin') return kind === 'boat' ? './#bookings' : './#boatadmin';
   return './#notifications';

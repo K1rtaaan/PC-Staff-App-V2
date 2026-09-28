@@ -197,7 +197,7 @@ check('emergency travel decided → staff phone', r.success && pushSends.some(x 
 // reports
 pushSends = [];
 r = req('submitReport', { sessionToken: tStaff, type: 'problem', description: 'Something broke here' });
-check('new report → superadmin phone', r.success && pushSends.some(x => x.url === EP('super')));
+check('new report → report owner phone only (3.2.0)', r.success && pushSends.length >= 1 && pushSends.every(x => x.url === EP('super')), JSON.stringify(pushSends.map(x => x.url)));
 pushSends = [];
 r = req('updateReport', { sessionToken: tSuper, id: r.data.id, status: 'done', reply: 'Fixed' });
 check('report status update → reporter phone', r.success && pushSends.some(x => x.url === EP('staff')));

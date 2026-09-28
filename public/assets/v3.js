@@ -707,7 +707,7 @@ renderNav = function(targetSel){
   const badge = function(id){
     if (id === 'approvals' && sd) return (sd.leaveHod||0)+(sd.leaveMgmt||0)+(sd.late||0)+(sd.special||0);
     if (id === 'more') return state._v3Unread || 0;
-    if (id === 'manage') return state._a32RepNew || 0; // 3.1.0 new problem reports
+    if (id === 'manage') return a32Owner() ? (state._a32RepNew || 0) : 0; // 3.1.0 new problem reports
     return 0;
   };
   el.innerHTML = items.map(function(n){
@@ -719,7 +719,8 @@ renderNav = function(targetSel){
 };
 canPrivilegedTab = function(tab){
   if (tab === 'adminlog') return a31CanArea(state.logArea || 'admin'); // 3.1.0 activity logs
-  if (tab === 'superlog' || tab === 'reports') return v3IsSuper();
+  if (tab === 'superlog') return v3IsSuper();
+  if (tab === 'reports') return a32Owner(); // 3.2.0: owner account only
   if (v3IsSuper() && A31_SUPER_NO_TABS[tab]) return false;
   const kind = V3_ROLE_TABS[tab];
   if (tab === 'approvals' && v3IsSuper()) return true;
@@ -1689,7 +1690,7 @@ function renderMore(){
     }).join('')+'</div>'+(state.rolesNeedSignIn && !state.demo ? '<button type="button" onclick="v3AskReauth()" class="w-full text-[11px] text-sky-300 py-1"><i class="fa-solid fa-lock mr-1"></i>Sign in again to open role pages</button>' : '')+'</section>';
   }
   if (v3IsSuper()) {
-    html += group('Account', v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) + v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) + v3Row(v3Nav('reports'),'fa-bug','Reports','Problems & requests from staff', state._a32RepNew||0) + v3Row(v3Nav('pushsettings'),'fa-bell','Phone notifications','New reports on your phone') + v3Row('a32OpenReport()','fa-flag','Report a problem','')) + a31SuperNoteHtml(); // 3.1.0: no staff features
+    html += group('Account', v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) + v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) + (a32Owner() ? v3Row(v3Nav('reports'),'fa-bug','Reports','Problems & requests from staff', state._a32RepNew||0) : '') + v3Row(v3Nav('pushsettings'),'fa-bell','Phone notifications', a32Owner() ? 'New reports on your phone' : 'Messages on your phone') + v3Row('a32OpenReport()','fa-flag','Report a problem','')) + a31SuperNoteHtml(); // 3.1.0: no staff features
   } else {
     html += group('Me', v3Row(v3Nav('leave'),'fa-plane-departure','Leave requests','Request, track or cancel') +
       v3Row(v3Nav('history'),'fa-clock-rotate-left','My orders & history','Orders, boats, leave, requests, feedback') +
@@ -2090,7 +2091,7 @@ function v3ManageGroups(){
   html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
   html += g('Reports & system', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Reports & downloads','Download all app data') +
     (v3IsSuper() ? v3Row(v3Nav('settings'),'fa-gear','App settings','Email (Brevo), test email, features, alert emails, revert owner') + v3Row(v3Nav('migrate'),'fa-right-left','Role migration','Preview / apply the 3.0.0 roles list') : ''));
-  if (v3IsSuper()) html += g('Reports', v3Row(v3Nav('reports'),'fa-bug','Reports inbox','Problems, change requests, ideas', state._a32RepNew||0));
+  if (a32Owner()) html += g('Reports', v3Row(v3Nav('reports'),'fa-bug','Reports inbox','Problems, change requests, ideas', state._a32RepNew||0));
   if (v3IsSuper()) html += g('Logs', v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) +
     v3Row(a31LogNav('admin'),'fa-user-shield','Activity log · Admin Settings','') + v3Row(a31LogNav('kitchen'),'fa-fire-burner','Activity log · Kitchen Admin','') +
     v3Row(a31LogNav('boat'),'fa-anchor','Activity log · Boat Admin','') + v3Row(a31LogNav('dept'),'fa-people-group','Activity log · Department Admin',''));
@@ -2324,7 +2325,7 @@ async function v3RenderSettings(){
     if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast('Enter a valid email','error'); return; }
     const passcode = await askPasscode('super', true); if (!passcode) return;
     const a = await v3Call('setAppSetting', { key: 'revert_owner_email', value: v, passcode: passcode }, 'Revert owner saved');
-    if (a) { state.appSettings = Object.assign({}, state.appSettings, { revert_owner_email: v }); state.a31CanRevert = !!v && v === String(state.user.email).toLowerCase(); }
+    if (a) { state.appSettings = Object.assign({}, state.appSettings, { revert_owner_email: v }); state.a31CanRevert = !!v && v === String(state.user.email).toLowerCase(); state._a32RepAt = 0; }
   };
   $('#st-prov').onchange = function(){ const b = this.value === 'brevo'; $('#st-g').classList.toggle('hidden', b); $('#st-b').classList.toggle('hidden', !b); };
   $('#st-save').onclick = async function(){
@@ -2657,6 +2658,16 @@ function a32HeaderButtons(){
   mk('btn-guide', 'fa-circle-question', 'Page guide').onclick = function(){ const g = A32_GUIDE_TABS[state.tab]; if (g) a32ShowGuide(g); };
   mk('btn-report', 'fa-flag', 'Report a problem').onclick = function(){ a32OpenReport(); };
 }
+/** 3.2.0: only the report owner (App setting revert_owner_email, else it@) gets the Reports inbox. The server decides (getReportCount.owner); remembered per account. */
+function a32OwnerKey(){ return 'pcr_repowner_' + String((state.user && state.user.email) || '').toLowerCase(); }
+function a32Owner(){
+  if (!v3IsSuper()) return false;
+  const k = a32OwnerKey();
+  if (state._a32OwnerFor === k && typeof state._a32Owner === 'boolean') return state._a32Owner;
+  try { const v = localStorage.getItem(k); if (v === '1' || v === '0') { state._a32OwnerFor = k; return (state._a32Owner = v === '1'); } } catch (e) {}
+  return false;
+}
+function a32SetOwner(o){ state._a32Owner = !!o; state._a32OwnerFor = a32OwnerKey(); try { localStorage.setItem(a32OwnerKey(), o ? '1' : '0'); } catch (e) {} }
 function a32AfterNav(tab){
   a32HeaderButtons();
   if (tab === 'home') a33MaybePrompt(); // 3.2.0 phone notifications
@@ -2665,7 +2676,7 @@ function a32AfterNav(tab){
   if (g) setTimeout(function(){ a32MaybeGuide(g); }, 900);
   if (v3IsSuper() && (!state._a32RepAt || Date.now() - state._a32RepAt > 60000)) {
     state._a32RepAt = Date.now();
-    setTimeout(function(){ api('getReportCount', {}).then(function(r){ if (r && r.success) { const n = r.data['new'] || 0; if (n !== state._a32RepNew) { state._a32RepNew = n; renderNav('#bottom-nav'); } } }).catch(function(){}); }, 1200);
+    setTimeout(function(){ api('getReportCount', {}).then(function(r){ if (r && r.success) { const n = r.data['new'] || 0, o = r.data.owner !== false, was = a32Owner(); a32SetOwner(o); if (n !== state._a32RepNew || o !== was) { state._a32RepNew = n; renderNav('#bottom-nav'); if (o !== was && (state.tab === 'more' || state.tab === 'adminhub' || state.tab === 'manage')) navigate(state.tab); } } }).catch(function(){}); }, 1200);
   }
 }
 /* ---- Report a problem ---- */
@@ -2885,7 +2896,7 @@ async function a33RenderSettings(){
   if (v3IsAdmin()) what.push('Admin: leave waiting for final approval');
   if (v3CanChef()) what.push('Kitchen: late / special meal requests, summary saved at the cutoff');
   if (v3HasBoat()) what.push('Boat: new bookings, cancellations, emergency travel');
-  if (v3IsSuper()) { what.length = 0; what.push('New problem reports', 'Messages to you'); }
+  if (v3IsSuper()) { what.length = 0; if (a32Owner()) what.push('New problem reports'); what.push('Messages to you', 'Replies to reports you sent'); }
   let html = v3Card('<div class="space-y-2"><div class="v3-row"><p class="text-sm text-slate-100">This phone</p><p class="text-sm" id="ps-dev">'+devTxt+'</p></div>'+
       (dev ? '<button type="button" id="ps-off" class="w-full rounded-xl py-2 text-sm border border-slate-600 text-slate-200">Turn off for this phone</button>' :
         (supported && perm !== 'denied' && !state.demo ? '<button type="button" id="ps-on" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white">Turn on for this phone</button>' : '')+

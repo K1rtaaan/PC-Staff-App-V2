@@ -10,9 +10,25 @@ var A32_MAX_IMAGES = 3, A32_MAX_IMAGE_CHARS = 700000, A32_MAX_PER_DAY = 15;
 var A32_GUIDE_COL = 'guidesSeen31';
 var A32_GUIDES = { kitchen: 1, boat: 1, dept: 1, admin: 1, manage: 1 };
 
-/** Who gets the "new report" email: App setting report_email, else the revert owner, else the bootstrap IT account. */
-function a32DevEmail() {
-  return a31Lower(getSetting('report_email', '')) || a31RevertOwner() || 'it@paradisecoveresortfiji.com';
+/** 3.2.0: reports belong to ONE owner account: App setting revert_owner_email, else the bootstrap IT account.
+ * Only that superadmin sees the Reports inbox / badge / in-app + push alert. No emails on a new report. */
+function a32ReportOwner() { return a31RevertOwner() || A320_OWNER; }
+function a32IsReportOwner(u) { return !!u && isSuperPerm(u) && a31Lower(u.email) === a32ReportOwner(); }
+var A32_OWNER_ONLY = 'Reports go to the owner account only.';
+/** 3.2.0 one-time update (chosen by the owner): App setting revert_owner_email = it@… when it is still empty and that
+ * account is an active superadmin. Runs once per project (Script Property A320_OWNER_DONE), logged in the Superadmin log. */
+var A320_OWNER = 'it@paradisecoveresortfiji.com';
+function a320OwnerOnce() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    if (props.getProperty('A320_OWNER_DONE')) return;
+    props.setProperty('A320_OWNER_DONE', nowIso());
+    var cur = a31RevertOwner(), u = findUserByEmail(A320_OWNER), ok = !cur && !!u && truthy(u.active) && isSuperPerm(u);
+    if (ok) setSetting('revert_owner_email', A320_OWNER, 'system');
+    a31WriteLog({ actorEmail: 'system', actorName: 'App update 3.2.0', actorRole: 'system', area: 'super', action: 'setAppSetting', target: 'revert_owner_email',
+      summary: ok ? 'Revert / report owner set to ' + A320_OWNER + ' (one-time 3.2.0 update, chosen by the owner)' : 'One-time 3.2.0 owner update skipped (' + (cur ? 'already set to ' + cur : 'account not an active superadmin') + ')',
+      before: cur, after: ok ? A320_OWNER : cur, bySuper: 'TRUE', revertable: 'FALSE', noRevertReason: 'System update' });
+  } catch (e) {}
 }
 function a32Out(r) {
   var o = {};
@@ -47,20 +63,12 @@ function submitReport(p) {
     device: String(p.device || '').substring(0, 300), images: JSON.stringify(links), status: 'new', reply: '', repliedAt: '', repliedBy: '', updatedAt: '', updatedBy: '' };
   ensureSheet(getSS(), A32_REPORTS_SHEET, A32_REPORT_HEADERS);
   appendRow(A32_REPORTS_SHEET, row, A32_REPORT_HEADERS);
-  // superadmins: in-app; developer: email
+  // 3.2.0: only the report owner is alerted (in-app → phone push via the Notifications hook). No email.
   try {
-    sheetToObjects('Users').filter(function (x) { return truthy(x.active) && isSuperPerm(x); }).forEach(function (s) {
-      v3Notify(s.email, 'New report: ' + A32_TYPES[type], row.userName + ': ' + desc.substring(0, 140), 'report', id);
-    });
+    var own = a32ReportOwner();
+    var ou = sheetToObjects('Users').filter(function (x) { return truthy(x.active) && isSuperPerm(x) && a31Lower(x.email) === own; })[0];
+    if (ou) v3Notify(ou.email, 'New report: ' + A32_TYPES[type], row.userName + ': ' + desc.substring(0, 140), 'report', id);
   } catch (e) {}
-  try {
-    v3Mail(a32DevEmail(), '[PCR Staff App] ' + A32_TYPES[type] + ' from ' + row.userName,
-      'Type: ' + A32_TYPES[type] + '\nFrom: ' + row.userName + ' <' + mine + '> · ' + row.userRole + (row.department ? ' · ' + row.department : '') +
-      '\nWhen: ' + row.createdAt + '\nPage: ' + row.page + '\nApp version: ' + row.appVersion + '\nDevice: ' + row.device +
-      '\n\n' + desc + (links.length ? '\n\nScreenshots:\n' + links.map(function (l) { return l.url; }).join('\n') : '') +
-      '\n\nReply / change the status in the app: Manage → Reports.');
-  } catch (e) {}
-  if (typeof a33PushEvent === 'function') { try { a33PushEvent('report_new', { report: row }); } catch (e) {} }
   return { success: true, data: { id: id, images: links.length, imageError: imgErr } };
 }
 
@@ -68,6 +76,7 @@ function submitReport(p) {
 function getReports(p) {
   var u = getRequester(p);
   if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (!a32IsReportOwner(u)) return { success: false, error: A32_OWNER_ONLY, notOwner: true };
   var all = A31IO.rows(A32_REPORTS_SHEET).slice().reverse();
   var counts = { 'new': 0, noted: 0, in_progress: 0, done: 0, total: all.length };
   all.forEach(function (r) { if (counts[r.status] !== undefined) counts[r.status]++; });
@@ -78,8 +87,8 @@ function getReports(p) {
 /** Cheap badge count for the superadmin nav. */
 function getReportCount(p) {
   var u = getRequester(p);
-  if (!u || !isSuperPerm(u)) return { success: true, data: { 'new': 0 } };
-  return { success: true, data: { 'new': A31IO.rows(A32_REPORTS_SHEET).filter(function (r) { return r.status === 'new'; }).length } };
+  if (!a32IsReportOwner(u)) return { success: true, data: { 'new': 0, owner: false } };
+  return { success: true, data: { 'new': A31IO.rows(A32_REPORTS_SHEET).filter(function (r) { return r.status === 'new'; }).length, owner: true } };
 }
 /** My own reports (with replies) — any user. */
 function getMyReports(p) {
@@ -88,10 +97,11 @@ function getMyReports(p) {
   var mine = a31Lower(u.email);
   return { success: true, data: { reports: A31IO.rows(A32_REPORTS_SHEET).filter(function (r) { return a31Lower(r.userEmail) === mine; }).reverse().slice(0, 30).map(a32Out) } };
 }
-/** updateReport { id, status?, reply? } — superadmin. Notifies the reporter (in-app + email + push). */
+/** updateReport { id, status?, reply? } — report owner only. Notifies the reporter (in-app + email + push). */
 function updateReport(p) {
   var u = getRequester(p);
   if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (!a32IsReportOwner(u)) return { success: false, error: A32_OWNER_ONLY };
   var r = a31RowBy(A32_REPORTS_SHEET, 'id', p.id);
   if (!r) return { success: false, error: 'Report not found' };
   var patch = {}, st = String(p.status || ''), reply = String(p.reply || '').trim().substring(0, 2000);
