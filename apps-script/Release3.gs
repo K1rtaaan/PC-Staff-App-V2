@@ -316,7 +316,7 @@ function mailStatus() {
   var key = !!props.getProperty('BREVO_API_KEY');
   var prov = String(getSetting('mail_provider', 'auto') || 'auto').toLowerCase();
   return { provider: prov, effective: (prov === 'brevo' || prov === 'auto') && key ? 'brevo' : 'mailapp', brevoKeySet: key,
-    brevoSender: props.getProperty('BREVO_SENDER_EMAIL') || props.getProperty('BREVO_SENDER') || getSetting('brevo_sender_email', '') || 'no-reply@paradisecoveresortfiji.com',
+    brevoSender: props.getProperty('BREVO_SENDER_EMAIL') || props.getProperty('BREVO_SENDER') || getSetting('brevo_sender_email', '') || 'it@paradisecoveresortfiji.com',
     brevoSenderName: props.getProperty('BREVO_SENDER_NAME') || 'PCR Staff App', replyTo: getSetting('mail_reply_to', 'it@paradisecoveresortfiji.com') || '',
     lastWarning: props.getProperty('MAIL_LAST_WARNING') || '' };
 }

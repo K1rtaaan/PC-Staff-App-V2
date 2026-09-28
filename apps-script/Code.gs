@@ -1388,7 +1388,7 @@ function sendAppMail(to, subject, body, kind) {
   var warn = '';
   var key = mailBrevoKey();
   if (provider === 'brevo' || (provider === 'auto' && key)) {
-    var sender = String((props && (props.getProperty('BREVO_SENDER_EMAIL') || props.getProperty('BREVO_SENDER'))) || getSetting('brevo_sender_email', '') || 'no-reply@paradisecoveresortfiji.com').trim();
+    var sender = String((props && (props.getProperty('BREVO_SENDER_EMAIL') || props.getProperty('BREVO_SENDER'))) || getSetting('brevo_sender_email', '') || 'it@paradisecoveresortfiji.com').trim();
     var sName = String((props && props.getProperty('BREVO_SENDER_NAME')) || getSetting('brevo_sender_name', name) || name);
     if (key && sender) {
       try {
