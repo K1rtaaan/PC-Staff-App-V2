@@ -1058,7 +1058,7 @@ function getAdminExport(p) {
 }
 function getSuperDashboard(p) {
   var u = v3Requester(p);
-  if (!isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (!isAdminPerm(u)) return { success: false, error: 'Admin only' }; // 3.2.0: admins get the overview (Admin Settings → Overview)
   return { success: true, data: v3SuperDash() };
 }
 function v3SuperDash() {
@@ -1359,11 +1359,21 @@ function requireSuperCode(p) {
   return u;
 }
 
+/** 3.2.0: admin-level confirm. Superadmin → the superadmin code; admin (not super) → the admin code (ADMIN_PASS). */
+function requireAdminCode(p) {
+  var u = getRequester(p);
+  if (!u || !isAdminPerm(u)) throw new Error('Admin only');
+  if (isSuperPerm(u)) return requireSuperCode(p);
+  if (String(p.passcode || '') !== ADMIN_PASS) { var e = new Error('Enter the admin code to confirm this change'); e.needsCode = true; throw e; }
+  return u;
+}
+
 /* ---------- lazy meal tick: dinner cutoff save + late window auto-approve ---------- */
 function r3PropDone(key) { try { return !!PropertiesService.getScriptProperties().getProperty(key); } catch (e) { return false; } }
 function r3SetDone(key, v) { try { PropertiesService.getScriptProperties().setProperty(key, v || nowIso()); } catch (e) {} }
 function r3NotifyMany(rows) {
   if (!rows.length) return;
+  if (typeof a33FromNotif === 'function') rows.forEach(function (r) { try { a33FromNotif(r); } catch (e) {} }); // 3.2.0 phone notifications
   try {
     var sh = ensureSheet(getSS(), 'Notifications', NOTIF_HEADERS);
     var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
@@ -1413,7 +1423,7 @@ function mealTick(force) {
           if (!r3PropDone('dsum_saved_' + dc)) {
             var pend = sheetToObjects('Dinner Orders').filter(function (o) { return v3Date(o.serviceDate) === dc && String(o.status) === 'pending' && !truthy(o.late); });
             out.cutoffApproved = r3ApproveRows('dinner', pend, 'approved', 'ordering closed');
-            var row = dsumSaveSnapshot(dc, true, 'auto', 'auto at dinner cutoff ' + t.dinner_cutoff);
+            var row = dsumSaveSnapshot(dc, true, 'auto', 'auto at dinner cutoff ' + t.dinner_cutoff); if (typeof a33SummarySaved === 'function') a33SummarySaved(dc, 'cutoff');
             var pdf = dsumTryPdf(row);
             r3SetDone('dsum_saved_' + dc, nowIso() + (pdf.ok ? ' +pdf' : ''));
             out.cutoffSaved = dc;
@@ -1437,7 +1447,7 @@ function mealTick(force) {
           var rows = sheetToObjects(V3_MEAL_SHEETS[meal]).filter(function (o) { return v3Date(o.serviceDate) === d && String(o.status) === 'late_pending'; });
           var n = r3ApproveRows(meal, rows, 'late_approved', 'auto-approved at ' + r3Label(t['late_close_' + meal]));
           if (meal === 'dinner') {
-            var row2 = dsumSaveSnapshot(d, true, 'final', 'final list after late requests (' + t.late_close_dinner + ')');
+            var row2 = dsumSaveSnapshot(d, true, 'final', 'final list after late requests (' + t.late_close_dinner + ')'); if (typeof a33SummarySaved === 'function') a33SummarySaved(d, 'final');
             dsumTryPdf(row2);
           }
           r3SetDone(key, nowIso() + ' approved ' + n);
@@ -1744,7 +1754,8 @@ var A31_LOGGED = {
   uploadRosterParsed: ['admin', [], 'Roster uploads are not reverted from here.'],
   backfillDinnerSummaries: ['admin', [], 'Saved summaries cannot be un-saved.'],
   runMealTick: ['kitchen', a31MealSheets, 'Automatic approvals already notified staff.'],
-  updateReport: ['admin', ['Reports'], 'The reporter was already notified of the reply / status.']
+  updateReport: ['admin', ['Reports'], 'The reporter was already notified of the reply / status.'],
+  setAboutImage: ['admin', ['App Settings'], '']
 };
 var A31_AREAS = ['kitchen', 'boat', 'dept', 'admin'];
 var A31_KEYS = { 'Users': 'email', 'App Settings': 'key', 'Alert Emails': 'email' };
@@ -2025,9 +2036,25 @@ var A32_MAX_IMAGES = 3, A32_MAX_IMAGE_CHARS = 700000, A32_MAX_PER_DAY = 15;
 var A32_GUIDE_COL = 'guidesSeen31';
 var A32_GUIDES = { kitchen: 1, boat: 1, dept: 1, admin: 1, manage: 1 };
 
-/** Who gets the "new report" email: App setting report_email, else the revert owner, else the bootstrap IT account. */
-function a32DevEmail() {
-  return a31Lower(getSetting('report_email', '')) || a31RevertOwner() || 'it@paradisecoveresortfiji.com';
+/** 3.2.0: reports belong to ONE owner account: App setting revert_owner_email, else the bootstrap IT account.
+ * Only that superadmin sees the Reports inbox / badge / in-app + push alert. No emails on a new report. */
+function a32ReportOwner() { return a31RevertOwner() || A320_OWNER; }
+function a32IsReportOwner(u) { return !!u && isSuperPerm(u) && a31Lower(u.email) === a32ReportOwner(); }
+var A32_OWNER_ONLY = 'Reports go to the owner account only.';
+/** 3.2.0 one-time update (chosen by the owner): App setting revert_owner_email = it@… when it is still empty and that
+ * account is an active superadmin. Runs once per project (Script Property A320_OWNER_DONE), logged in the Superadmin log. */
+var A320_OWNER = 'it@paradisecoveresortfiji.com';
+function a320OwnerOnce() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    if (props.getProperty('A320_OWNER_DONE')) return;
+    props.setProperty('A320_OWNER_DONE', nowIso());
+    var cur = a31RevertOwner(), u = findUserByEmail(A320_OWNER), ok = !cur && !!u && truthy(u.active) && isSuperPerm(u);
+    if (ok) setSetting('revert_owner_email', A320_OWNER, 'system');
+    a31WriteLog({ actorEmail: 'system', actorName: 'App update 3.2.0', actorRole: 'system', area: 'super', action: 'setAppSetting', target: 'revert_owner_email',
+      summary: ok ? 'Revert / report owner set to ' + A320_OWNER + ' (one-time 3.2.0 update, chosen by the owner)' : 'One-time 3.2.0 owner update skipped (' + (cur ? 'already set to ' + cur : 'account not an active superadmin') + ')',
+      before: cur, after: ok ? A320_OWNER : cur, bySuper: 'TRUE', revertable: 'FALSE', noRevertReason: 'System update' });
+  } catch (e) {}
 }
 function a32Out(r) {
   var o = {};
@@ -2062,20 +2089,12 @@ function submitReport(p) {
     device: String(p.device || '').substring(0, 300), images: JSON.stringify(links), status: 'new', reply: '', repliedAt: '', repliedBy: '', updatedAt: '', updatedBy: '' };
   ensureSheet(getSS(), A32_REPORTS_SHEET, A32_REPORT_HEADERS);
   appendRow(A32_REPORTS_SHEET, row, A32_REPORT_HEADERS);
-  // superadmins: in-app; developer: email
+  // 3.2.0: only the report owner is alerted (in-app → phone push via the Notifications hook). No email.
   try {
-    sheetToObjects('Users').filter(function (x) { return truthy(x.active) && isSuperPerm(x); }).forEach(function (s) {
-      v3Notify(s.email, 'New report: ' + A32_TYPES[type], row.userName + ': ' + desc.substring(0, 140), 'report', id);
-    });
+    var own = a32ReportOwner();
+    var ou = sheetToObjects('Users').filter(function (x) { return truthy(x.active) && isSuperPerm(x) && a31Lower(x.email) === own; })[0];
+    if (ou) v3Notify(ou.email, 'New report: ' + A32_TYPES[type], row.userName + ': ' + desc.substring(0, 140), 'report', id);
   } catch (e) {}
-  try {
-    v3Mail(a32DevEmail(), '[PCR Staff App] ' + A32_TYPES[type] + ' from ' + row.userName,
-      'Type: ' + A32_TYPES[type] + '\nFrom: ' + row.userName + ' <' + mine + '> · ' + row.userRole + (row.department ? ' · ' + row.department : '') +
-      '\nWhen: ' + row.createdAt + '\nPage: ' + row.page + '\nApp version: ' + row.appVersion + '\nDevice: ' + row.device +
-      '\n\n' + desc + (links.length ? '\n\nScreenshots:\n' + links.map(function (l) { return l.url; }).join('\n') : '') +
-      '\n\nReply / change the status in the app: Manage → Reports.');
-  } catch (e) {}
-  if (typeof a33PushEvent === 'function') { try { a33PushEvent('report_new', { report: row }); } catch (e) {} }
   return { success: true, data: { id: id, images: links.length, imageError: imgErr } };
 }
 
@@ -2083,6 +2102,7 @@ function submitReport(p) {
 function getReports(p) {
   var u = getRequester(p);
   if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (!a32IsReportOwner(u)) return { success: false, error: A32_OWNER_ONLY, notOwner: true };
   var all = A31IO.rows(A32_REPORTS_SHEET).slice().reverse();
   var counts = { 'new': 0, noted: 0, in_progress: 0, done: 0, total: all.length };
   all.forEach(function (r) { if (counts[r.status] !== undefined) counts[r.status]++; });
@@ -2093,8 +2113,8 @@ function getReports(p) {
 /** Cheap badge count for the superadmin nav. */
 function getReportCount(p) {
   var u = getRequester(p);
-  if (!u || !isSuperPerm(u)) return { success: true, data: { 'new': 0 } };
-  return { success: true, data: { 'new': A31IO.rows(A32_REPORTS_SHEET).filter(function (r) { return r.status === 'new'; }).length } };
+  if (!a32IsReportOwner(u)) return { success: true, data: { 'new': 0, owner: false } };
+  return { success: true, data: { 'new': A31IO.rows(A32_REPORTS_SHEET).filter(function (r) { return r.status === 'new'; }).length, owner: true } };
 }
 /** My own reports (with replies) — any user. */
 function getMyReports(p) {
@@ -2103,10 +2123,11 @@ function getMyReports(p) {
   var mine = a31Lower(u.email);
   return { success: true, data: { reports: A31IO.rows(A32_REPORTS_SHEET).filter(function (r) { return a31Lower(r.userEmail) === mine; }).reverse().slice(0, 30).map(a32Out) } };
 }
-/** updateReport { id, status?, reply? } — superadmin. Notifies the reporter (in-app + email + push). */
+/** updateReport { id, status?, reply? } — report owner only. Notifies the reporter (in-app + email + push). */
 function updateReport(p) {
   var u = getRequester(p);
   if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (!a32IsReportOwner(u)) return { success: false, error: A32_OWNER_ONLY };
   var r = a31RowBy(A32_REPORTS_SHEET, 'id', p.id);
   if (!r) return { success: false, error: 'Report not found' };
   var patch = {}, st = String(p.status || ''), reply = String(p.reply || '').trim().substring(0, 2000);
@@ -2122,6 +2143,22 @@ function updateReport(p) {
   try { v3Mail(r.userEmail, '[PCR Staff App] ' + title, 'Hi ' + (r.userName || '') + ',\n\n' + (patch.status ? 'Status: ' + A32_STATUS[patch.status] + '\n' : '') + (reply ? '\nReply from ' + patch.repliedBy + ':\n' + reply + '\n' : '') + '\nYour report (' + String(r.createdAt).slice(0, 16) + '):\n' + String(r.description).substring(0, 1000)); } catch (e) {}
   if (typeof a33PushEvent === 'function') { try { a33PushEvent('report_update', { email: r.userEmail, title: title, body: body, id: r.id }); } catch (e) {} }
   return { success: true, data: { report: a32Out(a31RowBy(A32_REPORTS_SHEET, 'id', r.id) || r) } };
+}
+
+/* ---------- 3.2.0 About image (footer "About" button). Superadmin uploads a replacement; stored like report screenshots. ---------- */
+/** setAboutImage { image: dataURL } or { reset: true } — superadmin. App setting about_image_url ('' = the default poster). */
+function setAboutImage(p) {
+  var u = getRequester(p);
+  if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (truthy(p.reset)) { setSetting('about_image_url', '', u.email); return { success: true, data: { url: '' } }; }
+  var d = String(p.image || '');
+  if (!/^data:image\/(jpeg|png|webp);base64,/.test(d)) return { success: false, error: 'Choose a JPG, PNG or WebP image' };
+  if (d.length > A32_MAX_IMAGE_CHARS) return { success: false, error: 'The image is too big — try a smaller one' };
+  var l = A31IO.saveImage('about-' + String(nowIso()).replace(/[^0-9]/g, '').slice(0, 12), d);
+  if (!l) return { success: false, error: 'The image could not be saved' };
+  var url = /^data:/.test(String(l.thumb || '')) ? l.thumb : 'https://drive.google.com/thumbnail?id=' + l.id + '&sz=w1200';
+  setSetting('about_image_url', url, u.email);
+  return { success: true, data: { url: url } };
 }
 
 /* ---------- first-time role page guides (seen per user on the server) ---------- */
@@ -2146,10 +2183,10 @@ function markGuideSeen(p) {
 }
 
 function routeReports31(action, p) {
-  var map = { submitReport: submitReport, getReports: getReports, getReportCount: getReportCount, getMyReports: getMyReports, updateReport: updateReport,
+  var map = { setAboutImage: setAboutImage, submitReport: submitReport, getReports: getReports, getReportCount: getReportCount, getMyReports: getMyReports, updateReport: updateReport,
     getMyGuides: getMyGuides, markGuideSeen: markGuideSeen };
   var fn = map[action];
-  if (!fn) return null;
+  if (!fn) return typeof routePush33 === 'function' ? routePush33(action, p) : null; // 3.2.0 push
   try { return fn(p || {}); } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
 }
 

@@ -1,4 +1,4 @@
-/* PCR Staff App V2 — app shell stored on the phone (3.1.0)
+/* PCR Staff App V2 — app shell stored on the phone (3.2.0)
  * - Precaches the shell (HTML, CSS, fonts, logo, icons, login image) and serves it CACHE-FIRST,
  *   then revalidates in the background, so repeat opens paint without waiting for the network.
  * - A new release ships a new sw.js (VERSION below) → it installs in the background and WAITS;
@@ -6,7 +6,7 @@
  * - NEVER caches API responses: script.google.com / googleusercontent.com always go to the network
  *   (the app keeps its own per-user data cache).
  */
-const VERSION = '3.1.0';
+const VERSION = '3.2.0';
 const CACHE = 'pcr-staff-v' + VERSION;
 const SHELL = [
   './',
@@ -94,4 +94,53 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.endsWith('/sw.js')) return;
   if (isDocumentRequest(e.request, url)) { e.respondWith(shellResponse(e)); return; }
   e.respondWith(assetResponse(e));
+});
+
+/* ---------- 3.2.0 phone notifications (standard Web Push, no payload) ----------
+ * The server sends an empty push; this worker fetches the text for THIS device (getPushInbox with the device key
+ * the app saved in IndexedDB, keyed by this worker's scope so the live and test copies never mix) and shows it. */
+function pushCfg() {
+  return new Promise((resolve) => {
+    try {
+      const rq = indexedDB.open('pcr-push', 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore('cfg');
+      rq.onerror = () => resolve(null);
+      rq.onsuccess = () => {
+        try {
+          const tx = rq.result.transaction('cfg', 'readonly'), g = tx.objectStore('cfg').get(self.registration.scope);
+          g.onsuccess = () => resolve(g.result || null); g.onerror = () => resolve(null);
+        } catch (e) { resolve(null); }
+      };
+    } catch (e) { resolve(null); }
+  });
+}
+async function pushShow() {
+  let msgs = [], more = 0;
+  const cfg = await pushCfg();
+  if (cfg && cfg.api && cfg.subId && cfg.key) {
+    try {
+      const u = cfg.api + (cfg.api.indexOf('?') >= 0 ? '&' : '?') + 'action=getPushInbox&subId=' + encodeURIComponent(cfg.subId) + '&key=' + encodeURIComponent(cfg.key);
+      const r = await fetch(u, { cache: 'no-store', redirect: 'follow' });
+      const j = await r.json();
+      if (j && j.success && j.data) { msgs = j.data.messages || []; more = j.data.more || 0; }
+    } catch (e) {}
+  }
+  if (!msgs.length) msgs = [{ title: 'PCR Staff App', body: 'You have a new notification — tap to open.', url: './#notifications', tag: 'pcr-generic' }];
+  const icon = new URL('./assets/golden-logo.jpg', self.registration.scope).href;
+  await Promise.all(msgs.map((m, i) => self.registration.showNotification(m.title || 'PCR Staff App', {
+    body: (m.body || '') + (i === 0 && more ? '\n+' + more + ' more in the app' : ''),
+    tag: m.tag || ('pcr-' + Date.now() + '-' + i), icon: icon,
+    data: { url: new URL(m.url || './', self.registration.scope).href }
+  })));
+}
+self.addEventListener('push', (e) => { e.waitUntil(pushShow()); });
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || self.registration.scope;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    for (const c of list) {
+      if (c.url.indexOf(self.registration.scope) === 0 && 'focus' in c) { try { c.postMessage({ type: 'PCR_OPEN', url: url }); } catch (x) {} return c.focus(); }
+    }
+    return self.clients.openWindow(url);
+  }));
 });
