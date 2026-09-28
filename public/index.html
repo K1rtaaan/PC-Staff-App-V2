@@ -198,6 +198,22 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 .v3-bar > span { display:block; height:100%; background:#14b8a6; border-radius:999px; }
 .v3-countdown { font-variant-numeric: tabular-nums; }
 #main-content { overflow-x: hidden; }
+/* 3.2.0 footer credit: Rasta gradient text in a golden glowing frame; About button */
+.pcr-credit-wrap{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px 6px;max-width:32rem;margin:0 auto}
+.pcr-credit{position:relative;display:inline-block;max-width:100%;padding:6px 14px;border-radius:9999px;text-align:center;
+  background:linear-gradient(180deg,rgba(15,23,42,.92),rgba(2,6,23,.92)) padding-box,linear-gradient(135deg,#8a6d1d,#f5d77a 30%,#fff3c4 50%,#d4a93a 70%,#7a5c12) border-box;
+  border:1.5px solid transparent;box-shadow:0 0 6px rgba(245,215,122,.35),0 0 14px rgba(212,169,58,.18),inset 0 0 6px rgba(245,215,122,.12);
+  animation:pcrGlow 3.6s ease-in-out infinite}
+.pcr-rasta{font-size:11px;line-height:1.35;font-weight:700;letter-spacing:.02em;
+  background:linear-gradient(90deg,#ff4d4d 0%,#ff4d4d 30%,#ffd23f 38%,#ffd23f 62%,#2fd35f 70%,#2fd35f 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 .5px rgba(0,0,0,.9))}
+.pcr-about-btn{font-size:11px;color:#f5d77a;border:1px solid rgba(245,215,122,.45);border-radius:9999px;padding:4px 12px;background:rgba(15,23,42,.6);min-height:28px}
+.pcr-about-btn:hover,.pcr-about-btn:focus-visible{border-color:#f5d77a;box-shadow:0 0 8px rgba(245,215,122,.35);outline:none}
+@keyframes pcrGlow{0%,100%{box-shadow:0 0 5px rgba(245,215,122,.28),0 0 12px rgba(212,169,58,.14),inset 0 0 5px rgba(245,215,122,.10)}
+  50%{box-shadow:0 0 9px rgba(245,215,122,.55),0 0 20px rgba(212,169,58,.28),inset 0 0 7px rgba(245,215,122,.18)}}
+@media (prefers-reduced-motion: reduce){.pcr-credit{animation:none}}
+@media (max-width:360px){.pcr-rasta{font-size:10px}.pcr-credit{padding:5px 10px}}
+@media print{.pcr-credit-wrap{display:none}}
 </style>
 <!-- 2.10.0: self-hosted purged Tailwind (tools/ builds it); loaded after the inline styles like the old CDN -->
 <link rel="stylesheet" href="assets/app.css?v=3.2.0"/>
@@ -370,6 +386,7 @@ const LS_COACH_DONE = 'pcr_v2_coach_done';
       </div>
       <p class="text-[10px] text-center text-slate-500 mt-4">v<span id="ui-version"></span> · Fiji time UTC+12</p>
       <p class="text-[9px] text-center text-teal-600/60 mt-1">Paradise Cove Resort · Yasawa Islands Fiji</p>
+      <div class="pcr-credit-wrap" id="pcr-credit-login"><div class="pcr-credit"><span class="pcr-rasta">Made by Pranav Kumar (Group IT Manager)</span></div><button type="button" class="pcr-about-btn" onclick="a34OpenAbout()"><i class="fa-solid fa-circle-info mr-1"></i>About</button></div>
     </div>
   </div>
 
@@ -1492,8 +1509,8 @@ async function demoBootstrap(p){
 }
 function demoArchiveOldRows(p){
   const archDry = p.dryRun === true || p.dryRun === 1 || p.dryRun === '1' || p.dryRun === 'true';
-  if (!hasPerm('super_admin')) return Promise.resolve({ success:false, error:'Superadmin permission required' });
-  if (!archDry && !passOk(p.passcode, 'super')) return Promise.resolve({ success:false, error:'Admin password required (wrong or missing)' });
+  if (!canFullAdmin()) return Promise.resolve({ success:false, error:'Admin permission required' });
+  if (!archDry && !passOk(p.passcode, hasPerm('super_admin') ? 'super' : 'admin')) return Promise.resolve({ success:false, error:'Admin password required (wrong or missing)' });
   const db = loadDemo();
   const cutoffDate = fijiDateString(addFijiDays(getFijiNow(), -60));
   const runDate = {}; (db.boatRuns||[]).forEach(r => { runDate[r.id] = String(r.date||'').slice(0,10); });
@@ -1675,7 +1692,8 @@ function demoApiCore(action, p) {
     case 'getAlertEmails':
       return Promise.resolve(ok({ emails: db.alertEmails }));
     case 'saveAlertEmails': {
-      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('Admin password required (wrong or missing)'));
+      if (!canFullAdmin()) return Promise.resolve(fail('Admin only'));
+      if (!passOk(p.passcode, 'admin')) return Promise.resolve(fail('Admin password required (wrong or missing)'));
       let emails = p.emails;
       if (typeof emails === 'string') emails = emails.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
       db.alertEmails = emails.map((e,i)=>({ email: typeof e==='string'?e:e.email, label:'Alert '+(i+1), active:true }));
@@ -2485,7 +2503,9 @@ function demoApiCore(action, p) {
     case 'getCutoffInfo':
       return Promise.resolve(ok({ fijiNow:formatFiji(), breakfast:breakfastCutoffInfo(), dinner:dinnerCutoffInfo(), lunch:lunchCutoffInfo() }));
     case 'deleteUser': {
-      if (!passOk(p.passcode, 'super')) return Promise.resolve(fail('Admin password required (wrong or missing)'));
+      if (!canFullAdmin()) return Promise.resolve(fail('Admin only'));
+      if (!passOk(p.passcode, hasPerm('super_admin') ? 'super' : 'admin')) return Promise.resolve(fail('Admin password required (wrong or missing)'));
+      { const tu = db.users.find(u => u.email === (p.targetEmail||'').toLowerCase()); if (tu && hasAnyPerm(['super_admin'], tu)) return Promise.resolve(fail('Superadmin accounts cannot be deleted here')); }
       db.users = db.users.filter(u => u.email !== (p.targetEmail||'').toLowerCase());
       saveDemo(db); return Promise.resolve(ok({ deleted: p.targetEmail }));
     }
@@ -2552,7 +2572,14 @@ function askPasscode(level, needCode){
   if (level === 'super' && needCode) return askSuperCode();
   return Promise.resolve('role');
 }
-function askSuperCode(){
+/** 3.2.0: admin-level confirm — a superadmin types the superadmin code, an admin types the admin code. */
+function askAdminCode(){
+  if (hasPerm('super_admin')) return askSuperCode();
+  if (canFullAdmin()) return askSuperCode('admin');
+  toast('Admin permission required','error'); return Promise.resolve(null);
+}
+function askSuperCode(kind){
+  const isAdm = kind === 'admin', lbl = isAdm ? 'admin code' : 'superadmin code';
   return new Promise(function(resolve){
     const old = document.getElementById('code-modal'); if (old) old.remove();
     const wrap = document.createElement('div');
@@ -2561,8 +2588,8 @@ function askSuperCode(){
     wrap.className = 'fixed inset-0 flex items-center justify-center p-4 modal-bg';
     wrap.style.zIndex = '150';
     wrap.innerHTML = '<form id="code-form" class="glass rounded-2xl p-4 w-full max-w-sm space-y-3" autocomplete="off">'+
-      '<h3 id="code-modal-title" class="font-semibold text-slate-100"><i class="fa-solid fa-key text-teal-400 mr-2"></i>Superadmin code</h3>'+
-      '<p class="text-xs text-slate-400">Enter the superadmin code to confirm this change.</p>'+
+      '<h3 id="code-modal-title" class="font-semibold text-slate-100"><i class="fa-solid fa-key text-teal-400 mr-2"></i>'+(isAdm ? 'Admin code' : 'Superadmin code')+'</h3>'+
+      '<p class="text-xs text-slate-400">Enter the '+lbl+' to confirm this change.</p>'+
       '<input id="code-input" type="password" inputmode="numeric" autocomplete="off" class="ui-input w-full" placeholder="Code"/>'+
       '<div class="flex gap-2"><button type="button" id="code-cancel" class="flex-1 rounded-xl py-2.5 text-sm border border-slate-600 text-slate-300">Cancel</button>'+
       '<button type="submit" id="code-ok" class="flex-1 btn-primary rounded-xl py-2.5 text-sm font-semibold text-white">Confirm</button></div></form>';
@@ -2576,7 +2603,7 @@ function askSuperCode(){
     wrap.querySelector('#code-form').onsubmit = function(e){
       e.preventDefault();
       const v = String(input.value || '').trim();
-      if (!v) { toast('Enter the superadmin code','error'); input.focus(); return; }
+      if (!v) { toast('Enter the '+lbl,'error'); input.focus(); return; }
       done(v);
     };
     setTimeout(function(){ try { input.focus(); } catch (e) {} }, 30);
@@ -5025,16 +5052,16 @@ function ensureHtml2Pdf(){
 }
 
 async function openAlertEmails(){
-  if (!hasPerm('super_admin')) { toast('Superadmin only','error'); return; }
+  if (!canFullAdmin()) { toast('Admin only','error'); return; } // 3.2.0: admins too
   const r = await api('getAlertEmails');
   const emails = ((r.data && r.data.emails) || []).map(e=>e.email||e).join('\n');
-  openModal('<h3 class="font-semibold mb-2 text-slate-100">Alert Emails</h3><p class="text-[10px] text-slate-400 mb-2">Superadmin · one email per line</p>'+
+  openModal('<h3 class="font-semibold mb-2 text-slate-100">Alert Emails</h3><p class="text-[10px] text-slate-400 mb-2">Admin · one email per line</p>'+
     '<textarea id="al-text" class="ui-input h-40 text-xs">'+esc(emails)+'</textarea>'+
     '<button id="al-save" class="btn-primary w-full rounded-xl py-2 text-sm text-white mt-3">Save</button>');
   $('#al-save').onclick = async () => {
     const list = $('#al-text').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
     closeModal();
-    const passcode = await askPasscode('super'); if (!passcode) return;
+    const passcode = await askPasscode('admin'); if (!passcode) return;
     const res = await api('saveAlertEmails',{ emails:list, passcode });
     if (!res.success) toast(res.error,'error'); else toast('Alert emails saved','ok');
   };
@@ -5171,7 +5198,7 @@ function bindArchiveCard(){
       this.disabled = true; this.textContent = 'Archiving…';
       try {
         closeModal();
-        const passcode = await askPasscode('super', true);
+        const passcode = await askAdminCode(); // 3.2.0: admin code for admins, superadmin code for superadmins
         if (!passcode) return;
         const r = await api('archiveOldRows', { passcode });
         if (!r.success) { out.innerHTML = '<span class="text-rose-300">'+esc(r.error||'Failed')+'</span>'; toast(r.error||'Archive failed','error'); return; }
@@ -6457,7 +6484,7 @@ async function renderUsers(){
       '<button id="u-add" class="btn-primary rounded-xl px-3 py-1.5 text-xs text-white"><i class="fa-solid fa-plus mr-1"></i>Add user</button>'+
       '<button id="u-import" class="glass rounded-xl px-3 py-1.5 text-xs"><i class="fa-solid fa-file-csv mr-1"></i>Quick Import CSV</button>'+
       '<button id="u-pending" class="glass rounded-xl px-3 py-1.5 text-xs"><i class="fa-solid fa-user-clock mr-1"></i>Pending</button>'+
-      (state.user.role==='super_admin'?'<button id="u-alerts" class="glass rounded-xl px-3 py-1.5 text-xs"><i class="fa-solid fa-envelope mr-1"></i>Alert Emails</button>':'')+
+      (canFullAdmin()?'<button id="u-alerts" class="glass rounded-xl px-3 py-1.5 text-xs"><i class="fa-solid fa-envelope mr-1"></i>Alert Emails</button>':'')+
     '</div><div id="u-status" class="text-[10px] text-sand-200/40"></div><div id="u-error" class="hidden"></div>'+
     '<div id="u-table" class="glass rounded-2xl overflow-hidden">'+renderUsersTable(state.usersCache)+'</div></div>';
   wireUsersControls();
@@ -6466,7 +6493,7 @@ async function renderUsers(){
     $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
     $$('.u-del').forEach(b => b.onclick = async () => {
       if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super', true); if (!passcode) return;
+      const passcode = await askAdminCode(); if (!passcode) return;
       const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
       if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
     });
@@ -6502,7 +6529,7 @@ async function refreshUsers(silent){
     $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
     $$('.u-del').forEach(b => b.onclick = async () => {
       if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super', true); if (!passcode) return;
+      const passcode = await askAdminCode(); if (!passcode) return;
       const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
       if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
     });
@@ -6521,7 +6548,7 @@ async function refreshUsers(silent){
       $$('.u-edit').forEach(b => b.onclick = () => openEditUser(b.dataset.email));
     $$('.u-del').forEach(b => b.onclick = async () => {
       if (!confirm('Deactivate/delete user '+b.dataset.email+'?')) return;
-      const passcode = await askPasscode('super', true); if (!passcode) return;
+      const passcode = await askAdminCode(); if (!passcode) return;
       const res = await api('deleteUser',{ targetEmail: b.dataset.email, passcode });
       if (!res.success) toast(res.error||'Failed','error'); else { toast('User deleted','ok'); refreshUsers(true); }
     });

@@ -122,6 +122,7 @@ function handleRequest(e, method) {
       return jsonOut({ success: false, error: auth.error, sessionExpired: !!auth.sessionExpired, needsSignIn: !!auth.sessionExpired });
     }
     if (typeof a320OwnerOnce === 'function') a320OwnerOnce(); // 3.2.0 one-time: revert/report owner = it@ (Reports31.gs)
+    if (typeof a320RolesOnce === 'function') a320RolesOnce(); // 3.2.0 one-time: role migration + Leanne/Delai → Admin (Ops320.gs)
     var result = a31Handle(action, payload, routeAction); // 3.1.0: superadmin staff-action block + admin activity log (Admin31.gs)
     if (result && result.success === false && R3_AUTH && R3_AUTH.staffView) { result.needsSignIn = true; }
     if (typeof a33AfterAction === 'function') { a33AfterAction(action, payload, result); try { a33Flush(); } catch (e) {} } // 3.2.0 phone notifications (Push33.gs)
@@ -1896,7 +1897,8 @@ function approveUser(p) {
 }
 
 function deleteUser(p) {
-  try { requireSuperCode(p); } catch (eS) { return { success: false, error: eS.message, needsCode: !!eS.needsCode }; }
+  // 3.2.0: admins too (admin code); superadmin accounts are never deleted
+  try { requireAdminCode(p); } catch (eS) { return { success: false, error: eS.message, needsCode: !!eS.needsCode }; }
   var email = String(p.targetEmail || '').trim().toLowerCase();
   if (email === SUPERADMIN_EMAIL) return { success: false, error: 'Cannot delete superadmin' };
   var u = findUserByEmail(email);
@@ -1913,10 +1915,9 @@ function getAlertEmails(p) {
 }
 
 function saveAlertEmails(p) {
-  requirePasscode(p, 'super');
   var requester = getRequester(p);
-  if (!requester || requester.role !== 'super_admin') {
-    return { success: false, error: 'super_admin only' };
+  if (!requester || !isAdminPerm(requester)) { // 3.2.0: admins too
+    return { success: false, error: 'Admin only' };
   }
   var emails = p.emails;
   if (typeof emails === 'string') {

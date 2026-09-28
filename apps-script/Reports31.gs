@@ -119,6 +119,22 @@ function updateReport(p) {
   return { success: true, data: { report: a32Out(a31RowBy(A32_REPORTS_SHEET, 'id', r.id) || r) } };
 }
 
+/* ---------- 3.2.0 About image (footer "About" button). Superadmin uploads a replacement; stored like report screenshots. ---------- */
+/** setAboutImage { image: dataURL } or { reset: true } — superadmin. App setting about_image_url ('' = the default poster). */
+function setAboutImage(p) {
+  var u = getRequester(p);
+  if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (truthy(p.reset)) { setSetting('about_image_url', '', u.email); return { success: true, data: { url: '' } }; }
+  var d = String(p.image || '');
+  if (!/^data:image\/(jpeg|png|webp);base64,/.test(d)) return { success: false, error: 'Choose a JPG, PNG or WebP image' };
+  if (d.length > A32_MAX_IMAGE_CHARS) return { success: false, error: 'The image is too big — try a smaller one' };
+  var l = A31IO.saveImage('about-' + String(nowIso()).replace(/[^0-9]/g, '').slice(0, 12), d);
+  if (!l) return { success: false, error: 'The image could not be saved' };
+  var url = /^data:/.test(String(l.thumb || '')) ? l.thumb : 'https://drive.google.com/thumbnail?id=' + l.id + '&sz=w1200';
+  setSetting('about_image_url', url, u.email);
+  return { success: true, data: { url: url } };
+}
+
 /* ---------- first-time role page guides (seen per user on the server) ---------- */
 function a32Seen(u) { return String((u && u[A32_GUIDE_COL]) || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean); }
 function getMyGuides(p) {
@@ -141,7 +157,7 @@ function markGuideSeen(p) {
 }
 
 function routeReports31(action, p) {
-  var map = { submitReport: submitReport, getReports: getReports, getReportCount: getReportCount, getMyReports: getMyReports, updateReport: updateReport,
+  var map = { setAboutImage: setAboutImage, submitReport: submitReport, getReports: getReports, getReportCount: getReportCount, getMyReports: getMyReports, updateReport: updateReport,
     getMyGuides: getMyGuides, markGuideSeen: markGuideSeen };
   var fn = map[action];
   if (!fn) return typeof routePush33 === 'function' ? routePush33(action, p) : null; // 3.2.0 push

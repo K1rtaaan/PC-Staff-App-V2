@@ -165,6 +165,8 @@
 .fa-filter::before{content: "\f0b0";}
 .fa-leaf::before{content: "\f06c";}
 .fa-file-excel::before{content: "\f1c3";}
+.fa-chart-line::before{content: "\f201";}
+.fa-screwdriver-wrench::before{content: "\f7d9";}
 .fa-plane-slash::before{content: "\e069";}
 .fa-satellite-dish::before{content: "\f7c0";}
 .fa-clipboard-check::before{content: "\f46c";}
@@ -196,6 +198,7 @@
 .fa-house::before{content: "\f015";}
 .fa-calendar-week::before{content: "\f784";}
 .fa-utensils::before{content: "\f2e7";}
+.fa-upload::before{content: "\f093";}
 .fa-file-arrow-down::before{content: "\f56d";}
 .fa-bolt::before{content: "\f0e7";}
 .fa-sun::before{content: "\f185";}
