@@ -18,6 +18,8 @@ node swupdate3.js                               # needs a copy of public/ served
 node r3shots.js http://127.0.0.1:8765/ <outDir> # 3.0 review screenshots + checks
 BASE=http://127.0.0.1:8765/ node r301race.js    # 3.0.1: leave a page while it loads — no console errors, no repaint
 BASE=http://127.0.0.1:8765/ node r301code.js    # 3.0.1: superadmin code box on top of Edit user (cancel / wrong / right code)
+node a31-backend.js                              # 3.1.0: superadmin block, admin log, revert owner, one-time notice (VM)
+BASE=http://127.0.0.1:8765/ node r310flows.js   # 3.1.0: same in the demo browser
 ```
 
 No test calls the live Apps Script backend or writes to the Sheet.

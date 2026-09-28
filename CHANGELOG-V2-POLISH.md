@@ -1,7 +1,16 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.0.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.1.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
+
+## 3.1.0 — Superadmin admin-only, activity logs, superadmin log + revert (2026-09-28)
+
+| ID | Change |
+|----|--------|
+| C134 | **Superadmin is an admin-only account**: no Meals, Boat, My bookings, My orders/history, My schedule or My leave; the server refuses staff actions for a superadmin (“Superadmin accounts can't place orders or bookings. Use a staff account.”). One-time notice at the next login (remembered on the server per user, column `superNotice31At`), and a small permanent note on the superadmin Home. |
+| C135 | **Activity log**: every change made from an admin/role page (Kitchen Admin, Boat Admin, Department Admin, Admin Settings) is written to a new **Admin Log** sheet tab (Fiji time, who, role, area, action, target, before/after JSON). Each admin page has an “Activity log” (that area only, newest first, 50 per page). |
+| C136 | **Superadmin log + Revert** (Manage → Logs): every superadmin change keeps its before-state; a Revert button restores it (refused if the row changed again since). Only the **revert owner** (App setting `revert_owner_email`, enforced on the server) may revert; empty = nobody. Things that can't be undone (sent notifications/emails, saved summaries) show “can't be reverted”. Reverts are logged too. |
+| C137 | Tests: `tools/tests/a31-backend.js` (58), `tools/tests/r310flows.js` (demo browser). `r301race.js` skips the staff pages for the superadmin. |
 
 ## 3.0.1 hotfix — My boat bookings console error, superadmin code box (2026-09-28)
 

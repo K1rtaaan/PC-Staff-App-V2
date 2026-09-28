@@ -85,7 +85,7 @@ function login(email, pw) { const r = api('login', { email, password: pw }); ret
 const at = (iso) => { FAKE_NOW = iso; cache = {}; };
 
 // ---------- version / basics
-check('APP_VERSION is 3.0.0', R('APP_VERSION') === '3.0.0');
+check('APP_VERSION is 3.1.0', R('APP_VERSION') === '3.1.0');
 check('no stations / snapshots code left', typeof ctx.routeStations === 'undefined' && typeof ctx.routeSnapshots === 'undefined' && typeof ctx.stationLogin === 'undefined');
 check('appsscript.json has script.external_request (Brevo)', /script\.external_request/.test(fs.readFileSync(path.join(root, 'apps-script/appsscript.json'), 'utf8')));
 
