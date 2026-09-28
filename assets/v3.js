@@ -147,7 +147,7 @@ function v3DateLabel(ds){
   const d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2]));
   return WEEKDAY_NAMES[d.getUTCDay()].slice(0,3)+' '+(+p[2])+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1]-1];
 }
-function v3Ts(s){ return String(s||'').replace(/:\d\d(\.\d+)?Z?$/,'').replace('T',' ').replace(' FJT',''); }
+function v3Ts(s){ return String(s||'').replace(/ FJT$/,'').replace(/(\d\d:\d\d):\d\d(\.\d+)?Z?$/,'$1').replace(/^(\d{4}-\d\d-\d\d)T/,'$1 '); } // 3.1.0: "… FJT" no longer shows as "… FJ"
 async function v3Call(action, payload, okMsg){
   let r;
   try { r = await api(action, payload || {}); }
@@ -221,7 +221,7 @@ function v3Form(title, fields, submitLabel, onSubmit, intro){
 const V3_SHEET_KEYS = { 'Users':'users', 'Breakfast Orders':'breakfastOrders', 'Lunch Orders':'lunchOrders', 'Dinner Orders':'dinnerOrders', 'Leave Requests':'leaveRequests',
   'Menu Votes':'menuVotes', 'Chef Feedback':'chefFeedback', 'Dept Updates':'deptUpdates', 'Dept Update Activity':'deptActivity', 'Boat Runs':'boatRuns',
   'Boat Bookings':'boatBookings', 'Suggestions':'suggestions', 'Reminders':'reminders', 'Notifications':'notifications', 'Dinner Menus':'dinnerMenus',
-  'Emergency Travel':'emergencyTravel', 'Role Changes':'roleChanges', 'Dinner Prep Snapshots':'dinnerSummaries' };
+  'Emergency Travel':'emergencyTravel', 'Role Changes':'roleChanges', 'Dinner Prep Snapshots':'dinnerSummaries', 'Reports':'reports', 'Admin Log':'adminLog' };
 /* demo crypto: synchronous SHA-256 / HMAC-SHA256 (same results as Apps Script Utilities) so demo session tokens match the server */
 const V3Crypto = (function(){
   const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
@@ -338,6 +338,31 @@ function v3DemoShim(){
       return { getProperty: function(k){ const v = pr()[k]; return v === undefined ? null : v; }, setProperty: function(k, v){ pr()[k] = String(v); }, deleteProperty: function(k){ delete pr()[k]; } }; } },
     MailApp: { sendEmail: function(m){ (V3DB.db.demoMail = V3DB.db.demoMail || []).push({ to:m.to, subject:m.subject, body:m.body, at: formatFiji() }); } },
     LockService: { getScriptLock: function(){ return { tryLock: function(){ return true; }, releaseLock: function(){} }; } },
+    A31IO: (function(){
+      const list = function(n){ const db = V3DB.db;
+        if (n === 'App Settings') return Object.keys(db.appSettings||{}).map(function(k){ return { key:k, value:String(db.appSettings[k]) }; });
+        if (n === 'Alert Emails') { if (!db.alertEmails) db.alertEmails = []; return db.alertEmails; }
+        if (n === 'Admin Log') { if (!db.adminLog) db.adminLog = []; return db.adminLog; }
+        return v3DemoRows(n); };
+      const same = function(a, b){ return String(a).trim().toLowerCase() === String(b).trim().toLowerCase(); };
+      const io = {
+        rows: function(n){ return list(n).map(copy); },
+        update: function(n, kf, kv, fields){ const db = V3DB.db;
+          if (n === 'App Settings') { if (!db.appSettings) db.appSettings = {}; if (fields.value !== undefined) db.appSettings[kv] = String(fields.value); return true; }
+          const r = list(n).find(function(x){ return same(x[kf], kv); }); if (!r) return false; Object.assign(r, fields); return true; },
+        remove: function(n, kf, kv){ const db = V3DB.db;
+          if (n === 'App Settings') { if (db.appSettings) delete db.appSettings[kv]; return true; }
+          const a = list(n); const i = a.findIndex(function(x){ return same(x[kf], kv); }); if (i < 0) return false; a.splice(i, 1); return true; },
+        append: function(n, row){ const db = V3DB.db;
+          if (n === 'App Settings') { if (!db.appSettings) db.appSettings = {}; db.appSettings[row.key] = String(row.value); return true; }
+          list(n).push(Object.assign({}, row)); return true; },
+        appendLog: function(row){ list('Admin Log').push(Object.assign({}, row)); },
+        logRows: function(){ return list('Admin Log').map(copy); },
+        updateLog: function(id, patch){ return io.update('Admin Log', 'id', id, patch); },
+        saveImage: function(name, d){ return { id: name, url: d, thumb: d }; } // demo: the shrunk image stays on the phone
+      };
+      return io;
+    })(),
     CacheService: { getScriptCache: function(){ return { get: function(k){ const e = _v3DemoCache[k]; return e && e.until > Date.now() ? e.v : null; }, put: function(k, v, sec){ _v3DemoCache[k] = { v: String(v), until: Date.now() + (sec||600)*1000 }; }, remove: function(k){ delete _v3DemoCache[k]; } }; } }
   };
   return S;
@@ -682,6 +707,7 @@ renderNav = function(targetSel){
   const badge = function(id){
     if (id === 'approvals' && sd) return (sd.leaveHod||0)+(sd.leaveMgmt||0)+(sd.late||0)+(sd.special||0);
     if (id === 'more') return state._v3Unread || 0;
+    if (id === 'manage') return state._a32RepNew || 0; // 3.1.0 new problem reports
     return 0;
   };
   el.innerHTML = items.map(function(n){
@@ -692,6 +718,9 @@ renderNav = function(targetSel){
   $$((targetSel || '#bottom-nav')+' .nav-item').forEach(function(b){ b.onclick = function(){ navigate(b.dataset.tab); }; });
 };
 canPrivilegedTab = function(tab){
+  if (tab === 'adminlog') return a31CanArea(state.logArea || 'admin'); // 3.1.0 activity logs
+  if (tab === 'superlog' || tab === 'reports') return v3IsSuper();
+  if (v3IsSuper() && A31_SUPER_NO_TABS[tab]) return false;
   const kind = V3_ROLE_TABS[tab];
   if (tab === 'approvals' && v3IsSuper()) return true;
   if (!kind) return true;
@@ -710,12 +739,14 @@ const V3_TITLES = { home:'Home', meals:'Meals', boat:'Boat', more:'More', bookin
   chefmenu:'Dinner menus', kitchen:'Kitchen lists & summaries', manage:'Manage', usersv3:'Users & roles', reminders:'Reminders', adminstatus:'Reports & downloads',
   leavecal:'Leave calendar', users:'Staff directory', settings:'App settings', admin:'Classic admin tools', suggestions:'Suggestions', approvals:'Approvals', special:'Special meal order', schedule:'My schedule',
   kitchenadmin:'Kitchen Admin', boatadmin:'Boat Admin', deptadmin:'Department Admin', adminhub:'Admin Settings', mealtimes:'Meal times', mealstats:'Meal statistics', offmenu:'Orders not on the menu',
-  boatruns:'Boat runs (admin)', emergency:'Emergency travel', leavesummary:'Leave summary', mealbehalf:'Meal on behalf', migrate:'Role migration', deptupdatespost:'Department updates' };
+  boatruns:'Boat runs (admin)', emergency:'Emergency travel', leavesummary:'Leave summary', mealbehalf:'Meal on behalf', migrate:'Role migration', deptupdatespost:'Department updates',
+  adminlog:'Activity log', superlog:'Superadmin log', reports:'Reports', myreports:'My reports' };
 navigate = function(tab){
   if (tab === 'myorders') tab = 'history';
   if (tab === 'breakfast' || tab === 'lunch' || tab === 'dinner') { state.mealFocus = tab; tab = 'meals'; }
   if (tab === 'chef') tab = 'kitchenadmin';
   if (tab === 'stboat') tab = 'boatadmin';
+  if (v3IsSuper() && A31_SUPER_NO_TABS[tab]) { toast(A31_SUPER_TOAST,'error'); tab = 'home'; } // 3.1.0: superadmin = admin-only account
   if (!canPrivilegedTab(tab)) { toast('That area is not part of your role','error'); tab = 'home'; }
   if (tab === 'schedule' && !featureOn('feature_my_schedule')) { toast('My Schedule is off for now.','error'); tab = 'more'; }
   if (state._v3Timer) { clearInterval(state._v3Timer); state._v3Timer = null; }
@@ -723,6 +754,7 @@ navigate = function(tab){
   state.tab = tab;
   state._roleMode = V3_ROLE_TABS[tab] || '';
   if (tab === 'approvals' && !v3IsSuper()) state._roleMode = 'dept';
+  if (tab === 'adminlog') state._roleMode = state.logArea || 'admin';
   const ht = $('#header-title'); if (ht) ht.textContent = V3_TITLES[tab] || tab;
   const sticky = $('#app-sticky'); if (sticky) sticky.classList.remove('hidden');
   const map = {
@@ -732,7 +764,8 @@ navigate = function(tab){
     kitchen: renderKitchen, manage: v3RenderManage, usersv3: v3RenderUsers, users: renderUsers, reminders: v3RenderReminders, adminstatus: v3RenderAdminStatus, leavecal: v3RenderLeaveCalendar,
     settings: v3RenderSettings, admin: renderAdmin, suggestions: renderSuggestions, approvals: v3RenderApprovals, special: v3RenderSpecialPage,
     kitchenadmin: v3RenderKitchenAdmin, boatadmin: v3RenderBoatAdmin, deptadmin: v3RenderDeptAdmin, adminhub: v3RenderAdminHub, mealtimes: v3RenderMealTimes,
-    mealstats: v3RenderMealStats, offmenu: v3RenderOffMenu, boatruns: v3RenderBoatRuns, emergency: v3RenderEmergency, leavesummary: v3RenderLeaveSummary, mealbehalf: v3RenderMealBehalf, migrate: v3RenderMigrate
+    mealstats: v3RenderMealStats, offmenu: v3RenderOffMenu, boatruns: v3RenderBoatRuns, emergency: v3RenderEmergency, leavesummary: v3RenderLeaveSummary, mealbehalf: v3RenderMealBehalf, migrate: v3RenderMigrate,
+    adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports
   };
   if (['home','meals','boat','kitchen'].includes(tab)) paintSkeleton({ cards: 3 });
   try { history.replaceState(null, '', location.pathname + location.search + (tab === 'home' ? '' : '#'+tab)); } catch (e) {}
@@ -744,6 +777,7 @@ navigate = function(tab){
   try { window.scrollTo(0, 0); } catch (e) {}
   if (tab === 'home') setTimeout(prefetchNextTabByRole, 400);
   v3PollNotifications();
+  a32AfterNav(tab); // 3.1.0: page guide "?" + first-time guide, report badge
 };
 /** Unread notifications badge on More (at most one check a minute, never blocks a screen). */
 function v3PollNotifications(){
@@ -1116,7 +1150,7 @@ function v3BindLeaveCards(root, after){
   }; });
 }
 async function v3RenderLeave(){
-  const tabs = [{ id:'mine', label:'My leave' }];
+  const tabs = v3IsSuper() ? [] : [{ id:'mine', label:'My leave' }]; // 3.1.0: superadmin never applies for leave
   if (v3CanDept()) tabs.push({ id:'dept', label: v3IsAdmin() ? 'HOD step' : 'Department' });
   if (v3IsAdmin()) tabs.push({ id:'final', label:'Final approval' });
   let cur = state.leaveTab && tabs.some(function(t){ return t.id === state.leaveTab; }) ? state.leaveTab : (v3IsAdmin() ? 'final' : (v3CanDept() ? 'dept' : 'mine'));
@@ -1655,14 +1689,15 @@ function renderMore(){
     }).join('')+'</div>'+(state.rolesNeedSignIn && !state.demo ? '<button type="button" onclick="v3AskReauth()" class="w-full text-[11px] text-sky-300 py-1"><i class="fa-solid fa-lock mr-1"></i>Sign in again to open role pages</button>' : '')+'</section>';
   }
   if (v3IsSuper()) {
-    html += group('Account', v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) + v3Row(v3Nav('history'),'fa-clock-rotate-left','My history','Everything you did in the app'));
+    html += group('Account', v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) + v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) + v3Row(v3Nav('reports'),'fa-bug','Reports','Problems & requests from staff', state._a32RepNew||0) + v3Row('a32OpenReport()','fa-flag','Report a problem','')) + a31SuperNoteHtml(); // 3.1.0: no staff features
   } else {
     html += group('Me', v3Row(v3Nav('leave'),'fa-plane-departure','Leave requests','Request, track or cancel') +
       v3Row(v3Nav('history'),'fa-clock-rotate-left','My orders & history','Orders, boats, leave, requests, feedback') +
       v3Row(v3Nav('bookings'),'fa-ticket','My boat bookings','') +
       v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) +
       v3Row(v3Nav('deptupdates'),'fa-bullhorn','Department updates', esc(u.department||'')) +
-      (featureOn('feature_my_schedule') ? v3Row(v3Nav('schedule'),'fa-calendar-check','My schedule','') : ''));
+      (featureOn('feature_my_schedule') ? v3Row(v3Nav('schedule'),'fa-calendar-check','My schedule','') : '')) +
+      group('Help', v3Row('a32OpenReport()','fa-flag','Report a problem','Error, change request or idea') + v3Row(v3Nav('myreports'),'fa-inbox','My reports','Status and replies'));
   }
   html += '<section class="glass rounded-2xl overflow-hidden">'+v3Row('doLogout()','fa-right-from-bracket','Sign out','')+'</section>'+
     '<p class="text-center text-[10px] text-slate-500">PCR Staff App '+esc(APP_VERSION)+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>';
@@ -1731,7 +1766,8 @@ async function v3RenderKitchenAdmin(){
         v3Tile(v3Nav('offmenu'),'fa-triangle-exclamation','Not on the menu','Orders to fix')+
         v3Tile(v3Nav('chefcomments'),'fa-comment-dots','Food feedback','From staff', c ? c.feedbackNew : 0)+
         v3Tile(v3Nav('mealstats'),'fa-chart-column','Meal statistics','Range · roster compare')+
-        v3Tile(v3Nav('special'),'fa-star','Meal on behalf','Staff without a phone')+'</div>'+
+        v3Tile(v3Nav('special'),'fa-star','Meal on behalf','Staff without a phone')+
+        v3Tile(a31LogNav('kitchen'),'fa-clock-rotate-left','Activity log','Who changed what')+'</div>'+
       '<p class="text-[11px] text-slate-400 px-1" id="ka-times"><i class="fa-solid fa-clock mr-1"></i>Dinner closes '+esc(dinnerCutLabel())+' the day before · late requests until '+esc(mtLabel(mealTimesNow().late_close_dinner))+' (auto-approved then) · breakfast & lunch close '+esc(mtLabel(mealTimesNow().breakfast_cutoff))+' / '+esc(mtLabel(mealTimesNow().lunch_cutoff))+'.</p>'+
       v3ChefDashCard(c)+'<div id="chef-orders">'+(state._chefOrdersHtml||v3Card(v3Loading()))+'</div><div id="chef-notes">'+(state._chefNotesHtml||'')+'</div>', 'chef-root');
     v3BindChefOrders();
@@ -2052,7 +2088,11 @@ function v3ManageGroups(){
     v3Row(v3Nav('users'),'fa-address-book','Staff directory (classic)','2.x list · add user, import CSV'));
   html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
   html += g('Reports & system', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Reports & downloads','Download all app data') +
-    (v3IsSuper() ? v3Row(v3Nav('settings'),'fa-gear','App settings','Email (Brevo), test email, features, alert emails') + v3Row(v3Nav('migrate'),'fa-right-left','Role migration','Preview / apply the 3.0.0 roles list') : ''));
+    (v3IsSuper() ? v3Row(v3Nav('settings'),'fa-gear','App settings','Email (Brevo), test email, features, alert emails, revert owner') + v3Row(v3Nav('migrate'),'fa-right-left','Role migration','Preview / apply the 3.0.0 roles list') : ''));
+  if (v3IsSuper()) html += g('Reports', v3Row(v3Nav('reports'),'fa-bug','Reports inbox','Problems, change requests, ideas', state._a32RepNew||0));
+  if (v3IsSuper()) html += g('Logs', v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) +
+    v3Row(a31LogNav('admin'),'fa-user-shield','Activity log · Admin Settings','') + v3Row(a31LogNav('kitchen'),'fa-fire-burner','Activity log · Kitchen Admin','') +
+    v3Row(a31LogNav('boat'),'fa-anchor','Activity log · Boat Admin','') + v3Row(a31LogNav('dept'),'fa-people-group','Activity log · Department Admin',''));
   return html;
 }
 function v3RenderManage(){ $('#main-content').innerHTML = v3Page(v3ManageGroups(), 'manage-root'); }
@@ -2066,7 +2106,8 @@ function v3RenderAdminHub(){
   html += g('Leave', v3Row("state.leaveTabForce='final';navigate('leave')",'fa-stamp','Leave — final approval','After the HOD step', hb.leaveMgmt||0) +
     v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','All departments') + v3Row(v3Nav('leavesummary'),'fa-table','Leave summary','Per department'));
   html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
-  html += g('Reports', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Reports & downloads','Meals, boats, leave, users (CSV)'));
+  html += g('Reports', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Reports & downloads','Meals, boats, leave, users (CSV)') +
+    v3Row(a31LogNav('admin'),'fa-clock-rotate-left','Activity log','Users & roles, leave, reminders, suggestions, settings'));
   $('#main-content').innerHTML = v3Page(html, 'adminhub-root');
 }
 /** Department Admin (HOD / assistant HOD; admin sees every department). */
@@ -2081,7 +2122,8 @@ function v3RenderDeptAdmin(){
       v3Tile(v3Nav('deptupdatespost'),'fa-bullhorn','Department updates','Post, comments, likes')+
       v3Tile(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view')+
       v3Tile(v3Nav('leavesummary'),'fa-table','Leave summary','Totals & list')+
-      v3Tile(v3Nav('mealbehalf'),'fa-star','Meal on behalf','Staff without a phone')+'</div>', 'deptadmin-root');
+      v3Tile(v3Nav('mealbehalf'),'fa-star','Meal on behalf','Staff without a phone')+
+      v3Tile(a31LogNav('dept'),'fa-clock-rotate-left','Activity log','Who changed what')+'</div>', 'deptadmin-root');
   v3RefreshHome().then(function(){ if (state.tab === 'deptadmin') { const el = $('#v3-hodbar'); if (el) el.outerHTML = v3HodBar(); } }).catch(function(){});
 }
 async function v3RenderLeaveSummary(){
@@ -2270,9 +2312,19 @@ async function v3RenderSettings(){
       '<div class="space-y-1"><label for="st-name" class="text-[11px] text-slate-400">Sender name</label><input id="st-name" class="ui-input w-full" maxlength="60" value="'+esc(s.mail_sender_name||'PCR Staff App')+'"/></div>'+
       '<button type="button" id="st-save" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white font-semibold">Save sender</button>'+
       '<div class="pt-2 space-y-2 border-t border-slate-700/60" id="st-test"><p class="text-[11px] text-slate-400" id="st-mailstatus">Email status: checking…</p><div class="flex gap-2"><input id="st-testto" type="email" class="ui-input flex-1 min-w-0" placeholder="Send a test to (blank = me)"/><button type="button" id="st-testgo" class="rounded-xl px-3 text-xs border border-teal-500/40 text-teal-200">Send test</button></div></div>')+
+    v3Card(v3Title('fa-rotate-left','Superadmin log · revert owner')+
+      '<p class="text-[11px] text-slate-400">Only this superadmin account can undo entries in the Superadmin log. Once set, only that account can change it.</p>'+
+      '<div class="flex gap-2"><input id="st-owner" type="email" class="ui-input flex-1 min-w-0" placeholder="owner email" value="'+esc(s.revert_owner_email||'')+'"/><button type="button" id="st-owner-save" class="rounded-xl px-3 text-xs border border-teal-500/40 text-teal-200">Save</button></div>', 'st-owner-card')+
     v3Card(v3Title('fa-toggle-on','Feature flags')+'<div id="admin-body"></div>')+
     v3Card(v3Title('fa-envelope','Alert emails & other tools')+'<button type="button" onclick="openAlertEmails()" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Manage alert emails</button>'+
       '<button type="button" onclick="navigate(\'admin\')" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Classic admin tools (boat, kitchen, archive)</button>'), 'settings-root');
+  $('#st-owner-save').onclick = async function(){
+    const v = String($('#st-owner').value||'').trim().toLowerCase();
+    if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast('Enter a valid email','error'); return; }
+    const passcode = await askPasscode('super', true); if (!passcode) return;
+    const a = await v3Call('setAppSetting', { key: 'revert_owner_email', value: v, passcode: passcode }, 'Revert owner saved');
+    if (a) { state.appSettings = Object.assign({}, state.appSettings, { revert_owner_email: v }); state.a31CanRevert = !!v && v === String(state.user.email).toLowerCase(); }
+  };
   $('#st-prov').onchange = function(){ const b = this.value === 'brevo'; $('#st-g').classList.toggle('hidden', b); $('#st-b').classList.toggle('hidden', !b); };
   $('#st-save').onclick = async function(){
     const pv = $('#st-prov').value, from = String($('#st-from').value||'').trim(), bm = String($('#st-bmail').value||'').trim(), name = String($('#st-name').value||'').trim() || 'PCR Staff App';
@@ -2319,10 +2371,11 @@ async function v3RenderSuperHome(){
       '<div class="grid grid-cols-3 gap-2">'+stat('Users', users.total||0, (users.active||0)+' active', 'usersv3')+stat('New this week', users.newThisWeek||0, '', 'usersv3')+stat('Version', esc(String(hl.version||APP_VERSION).replace('-demo','')), state.demo?'demo':'live', 'settings')+'</div>'+
       '<p class="text-[11px] text-slate-400">'+Object.keys(users.byRole||{}).map(function(r){ return esc(V3_ROLE_LABEL[r]||r)+' '+users.byRole[r]; }).join(' · ')+'</p>'+
       '<p class="text-[11px] text-slate-400">Codes: sent by email · '+(hl.mailProvider === 'brevo' ? 'Brevo' : 'Google'+(hl.mailFrom?' ('+esc(hl.mailFrom)+')':''))+' · server time '+esc(v3Ts(hl.fijiNow))+'</p></section>';
-    $('#main-content').innerHTML = v3Page(head + pend + meals + boat + people + '<p class="text-center text-[10px] text-slate-500" id="home-ver">UI '+APP_VERSION+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>', 'home');
+    $('#main-content').innerHTML = v3Page(head + a31SuperNoteHtml() + pend + meals + boat + people + '<p class="text-center text-[10px] text-slate-500" id="home-ver">UI '+APP_VERSION+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>', 'home');
     v3StartTicker();
   };
   paint(v3Home().superDash);
+  a31MaybeNotice();
   let d = null; try { const r = await v3ApiShared('getSuperDashboard', {}); d = r && r.success ? (r.data || {}) : null; if (r && !r.success) toast(r.error || 'Something went wrong','error'); } catch (e) {}
   if (d && state.tab === 'home') { const cur = v3Home(); cur.superDash = d; cacheSet('v3home', cur); paint(d); renderNav('#bottom-nav'); }
 }
@@ -2350,7 +2403,8 @@ async function v3RenderBoatAdmin(){
     '<button type="button" id="stb-dedupe" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-clone mr-1"></i>Remove duplicate runs</button>' : '')+
     '<button type="button" id="stb-copy" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-copy mr-1"></i>Copy today\u2019s pax</button>'+
     '<button type="button" onclick="navigate(\'boatruns\')" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-ship mr-1"></i>Runs & timetable (admin)</button>'+
-    '<button type="button" onclick="navigate(\'emergency\')" class="col-span-2 rounded-xl py-2 text-xs border border-amber-500/40 text-amber-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Emergency travel requests</button></div></section>'+
+    '<button type="button" onclick="navigate(\'emergency\')" class="col-span-2 rounded-xl py-2 text-xs border border-amber-500/40 text-amber-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Emergency travel requests</button>'+
+    '<button type="button" onclick="'+a31LogNav('boat')+'" id="stb-log" class="col-span-2 rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-clock-rotate-left mr-1"></i>Activity log — who changed what</button></div></section>'+
     '<div id="stb-list" class="space-y-3">'+v3Loading()+'</div><div id="stb-emerg"></div>', 'boat-station');
   const add = $('#stb-add'); if (add) add.onclick = function(){ openEditBoatRunModal(null); };
   const dd = $('#stb-dedupe'); if (dd) dd.onclick = async function(){ if (!confirm('Hide duplicate runs (same date, time and route)? Bookings stay.')) return; const d = await v3Call('dedupeBoatRuns', {}); if (d) { toast(d.message || 'Done', 'ok'); cacheInvalidate(['boatRuns']); v3RenderBoatAdmin(); } };
@@ -2424,5 +2478,313 @@ async function v3BoatPdf(runId, title){
     downloadBlob(name, blob); toast('PDF downloaded','ok');
   } catch (e) { toast((e && e.message) || 'PDF failed','error'); }
 }
+/* ============ 3.1.0: superadmin = admin-only account · activity logs · superadmin log + revert ============ */
+const A31_SUPER_NO_TABS = { meals:1, boat:1, bookings:1, history:1, schedule:1 };
+const A31_SUPER_TOAST = "Superadmin accounts can't place orders or bookings. Use a staff account.";
+const A31_NOTICE = 'Superadmin is now an admin-only account. To order meals, book the boat or apply for leave, please register a separate staff account with a different email.';
+const A31_AREA_LABEL = { kitchen:'Kitchen Admin', boat:'Boat Admin', dept:'Department Admin', admin:'Admin Settings', super:'Superadmin' };
+const A31_ACTION_LABEL = { setMealTimes:'Meal times changed', saveDinnerMenuItem:'Dinner menu item saved', deleteDinnerMenuItem:'Dinner menu item removed',
+  adminCancelMealOrder:'Meal order cancelled', markOrderStatus:'Order status changed', approveLateDinnerOrder:'Late dinner decided', approveLateBreakfastOrder:'Late breakfast decided',
+  approveAllLateBreakfast:'Late breakfasts approved', decideMealRequest:'Meal request decided', decideAllMealRequests:'Meal requests decided (all)', markChefFeedback:'Food feedback handled',
+  placeSpecialMeal:'Special meal ordered', saveDinnerSummary:'Dinner summary saved', saveBoatRun:'Boat run saved', deleteBoatRun:'Boat run removed', dedupeBoatRuns:'Duplicate runs removed',
+  cancelBoatBooking:'Passenger booking cancelled', reviewEmergencyTravel:'Emergency travel decided', decideLeave:'Leave decided', escalateLeave:'Leave escalated',
+  approveAllPending:'Approve all', updateDeptStaff:'Staff details changed', removeFromDept:'Removed from department', decideJoinRequest:'Join request decided',
+  postDeptUpdate:'Department update posted', deleteDeptUpdate:'Department update removed', placeMealOnBehalf:'Meal on behalf', setUserAccess:'Roles / access changed',
+  updateUser:'User edited', addUser:'User added', importUsersCSV:'Users imported', approveUser:'User approved', deleteUser:'User deleted', addReminder:'Reminder added',
+  updateReminder:'Reminder edited', completeReminder:'Reminder done', deleteReminder:'Reminder removed', approveSuggestion:'Suggestion approved', rejectSuggestion:'Suggestion rejected',
+  setAppSetting:'App setting changed', saveAlertEmails:'Alert emails changed', migrateRoles:'Role migration applied', adminNotifyUser:'Notification sent', sendTestEmail:'Test email sent',
+  archiveOldRows:'Old rows archived', uploadRosterParsed:'Roster uploaded', backfillDinnerSummaries:'Summaries back-filled', runMealTick:'Meal tick run', revert:'Reverted' };
+function a31CanArea(a){
+  if (a === 'kitchen') return v3CanChef();
+  if (a === 'boat') return v3HasBoat();
+  if (a === 'dept') return v3CanDept();
+  if (a === 'admin') return v3IsAdmin();
+  if (a === 'super') return v3IsSuper();
+  return false;
+}
+function a31LogNav(area){ return "state.logArea='"+area+"';navigate('adminlog')"; }
+function a31SuperNoteHtml(){ return v3IsSuper() ? '<p class="text-[11px] text-amber-200 px-1" id="a31-super-note"><i class="fa-solid fa-circle-info mr-1"></i>'+esc(A31_NOTICE)+'</p>' : ''; }
+/** One-time notice for every superadmin (remembered on the server, so other devices don't show it again). */
+async function a31MaybeNotice(){
+  if (!v3IsSuper() || state._a31NoticeChecked) return;
+  state._a31NoticeChecked = true;
+  let r = null; try { r = await api('getSuperNotice', {}); } catch (e) { state._a31NoticeChecked = false; return; }
+  if (!r || !r.success || !r.data || !r.data.show || !v3IsSuper()) return;
+  openModal('<div class="space-y-3 min-w-0" id="a31-notice" role="alertdialog" aria-labelledby="a31-notice-t"><h3 id="a31-notice-t" class="font-semibold text-slate-100"><i class="fa-solid fa-shield-halved text-teal-400 mr-2"></i>Superadmin is now admin-only</h3>'+
+    '<p class="text-sm text-slate-200">'+esc(r.data.text || A31_NOTICE)+'</p>'+
+    '<button type="button" id="a31-notice-ok" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white">OK, got it</button></div>');
+  $('#a31-notice-ok').onclick = function(){ closeModal(); };
+  try { await api('ackSuperNotice', {}); } catch (e) {} // shown once = remembered (also if closed by tapping outside)
+}
+function a31Pretty(v){
+  if (v === null || v === undefined) return '—';
+  const keys = Object.keys(v); if (!keys.length) return '—';
+  return keys.slice(0, 12).map(function(k){ return k+': '+(v[k] === '' ? '∅' : String(v[k]).slice(0, 80)); }).join('\n') + (keys.length > 12 ? '\n…' : '');
+}
+function a31EntryHtml(e, area){
+  const before = e.before || [], after = e.after || [];
+  const det = after.length ? after.map(function(a, i){ const b = before[i] || {};
+    return '<div class="text-[10px] text-slate-400 space-y-0.5"><p class="text-slate-300">'+esc(a.sheet)+' · '+esc(a.key)+' · '+esc(a.kind)+'</p>'+
+      '<div class="grid grid-cols-2 gap-2"><pre class="rounded-lg bg-slate-900/60 p-1.5 text-[10px] text-slate-400" style="white-space:pre-wrap;word-break:break-word">Before\n'+esc(a31Pretty(b.v))+'</pre>'+
+      '<pre class="rounded-lg bg-slate-900/60 p-1.5 text-[10px] text-slate-200" style="white-space:pre-wrap;word-break:break-word">After\n'+esc(a31Pretty(a.v))+'</pre></div></div>'; }).join('') : '';
+  let rev = '';
+  if (area === 'super' || e.bySuper) {
+    if (e.revertedAt) rev = '<p class="text-[10px] text-emerald-300"><i class="fa-solid fa-rotate-left mr-1"></i>Reverted '+esc(v3Ts(e.revertedAt))+' by '+esc(e.revertedBy)+'</p>';
+    else if (e.canRevert) rev = '<button type="button" class="a31-rev rounded-lg px-3 py-1.5 text-[11px] border border-amber-500/40 text-amber-200" data-id="'+esc(e.id)+'"><i class="fa-solid fa-rotate-left mr-1"></i>Revert</button>';
+    else if (area === 'super') rev = '<p class="text-[10px] text-slate-500 a31-norev">'+esc(e.revertable ? 'Only the revert owner can revert this' : (e.noRevertReason || "Can't be reverted"))+'</p>';
+  }
+  return '<article class="glass rounded-2xl p-3 space-y-1.5 min-w-0 a31-entry" data-log="'+esc(e.id)+'" data-action="'+esc(e.action)+'">'+
+    '<div class="v3-row"><p class="text-sm font-medium text-slate-100 min-w-0 break-words">'+esc(A31_ACTION_LABEL[e.action] || e.action)+'</p><span class="text-[10px] text-slate-400 shrink-0 whitespace-nowrap">'+esc(v3Ts(e.at))+'</span></div>'+
+    '<p class="text-[11px] text-slate-300 break-words">'+esc(e.actorName || e.actorEmail)+' · '+esc(V3_ROLE_LABEL[e.actorRole] || e.actorRole)+(area === 'super' ? ' · '+esc(A31_AREA_LABEL[e.area] || e.area) : '')+'</p>'+
+    '<p class="text-xs text-slate-200 break-words">'+esc(e.summary || e.target || '')+'</p>'+
+    (det ? '<details><summary class="text-[11px] text-teal-300 cursor-pointer">Before / after</summary><div class="space-y-2 pt-1">'+det+'</div></details>' : '')+rev+'</article>';
+}
+async function a31RenderLog(){ return a31RenderLogPage(state.logArea || 'admin'); }
+async function a31RenderSuperLog(){ return a31RenderLogPage('super'); }
+async function a31RenderLogPage(area){
+  const tab = state.tab;
+  state.a31Off = state.a31Off || {};
+  const off = state.a31Off[area] || 0;
+  const back = (area === 'super' || v3IsSuper()) ? v3Back(v3IsSuper() ? 'manage' : 'more', v3IsSuper() ? 'Manage' : 'More') : v3RoleBack(area);
+  $('#main-content').innerHTML = v3Page(back + '<div id="al-body" class="space-y-2">'+v3Card(v3Loading())+'</div>', 'adminlog-root');
+  const ht = $('#header-title'); if (ht) ht.textContent = area === 'super' ? 'Superadmin log' : 'Activity log · '+(A31_AREA_LABEL[area] || area);
+  let r = null; try { r = await api('getAdminLog', { area: area, offset: off, limit: 50 }); } catch (e) {}
+  const box = $('#al-body'); if (!box || state.tab !== tab) return;
+  if (!r || !r.success) { box.innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load the log')+'</p>'); return; }
+  const d = r.data;
+  if (area === 'super') state.a31CanRevert = !!d.canRevert;
+  let html = '<p class="text-[11px] text-slate-400 px-1" id="al-meta">'+d.total+' change'+(d.total === 1 ? '' : 's')+' · newest first'+
+    (area === 'super' ? (d.canRevert ? ' · you can revert' : (d.revertOwnerSet ? ' · only the revert owner can revert' : ' · no revert owner set yet (App settings)')) : '')+'</p>';
+  html += d.entries.length ? d.entries.map(function(e){ return a31EntryHtml(e, area); }).join('') : v3Card(v3Empty('No changes logged yet.'));
+  if (d.offset > 0 || d.total > d.offset + d.entries.length) html += '<div class="grid grid-cols-2 gap-2">'+
+    '<button type="button" id="al-prev" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"'+(d.offset > 0 ? '' : ' disabled')+'>Newer</button>'+
+    '<button type="button" id="al-next" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"'+(d.total > d.offset + d.entries.length ? '' : ' disabled')+'>Older</button></div>';
+  box.innerHTML = html;
+  const pv = $('#al-prev'), nx = $('#al-next');
+  if (pv) pv.onclick = function(){ state.a31Off[area] = Math.max(0, off - d.limit); a31RenderLogPage(area); };
+  if (nx) nx.onclick = function(){ state.a31Off[area] = off + d.limit; a31RenderLogPage(area); };
+  $$('#al-body .a31-rev').forEach(function(b){ b.onclick = async function(){
+    if (!confirm('Revert this change? The saved "before" state is written back.')) return;
+    b.disabled = true;
+    const x = await v3Call('revertAdminLog', { id: b.dataset.id }, 'Change reverted');
+    b.disabled = false;
+    if (x) { cacheInvalidate(['v3home','boatRuns','reminders','featureFlags']); a31RenderLogPage(area); }
+  }; });
+}
+/* ============ 3.1.0: first-time role page guides · Report a problem · superadmin Reports inbox ============ */
+const A32_GUIDE_TABS = { kitchenadmin:'kitchen', boatadmin:'boat', deptadmin:'dept', adminhub:'admin', manage:'manage' };
+const A32_GUIDES = {
+  kitchen: { title:'Kitchen Admin', steps: [
+    { icon:'fa-list-check', title:'Order lists & PDFs', body:'Today and tomorrow: who ordered what for breakfast, lunch and dinner. Open “Lists & summaries” for the printable prep list and the saved dinner summary PDF.' },
+    { icon:'fa-book-open', title:'Dinner menus', body:'Edit the 7-day dinner menu per weekday: add, rename, reorder, hide or delete dishes. Staff only see the menu of the dinner date.' },
+    { icon:'fa-hourglass-half', title:'Late & special requests', body:'Late meal and special meal requests wait here. Approve or decline them; the staff member is told right away.' },
+    { icon:'fa-ban', title:'Cancel with a reason', body:'Tap Cancel on an order and give a reason. The reason is saved on the order and the staff member gets a notification.' },
+    { icon:'fa-clock', title:'Meal times & cutoffs', body:'Dinner orders close 11:55pm the day before and late requests at 8:00am (editable in Meal times). At the late close pending late requests are approved automatically.' },
+    { icon:'fa-clock-rotate-left', title:'Activity log', body:'Every change made here is logged with who and when. Open “Activity log” to see it.' } ] },
+  boat: { title:'Boat Admin', steps: [
+    { icon:'fa-ship', title:'Runs', body:'Add, edit or remove boat runs (date, time, route, seats). Staff book seats from the Boat tab.' },
+    { icon:'fa-users', title:'Passengers', body:'See who is booked on each run, download the passenger PDF and cancel a booking if needed.' },
+    { icon:'fa-triangle-exclamation', title:'Emergency travel', body:'Emergency travel requests arrive here. Approve or decline them — the staff member is told straight away.' },
+    { icon:'fa-clock-rotate-left', title:'Activity log', body:'Every change on runs, passengers and emergencies is logged with who and when.' } ] },
+  dept: { title:'Department Admin', steps: [
+    { icon:'fa-inbox', title:'Approvals', body:'Leave requests and late meal requests from your department wait here. Approve or decline; big leave goes on to management for the final OK.' },
+    { icon:'fa-people-group', title:'Staff', body:'Your department list: edit details, see who is on leave, remove someone who moved.' },
+    { icon:'fa-bullhorn', title:'Updates', body:'Post a short update for everyone in your department. They see it under More → Department updates.' },
+    { icon:'fa-utensils', title:'Meal on behalf', body:'Order a meal for a staff member who can’t use the app (for example no phone).' },
+    { icon:'fa-clock-rotate-left', title:'Activity log', body:'Every approval and change here is logged with who and when.' } ] },
+  admin: { title:'Admin Settings', steps: [
+    { icon:'fa-users-gear', title:'Users & roles', body:'Find any account, edit details and give or remove roles (chef, HOD, boat, admin…). One person can hold several roles.' },
+    { icon:'fa-stamp', title:'Leave — final approval', body:'Leave that passed the HOD step waits here for the final management decision.' },
+    { icon:'fa-bell', title:'Reminders & suggestions', body:'Post reminders for all staff and approve or reject staff suggestions.' },
+    { icon:'fa-file-arrow-down', title:'Reports & downloads', body:'Meal and leave reports and CSV downloads.' },
+    { icon:'fa-clock-rotate-left', title:'Activity log', body:'Every admin change is logged with who changed what and when.' } ] },
+  manage: { title:'Manage (superadmin)', steps: [
+    { icon:'fa-shield-halved', title:'Admin-only account', body:'This superadmin account has no staff features (no meal orders, boat bookings or leave). Use a separate staff account for those.' },
+    { icon:'fa-users-gear', title:'Users & roles', body:'Give or remove any role, including Admin and Superadmin (asks for the superadmin code). Delete users if needed.' },
+    { icon:'fa-eye', title:'Role pages', body:'Open Kitchen, Boat, Department and Admin pages to oversee and manage them.' },
+    { icon:'fa-gear', title:'App settings', body:'Email (Brevo), alert emails, meal times, feature switches and the revert owner.' },
+    { icon:'fa-bug', title:'Reports', body:'Problems and requests sent with “Report a problem”. Set a status or reply — the sender is notified.' },
+    { icon:'fa-rotate-left', title:'Logs & revert', body:'Activity logs per area, and the Superadmin log. Only the revert owner can undo a superadmin change.' } ] }
+};
+function a32GuideKey(g){ return 'pcr_guide_'+String((state.user && state.user.email) || '').toLowerCase()+'_'+g; }
+async function a32MaybeGuide(g){
+  if (!A32_GUIDES[g] || !state.user) return;
+  try { if (localStorage.getItem('pcr_guides_off') === '1') return; } catch (e) {} // test switch (automated browser tests)
+  try { if (localStorage.getItem(a32GuideKey(g)) === '1') return; } catch (e) {}
+  if (!state._a32Seen) {
+    try { const r = await api('getMyGuides', {}); state._a32Seen = (r && r.success && r.data.seen) || null; } catch (e) { state._a32Seen = null; }
+    if (!state._a32Seen) return; // offline: try again next time
+  }
+  if (state._a32Seen.indexOf(g) >= 0) { try { localStorage.setItem(a32GuideKey(g), '1'); } catch (e) {} return; }
+  if (A32_GUIDE_TABS[state.tab] !== g) return;
+  const m = $('#modal'); if (m && !m.classList.contains('hidden')) return; // something else is open (e.g. the superadmin notice)
+  a32ShowGuide(g);
+}
+function a32MarkGuide(g){
+  try { localStorage.setItem(a32GuideKey(g), '1'); } catch (e) {}
+  if (state._a32Seen && state._a32Seen.indexOf(g) < 0) state._a32Seen.push(g);
+  api('markGuideSeen', { guide: g }).catch(function(){});
+}
+function a32ShowGuide(g){
+  const G = A32_GUIDES[g]; if (!G) return;
+  let step = 0;
+  a32MarkGuide(g); // shown once = seen (also when closed by tapping outside)
+  function paint(){
+    const st = G.steps[step];
+    openModal('<div class="space-y-3" id="guide-root" data-guide="'+g+'">'+
+      '<p class="text-[10px] uppercase tracking-wide text-teal-400">'+esc(G.title)+' guide · '+(step+1)+' / '+G.steps.length+'</p>'+
+      '<h3 class="font-semibold text-lg"><i class="fa-solid '+st.icon+' text-teal-400 mr-2"></i>'+esc(st.title)+'</h3>'+
+      '<p class="text-sm text-slate-300">'+esc(st.body)+'</p>'+
+      '<div class="flex gap-2 pt-1">'+
+      (step > 0 ? '<button type="button" id="guide-back" class="rounded-xl px-3 py-2.5 text-sm text-slate-300 border border-slate-600 min-h-[44px]">Back</button>' : '')+
+      (step < G.steps.length-1 ? '<button type="button" id="guide-next" class="btn-primary flex-1 rounded-xl py-2.5 text-sm text-white min-h-[44px]">Next</button>' :
+        '<button type="button" id="guide-done" class="btn-primary flex-1 rounded-xl py-2.5 text-sm text-white min-h-[44px]">Got it</button>')+
+      '<button type="button" id="guide-skip" class="flex-1 rounded-xl py-2.5 text-sm text-slate-400 border border-slate-600">Skip</button></div>'+
+      '<p class="text-[10px] text-slate-500 text-center">Reopen any time with the <i class="fa-solid fa-circle-question"></i> button at the top.</p></div>');
+    const n = $('#guide-next'); if (n) n.onclick = function(){ step++; paint(); };
+    const b = $('#guide-back'); if (b) b.onclick = function(){ step--; paint(); };
+    const d = $('#guide-done'); if (d) d.onclick = function(){ closeModal(); };
+    const k = $('#guide-skip'); if (k) k.onclick = function(){ closeModal(); };
+  }
+  paint();
+}
+/** Header buttons: "?" (page guide, role pages only) and "Report a problem" (every page, every user). */
+function a32HeaderButtons(){
+  const lo = $('#btn-logout'); if (!lo || $('#btn-report')) return;
+  const mk = function(id, icon, title){ const b = document.createElement('button'); b.type = 'button'; b.id = id; b.title = title; b.setAttribute('aria-label', title);
+    b.className = 'text-sand-200/60 hover:text-teal-400 text-sm px-2 py-1'; b.innerHTML = '<i class="fa-solid '+icon+'"></i>'; lo.parentNode.insertBefore(b, lo); return b; };
+  mk('btn-guide', 'fa-circle-question', 'Page guide').onclick = function(){ const g = A32_GUIDE_TABS[state.tab]; if (g) a32ShowGuide(g); };
+  mk('btn-report', 'fa-flag', 'Report a problem').onclick = function(){ a32OpenReport(); };
+}
+function a32AfterNav(tab){
+  a32HeaderButtons();
+  const g = A32_GUIDE_TABS[tab];
+  const gb = $('#btn-guide'); if (gb) gb.classList.toggle('hidden', !g);
+  if (g) setTimeout(function(){ a32MaybeGuide(g); }, 900);
+  if (v3IsSuper() && (!state._a32RepAt || Date.now() - state._a32RepAt > 60000)) {
+    state._a32RepAt = Date.now();
+    setTimeout(function(){ api('getReportCount', {}).then(function(r){ if (r && r.success) { const n = r.data['new'] || 0; if (n !== state._a32RepNew) { state._a32RepNew = n; renderNav('#bottom-nav'); } } }).catch(function(){}); }, 1200);
+  }
+}
+/* ---- Report a problem ---- */
+/** Shrink a picked image for slow island internet: longest side ≤ 1280px, JPEG, target < ~300 KB. */
+function a32Shrink(file){
+  return new Promise(function(res, rej){
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = function(){
+      try {
+        let out = '', side = 1280, q = 0.62;
+        for (let i = 0; i < 4; i++) {
+          const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+          const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(img.naturalWidth*k)); c.height = Math.max(1, Math.round(img.naturalHeight*k));
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          out = c.toDataURL('image/jpeg', q);
+          if (out.length < 400000) break;
+          side = Math.round(side * 0.75); q = Math.max(0.4, q - 0.08);
+        }
+        URL.revokeObjectURL(url); res(out);
+      } catch (e) { URL.revokeObjectURL(url); rej(e); }
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); rej(new Error('Not an image')); };
+    img.src = url;
+  });
+}
+function a32Device(){
+  const n = navigator, sa = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || n.standalone;
+  return String(n.userAgent || '').slice(0, 200)+' · '+(window.screen ? screen.width+'x'+screen.height : '')+' · '+(sa ? 'installed app' : 'browser')+(n.onLine === false ? ' · offline' : '');
+}
+function a32OpenReport(){
+  if (!state.user) return;
+  const page = state.tab || 'home', imgs = [];
+  openModal('<form id="rp31-form" class="space-y-3 min-w-0" novalidate><h3 class="font-semibold text-slate-100"><i class="fa-solid fa-flag text-teal-400 mr-2"></i>Report a problem</h3>'+
+    '<label class="block text-xs text-slate-300">Type<select id="rp31-type" class="ui-input w-full mt-1"><option value="problem">Problem / error</option><option value="change">Change request</option><option value="feature">New feature / other</option></select></label>'+
+    '<label class="block text-xs text-slate-300">What happened? What should change?<textarea id="rp31-desc" rows="5" maxlength="3000" class="ui-input w-full mt-1" placeholder="Describe it in your own words — what you tapped, what you expected, what you saw."></textarea></label>'+
+    '<div class="space-y-1"><label class="inline-flex items-center gap-2 text-xs text-teal-300 cursor-pointer"><i class="fa-solid fa-image"></i><span>Add screenshots (up to 3)</span><input id="rp31-file" type="file" accept="image/*" multiple class="hidden"/></label>'+
+    '<div id="rp31-thumbs" class="flex gap-2 flex-wrap"></div></div>'+
+    '<p class="text-[10px] text-slate-500">Sent with: page “'+esc(V3_TITLES[page] || page)+'”, app '+esc(APP_VERSION)+', your device and your name.</p>'+
+    '<p id="rp31-err" class="text-xs text-rose-300 hidden"></p>'+
+    '<div class="flex gap-2"><button type="submit" id="rp31-send" class="btn-primary flex-1 rounded-xl py-2.5 text-sm font-semibold text-white">Send report</button>'+
+    '<button type="button" id="rp31-cancel" class="flex-1 rounded-xl py-2.5 text-sm text-slate-300 border border-slate-600">Cancel</button></div></form>');
+  const thumbs = function(){ $('#rp31-thumbs').innerHTML = imgs.map(function(d, i){ return '<div class="relative"><img src="'+d+'" alt="screenshot '+(i+1)+'" class="h-16 w-16 object-cover rounded-lg border border-slate-600"/><button type="button" data-i="'+i+'" class="rp31-x absolute -top-1 -right-1 bg-slate-800 rounded-full h-5 w-5 text-[10px] text-slate-200" aria-label="Remove">×</button></div>'; }).join('');
+    $$('#rp31-thumbs .rp31-x').forEach(function(b){ b.onclick = function(){ imgs.splice(Number(b.dataset.i), 1); thumbs(); }; }); };
+  const err = function(t){ const e = $('#rp31-err'); if (!e) return; e.textContent = t || ''; e.classList.toggle('hidden', !t); };
+  $('#rp31-cancel').onclick = function(){ closeModal(); };
+  $('#rp31-file').onchange = async function(ev){
+    const files = Array.from(ev.target.files || []);
+    for (const f of files) { if (imgs.length >= 3) { err('Up to 3 screenshots.'); break; } try { imgs.push(await a32Shrink(f)); } catch (e) { err('That file is not an image.'); } }
+    ev.target.value = ''; thumbs();
+  };
+  $('#rp31-form').onsubmit = async function(ev){
+    ev.preventDefault();
+    const desc = $('#rp31-desc').value.trim();
+    if (desc.length < 5) { err('Please describe the problem (a few words at least).'); return; }
+    const btn = $('#rp31-send'); btn.disabled = true; btn.textContent = imgs.length ? 'Sending (with screenshots)…' : 'Sending…'; err('');
+    let r = null; try { r = await api('submitReport', { type: $('#rp31-type').value, description: desc, images: imgs, page: page, appVersion: APP_VERSION, device: a32Device() }); } catch (e) {}
+    if (!r || !r.success) { btn.disabled = false; btn.textContent = 'Send report'; err((r && r.error) || 'Could not send — check your connection and try again.'); return; }
+    closeModal();
+    toast(r.data && r.data.imageError ? 'Report sent (screenshots: '+r.data.imageError+')' : 'Thanks — report sent. You’ll be notified when it’s looked at.', 'success');
+    if (v3IsSuper()) { state._a32RepAt = 0; }
+  };
+}
+const A32_STATUS = { 'new':'New', noted:'Noted', in_progress:'In progress', done:'Done' };
+const A32_STATUS_CLS = { 'new':'text-amber-200 border-amber-500/40', noted:'text-sky-200 border-sky-500/40', in_progress:'text-teal-200 border-teal-500/40', done:'text-emerald-200 border-emerald-500/40' };
+function a32Chip(st){ return '<span class="rounded-full border px-2 py-0.5 text-[10px] shrink-0 '+(A32_STATUS_CLS[st]||'text-slate-300 border-slate-600')+'">'+esc(A32_STATUS[st]||st)+'</span>'; }
+function a32Imgs(list){ return (list||[]).length ? '<div class="flex gap-2 flex-wrap">'+list.map(function(im, i){ const src = im.thumb || im.url; return '<a href="'+esc(im.url)+'" target="_blank" rel="noopener"><img src="'+esc(src)+'" alt="screenshot '+(i+1)+'" loading="lazy" class="h-20 w-20 object-cover rounded-lg border border-slate-600"/></a>'; }).join('')+'</div>' : ''; }
+async function a32RenderReports(){
+  const tab = state.tab; state.a32Filter = state.a32Filter || '';
+  $('#main-content').innerHTML = v3Page(v3Back('manage','Manage') + '<div id="rep-body" class="space-y-2">'+v3Card(v3Loading())+'</div>', 'reports-root');
+  let r = null; try { r = await api('getReports', { status: state.a32Filter, limit: 50 }); } catch (e) {}
+  const box = $('#rep-body'); if (!box || state.tab !== tab) return;
+  if (!r || !r.success) { box.innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load reports')+'</p>'); return; }
+  const d = r.data, c = d.counts;
+  state._a32RepNew = c['new'] || 0; renderNav('#bottom-nav');
+  const f = function(v, l, n){ return '<button type="button" class="rep-f rounded-full px-3 py-1 text-[11px] border '+(state.a32Filter === v ? 'border-teal-500 text-teal-200' : 'border-slate-600 text-slate-300')+'" data-f="'+v+'">'+l+(n !== undefined ? ' '+n : '')+'</button>'; };
+  let html = '<div class="flex gap-1.5 flex-wrap" id="rep-filters">'+f('', 'All', c.total)+f('new','New',c['new'])+f('noted','Noted',c.noted)+f('in_progress','In progress',c.in_progress)+f('done','Done',c.done)+'</div>';
+  html += d.reports.length ? d.reports.map(function(x){
+    return '<article class="glass rounded-2xl p-3 space-y-2 min-w-0 rep-item" data-id="'+esc(x.id)+'">'+
+      '<div class="v3-row"><p class="text-sm font-semibold text-slate-100 min-w-0">'+esc(x.typeLabel)+'</p>'+a32Chip(x.status)+'</div>'+
+      '<p class="text-[11px] text-slate-300">'+esc(x.userName)+' · '+esc(V3_ROLE_LABEL[x.userRole]||x.userRole)+(x.department ? ' · '+esc(x.department) : '')+' · '+esc(v3Ts(x.createdAt))+'</p>'+
+      '<p class="text-sm text-slate-200 whitespace-pre-wrap break-words">'+esc(x.description)+'</p>'+a32Imgs(x.images)+
+      '<p class="text-[10px] text-slate-500 break-words">Page: '+esc(x.page)+' · app '+esc(x.appVersion)+' · '+esc(x.device)+'</p>'+
+      (x.reply ? '<p class="text-xs text-teal-200 break-words"><i class="fa-solid fa-reply mr-1"></i>'+esc(x.reply)+' <span class="text-slate-500">— '+esc(x.repliedBy)+', '+esc(v3Ts(x.repliedAt))+'</span></p>' : '')+
+      '<div class="flex gap-2 items-start"><select class="ui-input text-xs rep-st" aria-label="Status">'+Object.keys(A32_STATUS).map(function(k){ return '<option value="'+k+'"'+(k === x.status ? ' selected' : '')+'>'+A32_STATUS[k]+'</option>'; }).join('')+'</select>'+
+      '<textarea rows="1" class="ui-input flex-1 min-w-0 text-xs rep-reply" placeholder="Reply to '+esc(x.userName)+' (optional)"></textarea>'+
+      '<button type="button" class="rep-save rounded-xl px-3 py-2 text-xs border border-teal-500/40 text-teal-200">Save</button></div></article>';
+  }).join('') : v3Card(v3Empty('No reports here.'));
+  box.innerHTML = html;
+  $$('#rep-filters .rep-f').forEach(function(b){ b.onclick = function(){ state.a32Filter = b.dataset.f; a32RenderReports(); }; });
+  $$('#rep-body .rep-item').forEach(function(a){ const sv = a.querySelector('.rep-save'); sv.onclick = async function(){
+    sv.disabled = true;
+    const x = await v3Call('updateReport', { id: a.dataset.id, status: a.querySelector('.rep-st').value, reply: a.querySelector('.rep-reply').value.trim() }, 'Saved — the sender was notified');
+    sv.disabled = false; if (x) a32RenderReports();
+  }; });
+}
+async function a32RenderMyReports(){
+  const tab = state.tab;
+  $('#main-content').innerHTML = v3Page(v3Back('more','More') + '<button type="button" onclick="a32OpenReport()" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white"><i class="fa-solid fa-flag mr-1"></i>Report a problem</button><div id="myrep-body" class="space-y-2">'+v3Card(v3Loading())+'</div>', 'myreports-root');
+  let r = null; try { r = await api('getMyReports', {}); } catch (e) {}
+  const box = $('#myrep-body'); if (!box || state.tab !== tab) return;
+  if (!r || !r.success) { box.innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load')+'</p>'); return; }
+  box.innerHTML = r.data.reports.length ? r.data.reports.map(function(x){
+    return '<article class="glass rounded-2xl p-3 space-y-1.5 min-w-0"><div class="v3-row"><p class="text-sm font-medium text-slate-100">'+esc(x.typeLabel)+'</p>'+a32Chip(x.status)+'</div>'+
+      '<p class="text-[10px] text-slate-400">'+esc(v3Ts(x.createdAt))+'</p><p class="text-xs text-slate-200 whitespace-pre-wrap break-words">'+esc(x.description)+'</p>'+
+      (x.reply ? '<p class="text-xs text-teal-200 break-words"><i class="fa-solid fa-reply mr-1"></i>'+esc(x.reply)+'</p>' : '')+'</article>';
+  }).join('') : v3Card(v3Empty('You haven’t sent any reports.'));
+}
+/* demo mode: the same Admin31.gs rules run around every demo action (block · snapshot · log) */
+const _v30DemoApiCore = demoApiCore;
+demoApiCore = async function(action, p){
+  p = Object.assign({}, p || {});
+  const me = v3DemoMe();
+  if (!me || action === 'login') return _v30DemoApiCore(action, p);
+  const own = await v3DemoRun(function(srv){ return srv.routeAdmin31(action, Object.assign({}, p, { requesterEmail: me })); });
+  if (own) return own;
+  let c = null;
+  const blocked = await v3DemoRun(function(srv){ c = srv.a31Pre(action, Object.assign({}, p, { requesterEmail: me, logArea: state._roleMode || '' })); return c.blocked || null; });
+  if (blocked) return blocked;
+  const res = await _v30DemoApiCore(action, p);
+  if (c && c.log && res && res.success !== false) await v3DemoRun(function(srv){ srv.a31Post(c, JSON.parse(JSON.stringify(res))); return null; });
+  return res;
+};
 /* ============ N. start ============ */
 boot();

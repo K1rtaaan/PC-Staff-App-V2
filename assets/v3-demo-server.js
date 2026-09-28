@@ -1,4 +1,4 @@
-/* GENERATED from apps-script/V3.gs + Release3.gs by tools/build-demo-server.js — demo mode only. Do not edit. */
+/* GENERATED from apps-script/V3.gs + Release3.gs + Admin31.gs by tools/build-demo-server.js — demo mode only. Do not edit. */
 window.PCRV3Server = function (S) {
 var APP_VERSION = S.APP_VERSION;
 var ORDER_HEADERS = S.ORDER_HEADERS;
@@ -55,6 +55,7 @@ var MailApp = S.MailApp;
 var LockService = S.LockService;
 var CacheService = S.CacheService;
 var PropertiesService = S.PropertiesService;
+var A31IO = S.A31IO;
 var buildPrepPayload = S.buildPrepPayload;
 var preferredNameMap = S.preferredNameMap;
 var decorateOrderNotes = S.decorateOrderNotes;
@@ -1485,7 +1486,7 @@ function mailStatus() {
   var key = !!props.getProperty('BREVO_API_KEY');
   var prov = String(getSetting('mail_provider', 'auto') || 'auto').toLowerCase();
   return { provider: prov, effective: (prov === 'brevo' || prov === 'auto') && key ? 'brevo' : 'mailapp', brevoKeySet: key,
-    brevoSender: props.getProperty('BREVO_SENDER_EMAIL') || props.getProperty('BREVO_SENDER') || getSetting('brevo_sender_email', '') || 'no-reply@paradisecoveresortfiji.com',
+    brevoSender: props.getProperty('BREVO_SENDER_EMAIL') || props.getProperty('BREVO_SENDER') || getSetting('brevo_sender_email', '') || 'it@paradisecoveresortfiji.com',
     brevoSenderName: props.getProperty('BREVO_SENDER_NAME') || 'PCR Staff App', replyTo: getSetting('mail_reply_to', 'it@paradisecoveresortfiji.com') || '',
     lastWarning: props.getProperty('MAIL_LAST_WARNING') || '' };
 }
@@ -1650,9 +1651,512 @@ function adminNotifyUser(p) {
   return { success: true, data: { to: to } };
 }
 
+/* PCR Staff App 3.1.0 — superadmin is an admin-only account, admin activity log, superadmin log + revert.
+ * Shared by the Apps Script server and the ?demo=1 mode (tools/build-demo-server.js). Sheet reads/writes go through
+ * A31IO (Admin31Io.gs on the server, the demo shim in assets/v3.js), so this file never touches SpreadsheetApp. */
+
+var A31_SUPER_BLOCK_MSG = "Superadmin accounts can't place orders or bookings. Use a staff account.";
+var A31_NOTICE_TEXT = 'Superadmin is now an admin-only account. To order meals, book the boat or apply for leave, please register a separate staff account with a different email.';
+var A31_LOG_SHEET = 'Admin Log';
+var A31_LOG_HEADERS = ['id', 'at', 'actorEmail', 'actorName', 'actorRole', 'actorDept', 'area', 'action', 'target', 'summary', 'before', 'after',
+  'bySuper', 'revertable', 'noRevertReason', 'restore', 'revertedAt', 'revertedBy', 'revertOf'];
+var A31_NOTICE_COL = 'superNotice31At';
+var A31_MAX_ROWS = 300, A31_MAX_JSON = 45000;
+
+/* ---------- 1) superadmin: no staff features (server-side) ---------- */
+/** true = always blocked for a superadmin; 'own' = blocked when the record is the superadmin's own. */
+var A31_STAFF_ACTIONS = { placeDinnerOrder: true, placeLunchOrder: true, placeBreakfastOrder: true, bookBoat: true, requestLeave: true, submitLeave: true,
+  requestLateMeal: true, requestEmergencyTravel: true, getMySchedule: true, sendChefFeedback: true, voteMenuItem: true,
+  cancelMealOrder: 'own', cancelBoatBooking: 'own', cancelLeave: 'own', placeMealOnBehalf: 'own' };
+
+function a31Lower(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
+function a31RowBy(sheet, field, val) {
+  var rows = A31IO.rows(sheet), v = String(val);
+  for (var i = 0; i < rows.length; i++) if (String(rows[i][field]) === v) return rows[i];
+  return null;
+}
+/** '' = allowed; otherwise the error to return. */
+function a31SuperBlock(action, p, me) {
+  var rule = A31_STAFF_ACTIONS[action];
+  if (!rule || !me || !isSuperPerm(me)) return '';
+  if (rule === true) return A31_SUPER_BLOCK_MSG;
+  var mine = a31Lower(me.email);
+  if (action === 'cancelMealOrder' || action === 'placeMealOnBehalf') { var t = a31Lower(p.userEmail); return (!t || t === mine) ? A31_SUPER_BLOCK_MSG : ''; }
+  if (action === 'cancelBoatBooking') { var b = a31RowBy('Boat Bookings', 'id', p.id); return b && a31Lower(b.userEmail) === mine ? A31_SUPER_BLOCK_MSG : ''; }
+  if (action === 'cancelLeave') { var l = a31RowBy('Leave Requests', 'id', p.id); return l && a31Lower(l.userEmail) === mine ? A31_SUPER_BLOCK_MSG : ''; }
+  return '';
+}
+
+/* ---------- 3/4) admin log ---------- */
+var A31_MEAL_SHEETS = { breakfast: 'Breakfast Orders', lunch: 'Lunch Orders', dinner: 'Dinner Orders' };
+function a31MealSheets(p) { var m = a31Lower(p.meal); return A31_MEAL_SHEETS[m] ? [A31_MEAL_SHEETS[m]] : ['Breakfast Orders', 'Lunch Orders', 'Dinner Orders']; }
+/** action → [default area, sheets to compare (array or fn(p)), what cannot be undone ('' = revertable)] */
+var A31_LOGGED = {
+  // Kitchen Admin
+  setMealTimes: ['kitchen', ['App Settings'], ''],
+  saveDinnerMenuItem: ['kitchen', ['Dinner Menus'], ''],
+  deleteDinnerMenuItem: ['kitchen', ['Dinner Menus'], ''],
+  adminCancelMealOrder: ['kitchen', a31MealSheets, 'The staff member was already notified — the order row is restored only.'],
+  markOrderStatus: ['kitchen', a31MealSheets, ''],
+  approveLateDinnerOrder: ['kitchen', ['Dinner Orders'], ''],
+  approveLateBreakfastOrder: ['kitchen', ['Breakfast Orders'], ''],
+  approveAllLateBreakfast: ['kitchen', ['Breakfast Orders'], ''],
+  decideMealRequest: ['kitchen', a31MealSheets, ''],
+  decideAllMealRequests: ['kitchen', a31MealSheets, ''],
+  markChefFeedback: ['kitchen', ['Chef Feedback'], ''],
+  placeSpecialMeal: ['kitchen', a31MealSheets, ''],
+  saveDinnerSummary: ['kitchen', [], 'A saved summary / PDF cannot be un-saved.'],
+  // Boat Admin
+  saveBoatRun: ['boat', ['Boat Runs'], ''],
+  deleteBoatRun: ['boat', ['Boat Runs'], ''],
+  dedupeBoatRuns: ['boat', ['Boat Runs'], ''],
+  cancelBoatBooking: ['boat', ['Boat Bookings'], ''],
+  reviewEmergencyTravel: ['boat', ['Emergency Travel'], ''],
+  // Department Admin
+  decideLeave: ['dept', ['Leave Requests'], ''],
+  escalateLeave: ['dept', ['Leave Requests'], ''],
+  approveAllPending: ['dept', function (p) { return a31Lower(p.kind) === 'leave' ? ['Leave Requests'] : ['Leave Requests', 'Breakfast Orders', 'Lunch Orders', 'Dinner Orders']; }, ''],
+  updateDeptStaff: ['dept', ['Users'], ''],
+  removeFromDept: ['dept', ['Users'], ''],
+  decideJoinRequest: ['dept', ['Users'], ''],
+  postDeptUpdate: ['dept', ['Dept Updates'], ''],
+  deleteDeptUpdate: ['dept', ['Dept Updates'], ''],
+  placeMealOnBehalf: ['dept', a31MealSheets, ''],
+  // Admin Settings / superadmin
+  setUserAccess: ['admin', ['Users'], ''],
+  updateUser: ['admin', ['Users'], ''],
+  addUser: ['admin', ['Users'], ''],
+  importUsersCSV: ['admin', ['Users'], ''],
+  approveUser: ['admin', ['Users'], ''],
+  deleteUser: ['admin', ['Users'], ''],
+  addReminder: ['admin', ['Reminders'], ''],
+  updateReminder: ['admin', ['Reminders'], ''],
+  completeReminder: ['admin', ['Reminders'], ''],
+  deleteReminder: ['admin', ['Reminders'], ''],
+  approveSuggestion: ['admin', ['Suggestions'], ''],
+  rejectSuggestion: ['admin', ['Suggestions'], ''],
+  setAppSetting: ['admin', ['App Settings'], ''],
+  saveAlertEmails: ['admin', ['Alert Emails'], ''],
+  migrateRoles: ['admin', ['Users'], ''],
+  adminNotifyUser: ['admin', [], 'A notification that was sent cannot be taken back.'],
+  sendTestEmail: ['admin', [], 'An email that was sent cannot be taken back.'],
+  archiveOldRows: ['admin', [], 'Archiving moves many rows to archive tabs — restore them from the archive tabs by hand.'],
+  uploadRosterParsed: ['admin', [], 'Roster uploads are not reverted from here.'],
+  backfillDinnerSummaries: ['admin', [], 'Saved summaries cannot be un-saved.'],
+  runMealTick: ['kitchen', a31MealSheets, 'Automatic approvals already notified staff.'],
+  updateReport: ['admin', ['Reports'], 'The reporter was already notified of the reply / status.']
+};
+var A31_AREAS = ['kitchen', 'boat', 'dept', 'admin'];
+var A31_KEYS = { 'Users': 'email', 'App Settings': 'key', 'Alert Emails': 'email' };
+var A31_SECRET = { password: 1, sessionToken: 1, pinHash: 1, token: 1 };
+var A31_SKIP_FIELDS = { _row: 1, updatedAt: 1, updatedBy: 1 };
+
+function a31Val(v) {
+  if (v === null || v === undefined) return '';
+  if (Object.prototype.toString.call(v) === '[object Date]') return isNaN(v.getTime()) ? '' : v.toISOString();
+  if (v === true) return 'TRUE';
+  if (v === false) return 'FALSE';
+  return String(v);
+}
+function a31Snap(sheets) {
+  var out = {};
+  (sheets || []).forEach(function (s) {
+    var key = A31_KEYS[s] || 'id', m = {};
+    A31IO.rows(s).forEach(function (r) {
+      var k = a31Val(r[key]); if (!k) return;
+      var o = {}; Object.keys(r).forEach(function (f) { if (!A31_SKIP_FIELDS[f]) o[f] = a31Val(r[f]); });
+      m[k] = o;
+    });
+    out[s] = m;
+  });
+  return out;
+}
+/** [{sheet, key, keyVal, kind:'created'|'deleted'|'updated', before, after}] (updated: only changed fields) */
+function a31Diff(b, a) {
+  var list = [];
+  Object.keys(a).forEach(function (s) {
+    var key = A31_KEYS[s] || 'id', B = b[s] || {}, A = a[s] || {};
+    Object.keys(A).forEach(function (k) {
+      if (!B[k]) { list.push({ sheet: s, key: key, keyVal: k, kind: 'created', before: null, after: A[k] }); return; }
+      var bf = {}, af = {}, n = 0;
+      Object.keys(A[k]).concat(Object.keys(B[k])).forEach(function (f) {
+        if (bf[f] !== undefined || af[f] !== undefined) return;
+        var x = B[k][f] === undefined ? '' : B[k][f], y = A[k][f] === undefined ? '' : A[k][f];
+        if (x !== y) { bf[f] = x; af[f] = y; n++; }
+      });
+      if (n) list.push({ sheet: s, key: key, keyVal: k, kind: 'updated', before: bf, after: af });
+    });
+    Object.keys(B).forEach(function (k) { if (!A[k]) list.push({ sheet: s, key: key, keyVal: k, kind: 'deleted', before: B[k], after: null }); });
+  });
+  return list;
+}
+function a31Hide(o) {
+  if (!o) return o;
+  var c = {}; Object.keys(o).forEach(function (f) { c[f] = A31_SECRET[f] ? '•••' : o[f]; }); return c;
+}
+function a31Label(d) {
+  var r = d.after || d.before || {}, full = (d.kind === 'updated') ? (a31RowBy(d.sheet, d.key, d.keyVal) || r) : r;
+  if (d.sheet === 'Users') return d.keyVal;
+  if (d.sheet === 'App Settings') return d.keyVal;
+  if (d.sheet === 'Dinner Menus') return (full.itemName || d.keyVal) + (full.weekday !== undefined && full.weekday !== '' ? ' (' + (['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][Number(full.weekday)] || full.weekday) + ')' : '');
+  if (d.sheet === 'Boat Runs') return [String(full.date || '').slice(0, 10), full.time, full.route].filter(Boolean).join(' ') || d.keyVal;
+  if (/Orders$/.test(d.sheet)) return (full.userName || full.guestName || full.userEmail || d.keyVal) + ' · ' + d.sheet.replace(' Orders', '').toLowerCase() + ' ' + String(full.serviceDate || '').replace(/^'/, '').slice(0, 10);
+  if (d.sheet === 'Leave Requests') return (full.userName || full.userEmail || d.keyVal) + ' · ' + String(full.startDate || '').replace(/^'/, '').slice(0, 10) + (full.endDate ? '→' + String(full.endDate).replace(/^'/, '').slice(0, 10) : '');
+  if (d.sheet === 'Boat Bookings' || d.sheet === 'Emergency Travel') return (full.userName || full.userEmail || d.keyVal);
+  return full.title || full.name || full.email || d.keyVal;
+}
+function a31Summary(diff) {
+  var verbs = { created: 'Added', deleted: 'Removed', updated: 'Changed' };
+  var parts = diff.slice(0, 3).map(function (d) {
+    if (d.sheet === 'App Settings' && d.kind !== 'deleted') return 'Set ' + d.keyVal + ' → ' + (d.after.value === '' ? '∅' : d.after.value) + (d.kind === 'updated' && d.before.value !== undefined ? ' (was ' + (d.before.value === '' ? '∅' : d.before.value) + ')' : '');
+    var s = verbs[d.kind] + ' ' + a31Label(d);
+    if (d.kind === 'updated') s += ': ' + Object.keys(d.after).filter(function (f) { return !A31_SECRET[f]; }).slice(0, 4).map(function (f) { return f + ' ' + (d.before[f] === '' ? '∅' : d.before[f]) + ' → ' + (d.after[f] === '' ? '∅' : d.after[f]); }).join('; ');
+    return s;
+  });
+  if (diff.length > 3) parts.push('+' + (diff.length - 3) + ' more');
+  return parts.join(' · ').substring(0, 900);
+}
+function a31RoleOf(u) {
+  var p = userPermissions(u);
+  var order = ['super_admin', 'admin', 'hod', 'assistant_hod', 'chef', 'boat_manager', 'boat_captain'];
+  for (var i = 0; i < order.length; i++) if (p.indexOf(order[i]) >= 0) return order[i];
+  return 'staff';
+}
+function a31HasRole(u) { return !!u && a31RoleOf(u) !== 'staff'; }
+function a31Json(o) { try { return JSON.stringify(o); } catch (e) { return ''; } }
+/** Write one log row (never throws). */
+function a31WriteLog(e) {
+  try {
+    var row = {}; A31_LOG_HEADERS.forEach(function (h) { row[h] = e[h] === undefined ? '' : e[h]; });
+    row.id = row.id || uid('alog');
+    row.at = row.at || nowIso();
+    A31IO.appendLog(row);
+    return row;
+  } catch (err) { return null; }
+}
+
+/** Wrap one request: block superadmin staff actions, snapshot → run → diff → log. inner(action, p) runs the real action. */
+function a31Handle(action, p, inner) {
+  var c = a31Pre(action, p || {});
+  if (c.blocked) return c.blocked;
+  var res = inner(action, c.p);
+  return a31Post(c, res);
+}
+/** Phase 1 (before the action). Returns { blocked } or a context for a31Post. The demo runs the phases around its async action. */
+function a31Pre(action, p) {
+  var me = null, raw = null;
+  try { me = getRequester(p); } catch (e) { me = null; }
+  // the account itself (not the token-less "staff view"): a superadmin never gets staff features
+  try { raw = p.requesterEmail ? findUserByEmail(p.requesterEmail) : null; } catch (e) { raw = null; }
+  var area = String(p.logArea || '');
+  delete p.logArea;
+  var c = { action: action, p: p, me: me, area: area, log: false };
+  var block = raw ? a31SuperBlock(action, p, raw) : '';
+  if (block) { c.blocked = { success: false, error: block, superadminBlocked: true }; return c; }
+  if (action === 'setAppSetting') { var ow = a31CheckOwnerSetting(p, me); if (ow) { c.blocked = { success: false, error: ow }; return c; } }
+  var cfg = A31_LOGGED[action];
+  if (!cfg || !me || !a31HasRole(me)) return c;
+  // own-account edits and own cancels are staff actions, not admin changes
+  if (action === 'updateUser' && (!p.targetEmail || a31Lower(p.targetEmail) === a31Lower(me.email))) return c;
+  if (action === 'cancelBoatBooking') { var bk = a31RowBy('Boat Bookings', 'id', p.id); if (!bk || a31Lower(bk.userEmail) === a31Lower(me.email)) return c; }
+  c.cfg = cfg;
+  c.sheets = typeof cfg[1] === 'function' ? cfg[1](p) : cfg[1];
+  try { c.before = c.sheets.length ? a31Snap(c.sheets) : null; } catch (e) { c.before = null; }
+  c.log = true;
+  return c;
+}
+/** Phase 2 (after the action): write the log row when something changed. Never breaks the action. */
+function a31Post(c, res) {
+  if (!c || !c.log || !res || res.success === false) return res;
+  try {
+    var p = c.p, me = c.me, cfg = c.cfg, sheets = c.sheets, action = c.action, area = c.area;
+    var diff = [];
+    if (c.before) diff = a31Diff(c.before, a31Snap(sheets));
+    if (sheets.length && !diff.length) return res; // nothing changed (dry runs, previews, repeats)
+    if (A31_AREAS.indexOf(area) < 0) area = cfg[0];
+    var bySuper = isSuperPerm(me);
+    var tooBig = diff.length > A31_MAX_ROWS;
+    var restore = tooBig ? '' : a31Json(diff);
+    if (restore.length > A31_MAX_JSON) { restore = ''; tooBig = true; }
+    var reason = cfg[2] || (!sheets.length ? 'Nothing to undo.' : (tooBig ? 'Too many rows changed to undo from here.' : ''));
+    var shown = diff.slice(0, 20).map(function (d) { return { sheet: d.sheet, key: d.keyVal, kind: d.kind, before: a31Hide(d.before), after: a31Hide(d.after) }; });
+    var target = diff.length ? a31Label(diff[0]) + (diff.length > 1 ? ' +' + (diff.length - 1) : '') : String(p.targetEmail || p.to || p.key || p.id || '');
+    var summary = diff.length ? a31Summary(diff) : a31NoSheetSummary(action, p, res);
+    a31WriteLog({ actorEmail: a31Lower(me.email), actorName: displayUserName(me) || me.email, actorRole: a31RoleOf(me), actorDept: me.department || '',
+      area: area, action: action, target: String(target).substring(0, 200), summary: summary,
+      before: a31Json(shown.map(function (d) { return { sheet: d.sheet, key: d.key, kind: d.kind, v: d.before }; })).substring(0, 20000),
+      after: a31Json(shown.map(function (d) { return { sheet: d.sheet, key: d.key, kind: d.kind, v: d.after }; })).substring(0, 20000),
+      bySuper: bySuper ? 'TRUE' : 'FALSE', revertable: (bySuper && !reason && restore) ? 'TRUE' : 'FALSE', noRevertReason: reason,
+      restore: (bySuper && !reason) ? restore : '' });
+  } catch (e) { /* logging never breaks the action */ }
+  return res;
+}
+function a31NoSheetSummary(action, p, res) {
+  if (action === 'adminNotifyUser') return 'Sent a notification to ' + (p.targetEmail || '') + (p.title ? ': ' + String(p.title).substring(0, 80) : '');
+  if (action === 'sendTestEmail') return 'Sent a test email to ' + (p.to || 'self');
+  if (action === 'archiveOldRows') return 'Archived old rows' + (res && res.data && res.data.moved ? ' ' + a31Json(res.data.moved) : '');
+  if (action === 'saveDinnerSummary') return 'Saved the dinner summary for ' + (p.serviceDate || 'tomorrow');
+  return action;
+}
+
+/* ---------- reading the log ---------- */
+function a31CanReadArea(u, area) {
+  if (!u) return false;
+  if (area === 'super') return isSuperPerm(u);
+  if (area === 'admin') return isAdminPerm(u);
+  if (area === 'kitchen') return isChefPerm(u);
+  if (area === 'boat') return isBoatCaptainPerm(u) || isAdminPerm(u);
+  if (area === 'dept') return isAdminPerm(u) || isDeptLead(u);
+  return false;
+}
+function a31RevertOwner() { return a31Lower(getSetting('revert_owner_email', '')); }
+function a31IsRevertOwner(u) { var o = a31RevertOwner(); return !!u && !!o && isSuperPerm(u) && a31Lower(u.email) === o; }
+function a31Out(r, canRevert) {
+  var o = {};
+  ['id', 'at', 'actorEmail', 'actorName', 'actorRole', 'area', 'action', 'target', 'summary', 'revertedAt', 'revertedBy', 'revertOf', 'noRevertReason'].forEach(function (k) { o[k] = r[k] === undefined ? '' : String(r[k]); });
+  try { o.before = r.before ? JSON.parse(r.before) : []; } catch (e) { o.before = []; }
+  try { o.after = r.after ? JSON.parse(r.after) : []; } catch (e) { o.after = []; }
+  o.bySuper = truthy(r.bySuper);
+  o.revertable = truthy(r.revertable) && !r.revertedAt && !r.revertOf;
+  o.canRevert = !!canRevert && o.revertable;
+  if (!o.revertable && !o.noRevertReason) o.noRevertReason = r.revertedAt ? 'Already reverted' : (r.revertOf ? 'This entry is a revert' : "Can't be reverted");
+  return o;
+}
+/** getAdminLog { area: kitchen|boat|dept|admin|super, offset, limit (≤200) } — newest first. */
+function getAdminLog(p) {
+  var u = getRequester(p);
+  var area = a31Lower(p.area || 'admin');
+  if (!a31CanReadArea(u, area)) return { success: false, error: 'You don\u2019t have access to this log' };
+  var rows = A31IO.logRows();
+  var list = rows.filter(function (r) {
+    if (area === 'super') return truthy(r.bySuper);
+    if (String(r.area) !== area) return false;
+    if (area === 'dept' && !isAdminPerm(u)) return a31Lower(r.actorDept) === a31Lower(u.department);
+    return true;
+  });
+  list.reverse();
+  var limit = Math.min(200, Math.max(1, Number(p.limit) || 50)), offset = Math.max(0, Number(p.offset) || 0);
+  var owner = area === 'super' && a31IsRevertOwner(u);
+  return { success: true, data: { area: area, total: list.length, offset: offset, limit: limit, canRevert: owner,
+    revertOwnerSet: !!a31RevertOwner(), entries: list.slice(offset, offset + limit).map(function (r) { return a31Out(r, owner); }) } };
+}
+
+/* ---------- revert (superadmin entries; only the revert owner) ---------- */
+function revertAdminLog(p) {
+  var u = getRequester(p);
+  if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  if (!a31RevertOwner()) return { success: false, error: 'No revert owner is set (App setting revert_owner_email).' };
+  if (!a31IsRevertOwner(u)) return { success: false, error: 'Only the revert owner can undo superadmin changes.' };
+  var rows = A31IO.logRows(), e = null;
+  for (var i = 0; i < rows.length; i++) if (String(rows[i].id) === String(p.id)) { e = rows[i]; break; }
+  if (!e) return { success: false, error: 'Log entry not found' };
+  if (!truthy(e.bySuper)) return { success: false, error: 'Only superadmin changes can be reverted here' };
+  if (e.revertedAt) return { success: false, error: 'Already reverted' };
+  if (e.revertOf) return { success: false, error: 'A revert cannot be reverted — make the change again instead' };
+  if (!truthy(e.revertable) || !e.restore) return { success: false, error: e.noRevertReason || "This change can't be reverted" };
+  var diff; try { diff = JSON.parse(e.restore); } catch (x) { return { success: false, error: 'Saved state is unreadable' }; }
+  // conflict check: everything must still look exactly like right after the change
+  var conflicts = [];
+  diff.forEach(function (d) {
+    var cur = a31RowBy(d.sheet, d.key, d.keyVal);
+    if (d.kind === 'created' && !cur) conflicts.push(a31Label(d) + ' is already gone');
+    if (d.kind === 'deleted' && cur) conflicts.push(a31Label(d) + ' exists again');
+    if (d.kind === 'updated') {
+      if (!cur) { conflicts.push(a31Label(d) + ' no longer exists'); return; }
+      Object.keys(d.after).forEach(function (f) { if (a31Val(cur[f]) !== d.after[f]) conflicts.push(a31Label(d) + ' · ' + f + ' was changed again'); });
+    }
+  });
+  if (conflicts.length) return { success: false, error: 'Changed again since — revert by hand: ' + conflicts.slice(0, 3).join('; ') };
+  diff.slice().reverse().forEach(function (d) {
+    if (d.kind === 'created') A31IO.remove(d.sheet, d.key, d.keyVal);
+    else if (d.kind === 'deleted') A31IO.append(d.sheet, d.before);
+    else A31IO.update(d.sheet, d.key, d.keyVal, d.before);
+  });
+  var at = nowIso();
+  A31IO.updateLog(e.id, { revertedAt: at, revertedBy: a31Lower(u.email) });
+  var inv = diff.map(function (d) { return { sheet: d.sheet, key: d.keyVal, kind: d.kind === 'created' ? 'deleted' : (d.kind === 'deleted' ? 'created' : 'updated'), before: a31Hide(d.after), after: a31Hide(d.before) }; });
+  a31WriteLog({ actorEmail: a31Lower(u.email), actorName: displayUserName(u) || u.email, actorRole: a31RoleOf(u), actorDept: u.department || '',
+    area: String(e.area || 'admin'), action: 'revert', target: String(e.target || ''), summary: 'Reverted: ' + String(e.summary || e.action).substring(0, 800),
+    before: a31Json(inv.map(function (d) { return { sheet: d.sheet, key: d.key, kind: d.kind, v: d.before }; })).substring(0, 20000),
+    after: a31Json(inv.map(function (d) { return { sheet: d.sheet, key: d.key, kind: d.kind, v: d.after }; })).substring(0, 20000),
+    bySuper: 'TRUE', revertable: 'FALSE', noRevertReason: 'This entry is a revert', revertOf: String(e.id) });
+  return { success: true, data: { reverted: e.id, rows: diff.length } };
+}
+
+/* ---------- 2) one-time notice for superadmins ---------- */
+function getSuperNotice(p) {
+  var u = getRequester(p);
+  if (!u || !isSuperPerm(u)) return { success: true, data: { show: false } };
+  return { success: true, data: { show: !u[A31_NOTICE_COL], text: A31_NOTICE_TEXT, seenAt: String(u[A31_NOTICE_COL] || '') } };
+}
+function ackSuperNotice(p) {
+  var u = getRequester(p);
+  if (!u || !isSuperPerm(u)) return { success: true, data: { saved: false } };
+  if (!u[A31_NOTICE_COL]) A31IO.update('Users', 'email', a31Lower(u.email), (function () { var o = {}; o[A31_NOTICE_COL] = nowIso(); return o; })(), [A31_NOTICE_COL]);
+  return { success: true, data: { saved: true } };
+}
+
+/** revert_owner_email: once set, only that owner may change it (any superadmin may set it while empty). */
+function a31CheckOwnerSetting(p, me) {
+  if (String(p.key || '').trim() !== 'revert_owner_email') return '';
+  var v = a31Lower(p.value);
+  if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return 'Must be an email address';
+  var cur = a31RevertOwner();
+  if (cur && (!me || a31Lower(me.email) !== cur)) return 'Only the current revert owner (' + cur + ') can change this setting.';
+  return '';
+}
+
+function routeAdmin31(action, p) {
+  var map = { getAdminLog: getAdminLog, revertAdminLog: revertAdminLog, getSuperNotice: getSuperNotice, ackSuperNotice: ackSuperNotice };
+  var fn = map[action];
+  if (!fn) return typeof routeReports31 === 'function' ? routeReports31(action, p) : null; // 3.1.0 reports + guides
+  try { return fn(p || {}); } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
+}
+
+/* PCR Staff App 3.1.0 — "Report a problem" (Reports tab + superadmin inbox) and first-time role page guides.
+ * Shared by the Apps Script server and the ?demo=1 mode (tools/build-demo-server.js). Sheet access through A31IO / appendRow. */
+
+var A32_REPORTS_SHEET = 'Reports';
+var A32_REPORT_HEADERS = ['id', 'createdAt', 'userEmail', 'userName', 'userRole', 'department', 'type', 'description', 'page', 'appVersion', 'device',
+  'images', 'status', 'reply', 'repliedAt', 'repliedBy', 'updatedAt', 'updatedBy'];
+var A32_TYPES = { problem: 'Problem / error', change: 'Change request', feature: 'New feature / other' };
+var A32_STATUS = { 'new': 'New', noted: 'Noted', in_progress: 'In progress', done: 'Done' };
+var A32_MAX_IMAGES = 3, A32_MAX_IMAGE_CHARS = 700000, A32_MAX_PER_DAY = 15;
+var A32_GUIDE_COL = 'guidesSeen31';
+var A32_GUIDES = { kitchen: 1, boat: 1, dept: 1, admin: 1, manage: 1 };
+
+/** Who gets the "new report" email: App setting report_email, else the revert owner, else the bootstrap IT account. */
+function a32DevEmail() {
+  return a31Lower(getSetting('report_email', '')) || a31RevertOwner() || 'it@paradisecoveresortfiji.com';
+}
+function a32Out(r) {
+  var o = {};
+  A32_REPORT_HEADERS.forEach(function (h) { o[h] = r[h] === undefined || r[h] === null ? '' : String(r[h]); });
+  try { o.images = r.images ? JSON.parse(r.images) : []; } catch (e) { o.images = []; }
+  o.typeLabel = A32_TYPES[o.type] || o.type;
+  o.statusLabel = A32_STATUS[o.status] || o.status;
+  return o;
+}
+
+/** submitReport { type, description, images:[dataURL ≤3], page, appVersion, device } — any signed-in user. */
+function submitReport(p) {
+  var u = getRequester(p);
+  if (!u) return { success: false, error: 'Login required' };
+  var type = A32_TYPES[p.type] ? p.type : 'problem';
+  var desc = String(p.description || '').replace(/\r/g, '').trim().substring(0, 3000);
+  if (desc.length < 5) return { success: false, error: 'Please describe the problem (a few words at least).' };
+  var mine = a31Lower(u.email), today = String(nowIso()).slice(0, 10);
+  var n = A31IO.rows(A32_REPORTS_SHEET).filter(function (r) { return a31Lower(r.userEmail) === mine && String(r.createdAt).slice(0, 10) === today; }).length;
+  if (n >= A32_MAX_PER_DAY) return { success: false, error: 'Too many reports today — please try again tomorrow.' };
+  var id = uid('rep');
+  var imgs = (Array.isArray(p.images) ? p.images : []).slice(0, A32_MAX_IMAGES);
+  var links = [], imgErr = '';
+  imgs.forEach(function (d, i) {
+    d = String(d || '');
+    if (!/^data:image\/(jpeg|png|webp);base64,/.test(d)) { imgErr = 'Only JPG / PNG / WebP images'; return; }
+    if (d.length > A32_MAX_IMAGE_CHARS) { imgErr = 'An image was too big (it is shrunk on the phone first — try again)'; return; }
+    try { var l = A31IO.saveImage(id + '-' + (i + 1), d); if (l) links.push(l); } catch (e) { imgErr = 'Screenshot could not be saved: ' + String(e && e.message || e).substring(0, 120); }
+  });
+  var row = { id: id, createdAt: nowIso(), userEmail: mine, userName: displayUserName(u) || u.email, userRole: a31RoleOf(u), department: u.department || '',
+    type: type, description: desc, page: String(p.page || '').substring(0, 80), appVersion: String(p.appVersion || '').substring(0, 20),
+    device: String(p.device || '').substring(0, 300), images: JSON.stringify(links), status: 'new', reply: '', repliedAt: '', repliedBy: '', updatedAt: '', updatedBy: '' };
+  ensureSheet(getSS(), A32_REPORTS_SHEET, A32_REPORT_HEADERS);
+  appendRow(A32_REPORTS_SHEET, row, A32_REPORT_HEADERS);
+  // superadmins: in-app; developer: email
+  try {
+    sheetToObjects('Users').filter(function (x) { return truthy(x.active) && isSuperPerm(x); }).forEach(function (s) {
+      v3Notify(s.email, 'New report: ' + A32_TYPES[type], row.userName + ': ' + desc.substring(0, 140), 'report', id);
+    });
+  } catch (e) {}
+  try {
+    v3Mail(a32DevEmail(), '[PCR Staff App] ' + A32_TYPES[type] + ' from ' + row.userName,
+      'Type: ' + A32_TYPES[type] + '\nFrom: ' + row.userName + ' <' + mine + '> · ' + row.userRole + (row.department ? ' · ' + row.department : '') +
+      '\nWhen: ' + row.createdAt + '\nPage: ' + row.page + '\nApp version: ' + row.appVersion + '\nDevice: ' + row.device +
+      '\n\n' + desc + (links.length ? '\n\nScreenshots:\n' + links.map(function (l) { return l.url; }).join('\n') : '') +
+      '\n\nReply / change the status in the app: Manage → Reports.');
+  } catch (e) {}
+  if (typeof a33PushEvent === 'function') { try { a33PushEvent('report_new', { report: row }); } catch (e) {} }
+  return { success: true, data: { id: id, images: links.length, imageError: imgErr } };
+}
+
+/** getReports { status?, offset, limit } — superadmin inbox (newest first) + counts. */
+function getReports(p) {
+  var u = getRequester(p);
+  if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  var all = A31IO.rows(A32_REPORTS_SHEET).slice().reverse();
+  var counts = { 'new': 0, noted: 0, in_progress: 0, done: 0, total: all.length };
+  all.forEach(function (r) { if (counts[r.status] !== undefined) counts[r.status]++; });
+  var st = String(p.status || ''), list = st ? all.filter(function (r) { return r.status === st; }) : all;
+  var limit = Math.min(100, Math.max(1, Number(p.limit) || 30)), offset = Math.max(0, Number(p.offset) || 0);
+  return { success: true, data: { counts: counts, total: list.length, offset: offset, limit: limit, reports: list.slice(offset, offset + limit).map(a32Out) } };
+}
+/** Cheap badge count for the superadmin nav. */
+function getReportCount(p) {
+  var u = getRequester(p);
+  if (!u || !isSuperPerm(u)) return { success: true, data: { 'new': 0 } };
+  return { success: true, data: { 'new': A31IO.rows(A32_REPORTS_SHEET).filter(function (r) { return r.status === 'new'; }).length } };
+}
+/** My own reports (with replies) — any user. */
+function getMyReports(p) {
+  var u = getRequester(p);
+  if (!u) return { success: false, error: 'Login required' };
+  var mine = a31Lower(u.email);
+  return { success: true, data: { reports: A31IO.rows(A32_REPORTS_SHEET).filter(function (r) { return a31Lower(r.userEmail) === mine; }).reverse().slice(0, 30).map(a32Out) } };
+}
+/** updateReport { id, status?, reply? } — superadmin. Notifies the reporter (in-app + email + push). */
+function updateReport(p) {
+  var u = getRequester(p);
+  if (!u || !isSuperPerm(u)) return { success: false, error: 'Superadmin only' };
+  var r = a31RowBy(A32_REPORTS_SHEET, 'id', p.id);
+  if (!r) return { success: false, error: 'Report not found' };
+  var patch = {}, st = String(p.status || ''), reply = String(p.reply || '').trim().substring(0, 2000);
+  if (st && !A32_STATUS[st]) return { success: false, error: 'Unknown status' };
+  if (st && st !== r.status) patch.status = st;
+  if (reply) { patch.reply = reply; patch.repliedAt = nowIso(); patch.repliedBy = displayUserName(u) || u.email; }
+  if (!Object.keys(patch).length) return { success: false, error: 'Nothing to change' };
+  patch.updatedAt = nowIso(); patch.updatedBy = a31Lower(u.email);
+  A31IO.update(A32_REPORTS_SHEET, 'id', r.id, patch);
+  var title = 'Your report: ' + (A32_STATUS[patch.status || r.status] || r.status);
+  var body = (reply ? 'Reply: ' + reply + '\n' : '') + '“' + String(r.description).substring(0, 120) + '”';
+  v3Notify(r.userEmail, title, body, 'report', r.id);
+  try { v3Mail(r.userEmail, '[PCR Staff App] ' + title, 'Hi ' + (r.userName || '') + ',\n\n' + (patch.status ? 'Status: ' + A32_STATUS[patch.status] + '\n' : '') + (reply ? '\nReply from ' + patch.repliedBy + ':\n' + reply + '\n' : '') + '\nYour report (' + String(r.createdAt).slice(0, 16) + '):\n' + String(r.description).substring(0, 1000)); } catch (e) {}
+  if (typeof a33PushEvent === 'function') { try { a33PushEvent('report_update', { email: r.userEmail, title: title, body: body, id: r.id }); } catch (e) {} }
+  return { success: true, data: { report: a32Out(a31RowBy(A32_REPORTS_SHEET, 'id', r.id) || r) } };
+}
+
+/* ---------- first-time role page guides (seen per user on the server) ---------- */
+function a32Seen(u) { return String((u && u[A32_GUIDE_COL]) || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean); }
+function getMyGuides(p) {
+  var u = getRequester(p);
+  if (!u) return { success: true, data: { seen: [] } };
+  return { success: true, data: { seen: a32Seen(u) } };
+}
+function markGuideSeen(p) {
+  var u = getRequester(p);
+  if (!u) return { success: false, error: 'Login required' };
+  var g = String(p.guide || '');
+  if (!A32_GUIDES[g]) return { success: false, error: 'Unknown guide' };
+  var seen = a32Seen(u);
+  if (seen.indexOf(g) < 0) {
+    seen.push(g);
+    var o = {}; o[A32_GUIDE_COL] = seen.join(',');
+    A31IO.update('Users', 'email', a31Lower(u.email), o, [A32_GUIDE_COL]);
+  }
+  return { success: true, data: { seen: seen } };
+}
+
+function routeReports31(action, p) {
+  var map = { submitReport: submitReport, getReports: getReports, getReportCount: getReportCount, getMyReports: getMyReports, updateReport: updateReport,
+    getMyGuides: getMyGuides, markGuideSeen: markGuideSeen };
+  var fn = map[action];
+  if (!fn) return null;
+  try { return fn(p || {}); } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
+}
+
 isChefPerm = function (u) { if (!u) return false; var p = userPermissions(u); return p.indexOf('chef') >= 0 || p.indexOf('kitchen') >= 0 || isAdminPerm(u); };
+function isBoatCaptainPerm(u) { if (!u) return false; return userPermissions(u).indexOf('boat_captain') >= 0 || isBoatManagerPerm(u); }
 function isBoatManagerPerm(u) { if (!u) return false; var p = userPermissions(u); return p.indexOf('boat_manager') >= 0 || p.indexOf('boat') >= 0 || isAdminPerm(u); }
 r3NotifyMany = function (rows) { (rows || []).forEach(function (r) { appendRow('Notifications', r); }); };
 
-return { routeV3: routeV3, getV3Home: getV3Home, v3Role: v3Role, isAsstHod: isAsstHod, deptStatusOf: deptStatusOf, deptApproved: deptApproved, v3Notify: v3Notify, deptLeads: deptLeads, canActForDept: canActForDept, v3RoleCounts: v3RoleCounts, v3UserOut: v3UserOut, v3UserWarnings: v3UserWarnings, v3CutoffReminders: v3CutoffReminders, getLeaveCalendar: getLeaveCalendar, isChefPerm: isChefPerm, isBoatManagerPerm: isBoatManagerPerm, routeRelease3: routeRelease3, mealTick: mealTick, mealTimes: mealTimes, mealTimesOut: mealTimesOut, mealWindow: mealWindow, mealPhase: mealPhase, userRoles: userRoles, roleButtons: roleButtons, rolesPatch: rolesPatch };
+return { routeV3: routeV3, getV3Home: getV3Home, v3Role: v3Role, isAsstHod: isAsstHod, deptStatusOf: deptStatusOf, deptApproved: deptApproved, v3Notify: v3Notify, deptLeads: deptLeads, canActForDept: canActForDept, v3RoleCounts: v3RoleCounts, v3UserOut: v3UserOut, v3UserWarnings: v3UserWarnings, v3CutoffReminders: v3CutoffReminders, getLeaveCalendar: getLeaveCalendar, isChefPerm: isChefPerm, isBoatManagerPerm: isBoatManagerPerm, routeRelease3: routeRelease3, a31Handle: a31Handle, a31Pre: a31Pre, a31Post: a31Post, routeAdmin31: routeAdmin31, routeReports31: routeReports31, a31SuperBlock: a31SuperBlock, mealTick: mealTick, mealTimes: mealTimes, mealTimesOut: mealTimesOut, mealWindow: mealWindow, mealPhase: mealPhase, userRoles: userRoles, roleButtons: roleButtons, rolesPatch: rolesPatch };
 };

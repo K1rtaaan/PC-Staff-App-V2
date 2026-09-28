@@ -1,4 +1,4 @@
-/* PCR Staff App V2 — app shell stored on the phone (3.0.1)
+/* PCR Staff App V2 — app shell stored on the phone (3.1.0)
  * - Precaches the shell (HTML, CSS, fonts, logo, icons, login image) and serves it CACHE-FIRST,
  *   then revalidates in the background, so repeat opens paint without waiting for the network.
  * - A new release ships a new sw.js (VERSION below) → it installs in the background and WAITS;
@@ -6,7 +6,7 @@
  * - NEVER caches API responses: script.google.com / googleusercontent.com always go to the network
  *   (the app keeps its own per-user data cache).
  */
-const VERSION = '3.0.1';
+const VERSION = '3.1.0';
 const CACHE = 'pcr-staff-v' + VERSION;
 const SHELL = [
   './',
