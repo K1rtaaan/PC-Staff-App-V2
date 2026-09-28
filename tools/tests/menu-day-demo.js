@@ -31,7 +31,7 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
   await page.goto(BASE + '?demo=1');
   await page.waitForTimeout(2500);
   const ver = await page.evaluate(() => APP_VERSION);
-  check('APP_VERSION 3.0.0', ver === '3.0.0', ver);
+  check('APP_VERSION 3.0.1', ver === '3.0.1', ver);
   await page.evaluate(() => { state.mealPill = 'dinner'; navigate('meals'); });
   await page.waitForSelector('#dinner-choice', { timeout: 20000 });
   await page.waitForTimeout(800);
