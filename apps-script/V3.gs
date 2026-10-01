@@ -533,6 +533,7 @@ function requestLateMeal(p) {
   var info = v3MealInfo(meal, now);
   var sd = v3Date(p.serviceDate) || info.serviceDate;
   if (sd !== v3Today() && sd !== v3Tomorrow()) return { success: false, error: 'Late requests are for today or tomorrow only' };
+  var s34b = typeof s34MealBlock === 'function' ? s34MealBlock(u, meal, sd) : null; if (s34b) return s34b; // 3.4.0 rostered on leave
   // 3.0.0: late window = after the cutoff until the late close (Kitchen Admin → Meal times)
   var w = mealWindow(meal, sd);
   var phase = mealPhase(meal, sd, now);

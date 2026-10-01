@@ -184,6 +184,12 @@ function dsumPrepHtml(serviceDate, prep, meta) {
     off.forEach(function (o) { h += '<li><strong>' + dsumEsc(o.name) + '</strong> (' + dsumEsc(o.department) + ') — ' + dsumEsc(o.dish) + '</li>'; });
     h += '</ul></div>';
   }
+  var spm = (typeof s34SpecialFor === 'function') ? s34SpecialFor(serviceDate).dinner : [];
+  if (spm.length) {
+    h += '<div style="margin:10px 0;padding:8px;border:2px solid #0d9488"><h2 style="margin:0 0 6px;font-size:14px;color:#0f766e">Special meal requests (' + spm.length + ', approved by HOD)</h2><ul style="margin:0;font-size:12px">';
+    spm.forEach(function (o) { h += '<li><strong>' + dsumEsc(o.name) + '</strong> (' + dsumEsc(o.department) + ') — ' + dsumEsc(o.reason) + '</li>'; });
+    h += '</ul></div>';
+  }
   h += '<h2 style="font-size:14px;margin-top:14px">Breakdown (sorted by food)</h2>';
   Object.keys(tally).sort().forEach(function (k) {
     var offK = (prep.menu || []).length && !(prep.menu || []).some(function (n) { return String(n).trim().toLowerCase() === String(k).trim().toLowerCase(); });
@@ -378,6 +384,12 @@ function getKitchenDaySummary(p) {
     breakfast: dsumHeadcount('breakfast', date, nameMap),
     lunch: dsumHeadcount('lunch', date, nameMap)
   };
+  // 3.4.0: orders vs estimated staff on the island (roster) + approved special meal requests
+  if (typeof s34Estimate === 'function') {
+    try { out.island = s34Estimate(date); } catch (eI) { out.island = null; }
+    var sp = s34SpecialFor(date);
+    out.dinner.specialMeals = sp.dinner; out.breakfast.specialMeals = sp.breakfast; out.lunch.specialMeals = sp.lunch;
+  }
   if (String(p.compact || '') === '1') { delete out.dinner.prep.orders; }
   return { success: true, data: out };
 }

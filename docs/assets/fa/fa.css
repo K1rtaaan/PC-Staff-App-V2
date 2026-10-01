@@ -127,6 +127,7 @@
 .fa-inverse{color: var(--fa-inverse, #fff);}
 .fa-calendar-days::before{content: "\f073";}
 .fa-right-from-bracket::before{content: "\f2f5";}
+.fa-people-roof::before{content: "\e537";}
 .fa-file-csv::before{content: "\f6dd";}
 .fa-address-book::before{content: "\f2b9";}
 .fa-clipboard-list::before{content: "\f46d";}
@@ -243,6 +244,7 @@
 .fa-book-open::before{content: "\f518";}
 .fa-triangle-exclamation::before{content: "\f071";}
 .fa-right-left::before{content: "\f362";}
+.fa-paper-plane::before{content: "\f1d8";}
 .fa-calendar-day::before{content: "\f783";}
 .fa-person-walking-arrow-right::before{content: "\e552";}
 .fa-circle-xmark::before{content: "\f057";}

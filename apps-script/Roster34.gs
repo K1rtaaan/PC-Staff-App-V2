@@ -804,6 +804,8 @@ function getMyRoster(p) {
   if (isSuperPerm(me)) return { success: false, error: A31_SUPER_BLOCK_MSG, superBlocked: true };
   if (!r34FlagOn()) return { success: false, error: featureOffMessage('feature_my_schedule'), featureOff: true };
   r34Ensure();
+  // 3.4.0 (Pranav): Schedule opens only for accounts linked by employee code; others see the lock screen with link requests
+  if (typeof s34LinkRequired === 'function') { s34Ensure(); if (s34LinkRequired() && !s34Linked(me)) return { success: true, data: s34LockedOut(me) }; }
   var today = r34Today(), year = today.slice(0, 4);
   var days = JSON.parse(JSON.stringify(r34UserDays(me.email)));
   var app = r34AppLeave(me.email, year + '-01-01', r34Add(today, 62));
@@ -819,7 +821,7 @@ function getMyRoster(p) {
     today: r34Out(days[today], today), week: { start: mon, end: r34Add(mon, 6), days: week }, month: { key: mk, label: r34MonthLabel(mk), days: month },
     next: r34Next(days, today, 60), balances: r34Balances(me, days, app, year, today), year: year, leaveTypes: r34LeaveTypeNames(), leave: leaves,
     hasRoster: Object.keys(days).some(function (k) { return k >= today && days[k] && days[k].source && days[k].source !== 'leave'; }),
-    pattern: r34PatternText(me.roster), department: me.department || '', fijiNow: formatFiji(getFijiNow())
+    pattern: r34PatternText(me.roster), department: me.department || '', fijiNow: formatFiji(getFijiNow()), employeeCode: r34EmpCode(me.employeeCode)
   };
   if (isDeptLead(me) || isAdminPerm(me)) {
     var nextMon = r34Add(mon, 7), ups = r34Uploads();
@@ -1125,6 +1127,14 @@ function r34PlanReminders(ctx) {
           'Please upload the roster for ' + r34Label(nextMon) + ' – ' + r34Label(r34Add(nextMon, 6)) + ' (Department Admin → Weekly roster).');
       });
     });
+    // 3.4.0: Sunday (1 day before) → admins get one pending alert listing the departments still missing
+    if (wd === 0) {
+      var missing = Object.keys(byDept).filter(function (k) { return !ctx.weeklyDone(byDept[k][0].department, nextMon); }).map(function (k) { return byDept[k][0].department; }).sort();
+      if (missing.length) ctx.users.filter(function (u) { return u.active && u.isAdmin && !u.isSuper; }).forEach(function (u) {
+        add('wkadm|' + nextMon + '|' + u.email, 'weekly_admin', u.email, 'Pending: ' + missing.length + ' weekly roster' + (missing.length > 1 ? 's' : '') + ' not uploaded',
+          'Week of ' + r34Label(nextMon) + ': ' + missing.join(', ') + '. The HODs were reminded on Saturday.');
+      });
+    }
   }
   // admins: next month's monthly roster not uploaded by the 28th
   if (Number(today.slice(8, 10)) >= 28) {
@@ -1136,7 +1146,7 @@ function r34PlanReminders(ctx) {
   }
   return out;
 }
-var R34_REM_KIND = { back: 'roster', dayoff: 'roster', weekly_due: 'roster_hod', monthly_due: 'roster_admin' };
+var R34_REM_KIND = { back: 'roster', dayoff: 'roster', weekly_due: 'roster_hod', weekly_admin: 'roster_admin', monthly_due: 'roster_admin' };
 function r34Tick() {
   if (!r34FlagOn()) return { off: true };
   r34Ensure();
@@ -1297,6 +1307,6 @@ function routeRoster34(action, p) {
     getLeaveAllowances: getLeaveAllowances, saveLeaveAllowance: saveLeaveAllowance, deleteLeaveAllowance: deleteLeaveAllowance
   };
   var fn = map[action];
-  if (!fn) return null;
+  if (!fn) return typeof routeStaff34 === 'function' ? routeStaff34(action, p) : null; // 3.4.0 staff links, dept staff, island estimate (Staff34.gs)
   try { return fn(p || {}); } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
 }

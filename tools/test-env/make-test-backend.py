@@ -14,7 +14,8 @@ Changes vs apps-script/ (live code is otherwise identical):
   test address is redirected to the TEST inbox; [TEST] subject prefix is always on
 - SUPERADMIN_EMAIL / password → TEST superadmin; DEFAULT_ALERT_EMAILS → TEST admin; live roster sheet id removed;
   kitchen summary PDFs go to a separate Drive folder "PCR Kitchen Order Summaries — TEST"
-- TestEnv.gs is added
+- TestEnv.gs is added (incl. a TEST Mail Log sheet + superadmin-only testMailLog action for the e2e tests)
+- Staff34.gs: meal blocking on leave defaults ON
 """
 import os, re, sys, shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -81,6 +82,7 @@ code = sub(code, """  if (redirect && kind !== 'code') {
     if (kept.indexOf(redirect) < 0) kept.push(redirect);
     list = kept;
   }""")
+code = sub(code, "  if (prefix) subject = prefix + ' ' + subject;", "  if (prefix) subject = prefix + ' ' + subject;\n  try { if (typeof testMailLog_ === 'function') testMailLog_(list, subject, body); } catch (eTL) {} // TEST: mail log for the e2e tests")
 for bad in (LIVE_ID, ROSTER_ID, 'leanne@', 'agm@', 'cesare@', 'wood.nicolas', 'pranav619'):
     if bad in code.replace("'" + LIVE_ID + "') throw", ''):
         sys.exit('live value still present in Code.gs: ' + bad)
@@ -96,6 +98,8 @@ for f in files:
         s = s.replace("'PCR App Reports'", "'PCR App Reports — TEST'")
     if f == 'Reports31.gs':
         s = sub(s, "var A320_OWNER = 'it@paradisecoveresortfiji.com';", "var A320_OWNER = '" + TEST_SUPER + "'; // TEST: report / revert owner fallback")
+    if f == 'Staff34.gs':
+        s = sub(s, "var S34_MEAL_BLOCK_DEFAULT = 'false';", "var S34_MEAL_BLOCK_DEFAULT = 'true'; // TEST: meal blocking on leave ON")
     if LIVE_ID in s: sys.exit('live sheet id found in ' + f)
     open(os.path.join(out, f), 'w').write(s)
 te = open(os.path.join(ROOT, 'tools', 'test-env', 'TestEnv.gs')).read()

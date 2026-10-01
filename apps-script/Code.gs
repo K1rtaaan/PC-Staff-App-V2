@@ -1267,6 +1267,11 @@ function login(p) {
   if (!isSuper && !truthy(u.active)) {
     return { success: false, error: 'Account inactive. Contact admin.' };
   }
+  // 3.4.0: accounts registered by a HOD / admin sign in once with a one-time password, then choose their own
+  if (!isSuper && truthy(u.mustChangePassword)) {
+    if (typeof s34TempExpired === 'function' && s34TempExpired(u)) return { success: false, error: 'This one-time password has expired — ask your HOD to register you again.' };
+    return { success: false, needsPasswordChange: true, email: email, error: 'Choose your own password to finish signing in' };
+  }
 
   return {
     success: true,
@@ -1279,7 +1284,7 @@ function login(p) {
 
 /** Request-scoped identity (set by bindRequestIdentity for client requests; null for triggers / editor runs). */
 var R3_AUTH = null;
-var R3_PUBLIC_ACTIONS = { login: 1, register: 1, verifyEmail: 1, requestVerification: 1, requestPasswordReset: 1, resetPassword: 1, getVersion: 1, health: 1, getDepartments: 1 }; // 3.4.0 department list (sign-up form)
+var R3_PUBLIC_ACTIONS = { login: 1, register: 1, verifyEmail: 1, requestVerification: 1, requestPasswordReset: 1, resetPassword: 1, getVersion: 1, health: 1, getDepartments: 1, setFirstPassword: 1 }; // 3.4.0 first sign-in with a one-time password // 3.4.0 department list (sign-up form)
 /**
  * 3.0.0: a valid signed session token (login) binds the requester. Without a token the claimed requesterEmail is used
  * as in 2.x, but role accounts then act as plain staff (role / admin actions answer needsSignIn). App Setting
@@ -3069,6 +3074,7 @@ function placeDinnerOrder(p) {
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User required' };
+  var s34b = typeof s34MealBlock === 'function' ? s34MealBlock(u, 'dinner', info.serviceDate) : null; if (s34b) return s34b; // 3.4.0 rostered on leave
   // 3.0.0: normal orders are always for the next dinner date (a client-sent date can't move the order / skip the cutoff)
   var serviceDate = info.serviceDate;
   var status = late ? 'late_pending' : 'pending';
@@ -3138,6 +3144,7 @@ function placeLunchOrder(p) {
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User required' };
+  var s34b = typeof s34MealBlock === 'function' ? s34MealBlock(u, 'lunch', info.serviceDate) : null; if (s34b) return s34b; // 3.4.0 rostered on leave
   var serviceDate = p.serviceDate || info.serviceDate;
   var lNote = noteFromParams(p, '');
 
@@ -3194,6 +3201,7 @@ function placeBreakfastOrder(p) {
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User required' };
+  var s34b = typeof s34MealBlock === 'function' ? s34MealBlock(u, 'breakfast', info.serviceDate) : null; if (s34b) return s34b; // 3.4.0 rostered on leave
   var serviceDate = p.serviceDate || info.serviceDate;
   var status = late ? 'late_pending' : 'ordered';
 

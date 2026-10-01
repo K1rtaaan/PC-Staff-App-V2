@@ -88,3 +88,20 @@ function testEnvInfo() {
   Logger.log(JSON.stringify(o));
   return o;
 }
+
+/* 3.4.0 e2e: every mail the TEST backend sends is also written to the TEST sheet ("TEST Mail Log"), so the tests can
+   read a one-time password. Only the TEST superadmin (signed in) can read it. Never in the live backend. */
+function testMailLog_(list, subject, body) {
+  var sh = ensureSheet(getSS(), 'TEST Mail Log', ['at', 'to', 'subject', 'body']);
+  sh.appendRow([nowIso(), (list || []).join(','), String(subject || ''), String(body || '').substring(0, 4000)]);
+}
+function testMailLogAction(p) {
+  var me = getRequester(p);
+  if (!me || !isSuperPerm(me) || !(R3_AUTH && R3_AUTH.token)) return { success: false, error: 'TEST superadmin only' };
+  var sh = getSS().getSheetByName('TEST Mail Log');
+  if (!sh || sh.getLastRow() < 2) return { success: true, data: { mails: [] } };
+  var n = Math.min(30, sh.getLastRow() - 1);
+  var rows = sh.getRange(sh.getLastRow() - n + 1, 1, n, 4).getValues().map(function (r) { return { at: String(r[0]), to: String(r[1]), subject: String(r[2]), body: String(r[3]) }; });
+  var want = String(p.to || '').toLowerCase();
+  return { success: true, data: { mails: rows.filter(function (m) { return !want || m.to.toLowerCase().indexOf(want) >= 0 || m.body.toLowerCase().indexOf(want) >= 0; }).reverse() } };
+}

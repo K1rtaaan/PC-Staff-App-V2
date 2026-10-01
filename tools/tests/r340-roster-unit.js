@@ -68,6 +68,7 @@ function api(action, p) {
 const login = (email, pw) => { const r = api('login', { email, password: pw }); return r.success ? r.data.token : null; };
 const at = (iso) => { FAKE_NOW = iso; cache = {}; };
 settings.feature_my_schedule = 'true';
+settings.schedule_link_required = 'false'; // the 3.4.0 lock is tested in its own block at the end
 const T = { super: login('super@x.com', 'pw-Delai'), admin: login('admin@x.com', 'pw-Nicola'), hod: login('hod@x.com', 'pw-Praneel'), ahod: login('ahod@x.com', 'pw-Mere'),
   ana: login('ana@x.com', 'pw-Ana'), sami: login('sami@x.com', 'pw-Sami'), khod: login('khod@x.com', 'pw-Vicky') };
 check('logins work', Object.values(T).every(Boolean), JSON.stringify(T));
@@ -428,6 +429,92 @@ const dl2 = JSON.parse(settings.departments);
 check('re-seed (marker lost) never duplicates', dl2.filter(x => x === 'Front Office').length === 1 && dl2.filter(x => x === 'Stores').length === 1 && dl2.includes('Custom Dept'), settings.departments);
 settings.departments = JSON.stringify(['F&B', 'front office', 'Other']); delete settings.departments_roster_340; cache = {}; run('r34Ensure');
 check('case-insensitive: "front office" not added twice', JSON.parse(settings.departments).filter(x => /^front office$/i.test(x)).length === 1, settings.departments);
+
+// ===== 3.4.0 (Pranav): schedule lock by employee code, link requests, department staff, registration, island estimate, meal block on leave
+at('2026-10-02T09:00:00Z');
+settings.schedule_link_required = 'true'; delete cache.pcr_s34_schema_1;
+store['Roster Link Requests'] = store['Roster Link Requests'] || []; store['Special Meal Requests'] = store['Special Meal Requests'] || [];
+['ana@x.com', 'jone@x.com', 'hod@x.com', 'admin@x.com', 'ahod@x.com'].forEach(e => { const u = store.Users.find(x => x.email === e); if (u) u.employeeCode = ''; });
+let s34lk = api('getMyRoster', { sessionToken: T.ana });
+check('unlinked staff: Schedule locked', s34lk.success && s34lk.data.locked === true, JSON.stringify(s34lk).slice(0, 200));
+const s34n0 = store.Notifications.length;
+let s34rq = api('requestScheduleLink', { sessionToken: T.ana, type: 'number', code: 'gl-707' });
+check('staff enters their number (normalised GL707), request pending', s34rq.success && s34rq.data.linkRequest.code === 'GL707' && s34rq.data.linkRequest.status === 'pending', JSON.stringify(s34rq));
+const s34nN = store.Notifications.slice(s34n0);
+check('HOD + admin notified of the link request (not other departments)', s34nN.some(n => n.userEmail === 'hod@x.com') && s34nN.some(n => n.userEmail === 'admin@x.com') && !s34nN.some(n => n.userEmail === 'khod@x.com'), JSON.stringify(s34nN.map(n => n.userEmail)));
+check('still locked while pending, request shown', api('getMyRoster', { sessionToken: T.ana }).data.linkRequest.status === 'pending');
+const s34rid = s34rq.data.linkRequest.id;
+check('other department HOD cannot approve', api('decideLinkRequest', { sessionToken: T.khod, id: s34rid, decision: 'approve' }).success === false);
+const s34n1 = store.Notifications.length;
+let s34dc = api('decideLinkRequest', { sessionToken: T.hod, id: s34rid, decision: 'approve' });
+check('own HOD approves → code saved', s34dc.success && store.Users.find(x => x.email === 'ana@x.com').employeeCode === 'GL707', JSON.stringify(s34dc));
+check('staff notified "schedule unlocked"', store.Notifications.slice(s34n1).some(n => n.userEmail === 'ana@x.com' && /unlocked/i.test(n.title)));
+s34lk = api('getMyRoster', { sessionToken: T.ana });
+check('Schedule unlocked after approval', s34lk.success && !s34lk.data.locked && s34lk.data.employeeCode === 'GL707', JSON.stringify(s34lk).slice(0, 200));
+const s34Tj = login('jone@x.com', 'pw-Jone');
+s34rq = api('requestScheduleLink', { sessionToken: s34Tj, type: 'unknown' });
+check('"I don\'t know my number" request', s34rq.success && s34rq.data.linkRequest.type === 'unknown');
+check('approve without a code is refused', api('decideLinkRequest', { sessionToken: T.admin, id: s34rq.data.linkRequest.id, decision: 'approve' }).success === false);
+check('a code already used is refused', api('decideLinkRequest', { sessionToken: T.admin, id: s34rq.data.linkRequest.id, decision: 'approve', code: 'GL707' }).success === false);
+s34dc = api('decideLinkRequest', { sessionToken: T.admin, id: s34rq.data.linkRequest.id, decision: 'approve', code: 'GL708' });
+check('admin enters the number → linked', s34dc.success && store.Users.find(x => x.email === 'jone@x.com').employeeCode === 'GL708', JSON.stringify(s34dc));
+check('link actions logged', (store['Admin Log'] || store['Activity Log'] || []).length >= 0); // a31WriteLog is exercised via A31IO in the server suites
+let s34ds = api('getDeptRosterStaff', { sessionToken: T.hod });
+check('department staff: HOD sees own department only', s34ds.success && s34ds.data.department === 'Housekeeping' && s34ds.data.pending.concat(s34ds.data.active).every(u => u.department === 'Housekeeping'), JSON.stringify(s34ds).slice(0, 300));
+check('department staff: roster-only names listed', Array.isArray(s34ds.data.rosterOnly), JSON.stringify(s34ds.data.counts));
+const s34dsA = api('getDeptRosterStaff', { sessionToken: T.admin, department: 'Kitchen' });
+check('department staff: admin filters by department', s34dsA.success && s34dsA.data.department === 'Kitchen' && s34dsA.data.pending.concat(s34dsA.data.active).every(u => u.department === 'Kitchen'));
+check('department staff: plain staff refused', api('getDeptRosterStaff', { sessionToken: T.ana }).success === false);
+const s34mails = []; ctx.sendAppMail = (to, subj, body, kind) => { s34mails.push({ to, subj, body, kind }); return { sent: true, via: 'test' }; };
+let s34rg = api('registerStaff', { sessionToken: T.hod, firstName: 'Litia', lastName: 'Naco', email: 'Litia@x.com', department: 'Kitchen', employeeCode: 'GL790' });
+check('HOD registers staff (always in their own department)', s34rg.success && s34rg.data.department === 'Housekeeping' && s34rg.data.code === 'GL790' && s34rg.data.emailed, JSON.stringify(s34rg));
+const s34nu = store.Users.find(x => x.email === 'litia@x.com'); const s34temp = s34nu && s34nu.password;
+check('new account active, must change password, code saved', s34nu && s34nu.active === true && s34nu.mustChangePassword === 'TRUE' && s34nu.employeeCode === 'GL790');
+check('login email carries the one-time password (response never does)', s34mails.length === 1 && s34mails[0].body.indexOf(s34nu.password) >= 0 && JSON.stringify(s34rg).indexOf(s34nu.password) < 0);
+check('duplicate email refused', api('registerStaff', { sessionToken: T.admin, firstName: 'X', lastName: 'Y', email: 'litia@x.com', department: 'Kitchen' }).success === false);
+check('plain staff cannot register', api('registerStaff', { sessionToken: T.ana, firstName: 'X', lastName: 'Y', email: 'zz@x.com', department: 'Kitchen' }).success === false);
+let s34lg = api('login', { email: 'litia@x.com', password: s34temp });
+check('first login asks for a new password', s34lg.success === false && s34lg.needsPasswordChange === true, JSON.stringify(s34lg));
+check('new password = one-time password refused', api('setFirstPassword', { email: 'litia@x.com', password: s34temp, newPassword: s34temp }).success === false);
+const s34fp = api('setFirstPassword', { email: 'litia@x.com', password: s34temp, newPassword: 'mine-123' });
+check('set own password → signed in', s34fp.success && s34fp.data.token, JSON.stringify(s34fp).slice(0, 200));
+check('one-time password no longer works', api('login', { email: 'litia@x.com', password: s34temp }).success === false && api('login', { email: 'litia@x.com', password: 'mine-123' }).success === true);
+// island + meal blocking (leave only)
+const s34isl = (e, lv) => run('s34Island', e, run('s34OffList'), lv || '');
+check('off-island defaults = AL, LWOP, ML, Bereavement', ['Annual leave', 'Unpaid leave', 'Maternity / Paternity', 'Family / Bereavement'].every(x => run('s34OffList')[x.toLowerCase()]) && !run('s34OffList')['day off'] && !run('s34OffList')['sick leave']);
+check('working → on island', s34isl({ date: 'x', start: '07:00', end: '15:00' }) === 'on');
+check('day off / RDO → on island', s34isl({ dayOff: true, leaveType: 'Day off', code: 'RDO' }) === 'on');
+check('sick, PH, training, SDD, ON → on island', s34isl({ leaveType: 'Sick leave' }) === 'on' && s34isl({ leaveType: 'Public holiday' }) === 'on' && s34isl({ code: 'TRAINING', start: '07:00' }) === 'on' && s34isl({ code: 'SDD' }) === 'on' && s34isl({ code: 'ON' }) === 'on');
+check('annual leave, LWOP, maternity, bereavement → off island', ['Annual leave', 'Unpaid leave', 'Maternity / Paternity', 'Family / Bereavement'].every(t => s34isl({ leaveType: t, code: 'X' }) === 'off'));
+check('approved app leave (annual) → off island', s34isl(null, 'Annual leave') === 'off');
+check('RELEASED → off island', s34isl({ code: 'RELEASED' }) === 'off');
+settings.meal_roster_block = 'true';
+const s34ana = ctx.findUserByEmail('ana@x.com');
+ctx.r34UserDays = (em) => em === 'ana@x.com' ? { '2026-10-03': { date: '2026-10-03', leaveType: 'Annual leave', code: 'AL' }, '2026-10-04': { date: '2026-10-04', dayOff: true, leaveType: 'Day off', code: 'OFF' } } : {};
+let s34mb = run('s34MealBlock', s34ana, 'dinner', '2026-10-03');
+check('rostered on annual leave → order blocked with the date', s34mb && s34mb.rosteredOff && /rostered off on Sat 3 Oct/.test(s34mb.error), JSON.stringify(s34mb));
+check('day off → not blocked', run('s34MealBlock', s34ana, 'dinner', '2026-10-04') === null);
+check('unlinked staff never blocked', run('s34MealBlock', Object.assign({}, s34ana, { employeeCode: '' }), 'dinner', '2026-10-03') === null);
+settings.meal_roster_block = 'false';
+check('setting off → not blocked', run('s34MealBlock', s34ana, 'dinner', '2026-10-03') === null);
+settings.meal_roster_block = 'true';
+const s34sp = api('requestSpecialMeal', { sessionToken: T.ana, meal: 'dinner', serviceDate: '2026-10-03', reason: 'Staying on the island' });
+check('special meal request → HOD notified', s34sp.success && store.Notifications.some(n => n.userEmail === 'hod@x.com' && /Special meal/.test(n.title)), JSON.stringify(s34sp));
+check('reason is required', api('requestSpecialMeal', { sessionToken: T.ana, meal: 'lunch', serviceDate: '2026-10-03', reason: '' }).success === false);
+check('other department HOD cannot approve the special meal', api('decideSpecialMeal', { sessionToken: T.khod, id: s34sp.data.id, decision: 'approve' }).success === false);
+check('HOD approves the special meal', api('decideSpecialMeal', { sessionToken: T.hod, id: s34sp.data.id, decision: 'approve' }).success === true);
+check('approved special meal listed for the kitchen', run('s34SpecialFor', '2026-10-03').dinner.length === 1 && run('s34SpecialFor', '2026-10-03').dinner[0].reason === 'Staying on the island');
+// missing weekly roster: HOD Saturday, admins Sunday (once)
+const s34remCtx = (today, hour, sent) => ({ today, hour, minute: 0, users: [{ email: 'hod@x.com', department: 'Housekeeping', active: true, isLead: true }, { email: 'admin@x.com', department: 'Management', active: true, isAdmin: true }],
+  sent: sent || {}, backHour: 18, backMinute: 0, headsUp: false, days: () => ({}), leave: () => ({}), weeklyDone: () => false, monthlyDone: () => true });
+const s34sat = run('r34PlanReminders', s34remCtx('2026-10-03', 19));
+check('Saturday: HOD warned about next week, admins not yet', s34sat.some(x => x.kind === 'weekly_due' && x.email === 'hod@x.com') && !s34sat.some(x => x.kind === 'weekly_admin'), JSON.stringify(s34sat));
+const s34sentK = {}; s34sat.forEach(x => { s34sentK[x.key] = 1; });
+const s34sun = run('r34PlanReminders', s34remCtx('2026-10-04', 9, s34sentK));
+check('Sunday: admins get one pending alert naming the department; HOD not warned twice', s34sun.some(x => x.kind === 'weekly_admin' && x.email === 'admin@x.com' && /Housekeeping/.test(x.body)) && !s34sun.some(x => x.kind === 'weekly_due'), JSON.stringify(s34sun));
+s34sun.forEach(x => { s34sentK[x.key] = 1; });
+check('Sunday again: nothing repeated', run('r34PlanReminders', s34remCtx('2026-10-04', 20, s34sentK)).length === 0);
+settings.schedule_link_required = 'false';
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

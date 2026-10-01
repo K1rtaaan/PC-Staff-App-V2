@@ -46,6 +46,7 @@ var A31_LOGGED = {
   saveLeaveAllowance: ['admin', ['Leave Allowances'], ''],
   applyEmployeeCodes: ['admin', ['Users'], ''],
   setEmployeeCode: ['admin', ['Users'], ''],
+  // 3.4.0 staff links / registration / special meals log themselves (s34Log; no Users snapshot so passwords never reach the log)
   deleteLeaveAllowance: ['admin', ['Leave Allowances'], ''],
   saveRosterSettings: ['admin', ['App Settings'], ''],
   // Kitchen Admin

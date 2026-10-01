@@ -772,7 +772,7 @@ navigate = function(tab){
     adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports, pushsettings: a33RenderSettings,
     adminoverview: a34RenderOverview, admintools: a34RenderTools, aboutimage: a34RenderAboutImage, resortboat: r33RenderResortAdmin,
     rostermonthly: function(){ return r34RenderUpload('monthly'); }, rosterweekly: function(){ return r34RenderUpload('weekly'); }, rosterarchive: function(){ return r34RenderUpload('archive'); },
-    rosterunmatched: r34RenderUnmatched, leaveallow: r34RenderAllowances, empcodes: r34RenderEmpCodes // 3.4.0
+    rosterunmatched: r34RenderUnmatched, leaveallow: r34RenderAllowances, empcodes: r34RenderEmpCodes, deptstaff: s34RenderDeptStaff // 3.4.0
   };
   if (['home','meals','boat','kitchen'].includes(tab)) paintSkeleton({ cards: 3 });
   try { history.replaceState(null, '', location.pathname + location.search + (tab === 'home' ? '' : '#'+tab)); } catch (e) {}
@@ -1306,7 +1306,44 @@ function v3OrderLine(o, meal){
   return '<div class="v3-row text-xs"><span class="text-slate-300 min-w-0 truncate">'+(meal==='dinner'?'Your dinner: <strong class="text-slate-100">'+esc(o.mealChoice)+'</strong>':'You are counted in')+'</span>'+v3Status(o.status)+'</div>'+myNoteLine(o)+
     (o.status === 'late_pending' ? '<p class="text-[10px] text-orange-200">Approved automatically at '+esc(mtLabel(mealTimesNow()['late_close_'+meal]))+'.</p>' : '');
 }
+/* 3.4.0: orders vs estimated staff on island; staff rostered on leave send a special meal request instead */
+function s34IslandFor(date){ const d = cachePeek('s34isl') || {}; return (d.estimates||[]).find(function(e){ return e.date === date; }) || null; }
+async function s34FetchIsland(){
+  if (state.demo || !r34On()) return null;
+  const dates = V3_MEALS.map(function(m){ return v3Info(m).serviceDate; }).filter(function(x, i, a){ return x && a.indexOf(x) === i; });
+  const r = await api('getIslandEstimate', { dates: dates.join(',') }).catch(function(){ return null; });
+  if (r && r.success) { cacheSet('s34isl', Object.assign({}, r.data, { _blockOn: r.data.blockOn })); return r.data; }
+  return null;
+}
+function s34OffCard(meal, date, isl){
+  const mine = ((isl && isl.mySpecial) || []).filter(function(x){ return x.meal === meal; })[0];
+  return '<div class="rounded-xl border border-sky-400/40 bg-sky-500/10 p-3 space-y-2 text-xs" id="s34-off-'+meal+'"><p class="text-sky-100 font-semibold"><i class="fa-solid fa-plane-departure mr-1"></i>You are rostered off on '+esc(v3DateLabel(date))+'</p>'+
+    '<p class="text-slate-300">Your roster shows leave that day, so normal '+esc(V3_MEAL_LABEL[meal].toLowerCase())+' orders are closed for you. On the island anyway? Ask your HOD for a special meal.</p>'+
+    (mine ? '<p class="text-slate-200 s34-sp-status">Special meal request: <strong>'+esc(mine.status)+'</strong> — '+esc(mine.reason||'')+'</p>' :
+      '<button type="button" class="w-full rounded-xl py-2 text-sm border border-sky-400/50 text-sky-100 s34-sp-btn" data-meal="'+meal+'" data-date="'+esc(date)+'"><i class="fa-solid fa-utensils mr-1"></i>Special meal request</button>')+'</div>';
+}
+function s34OpenSpecialRequest(meal, date){
+  openModal('<div class="space-y-3" id="s34-sp-form"><h3 class="text-lg font-semibold text-sand-100">Special meal request</h3><p class="text-xs text-slate-300">'+esc(V3_MEAL_LABEL[meal])+' · '+esc(v3DateLabel(date))+'. Your HOD approves it; the chef then sees it on the kitchen list.</p>'+
+    '<label for="s34-sp-reason" class="text-[11px] text-slate-400">Reason (required)</label><textarea id="s34-sp-reason" class="ui-input w-full" rows="3" maxlength="300" placeholder="e.g. staying on the island during my leave"></textarea>'+
+    '<div class="grid grid-cols-2 gap-2"><button type="button" class="glass rounded-xl py-2 text-sm" onclick="closeModal()">Cancel</button><button type="button" id="s34-sp-send" class="btn-primary rounded-xl py-2 text-sm text-white font-semibold">Send to HOD</button></div></div>');
+  $('#s34-sp-send').onclick = async function(){
+    const reason = $('#s34-sp-reason').value.trim();
+    if (reason.length < 3) { toast('A reason is required','error'); return; }
+    this.disabled = true;
+    const r = await v3Call('requestSpecialMeal', { meal: meal, serviceDate: date, reason: reason }, 'Sent to your HOD');
+    this.disabled = false;
+    if (r) { closeModal(); await s34FetchIsland(); if (state.tab === 'meals') v3PaintMeals(); }
+  };
+}
 function v3MealCard(meal){
+  const html = v3MealCardBase(meal);
+  const date = v3Info(meal).serviceDate, isl = s34IslandFor(date), d = cachePeek('s34isl') || {};
+  if (!isl) return html;
+  const line = '<div class="px-1" id="isl-'+meal+'">'+islandLineHtml(isl, meal)+'</div>';
+  if (d.blockOn && isl.me === 'off' && !v3CurOrder(meal, date)) return line + s34OffCard(meal, date, isl);
+  return line + html;
+}
+function v3MealCardBase(meal){
   const info = v3Info(meal), tom = info.serviceDate, today = v3Today(), rows = v3MealRows(meal) || [];
   const cur = v3CurOrder(meal, tom);
   const used = rows.filter(function(o){ return o.status === 'cancelled' && o.orderType !== 'special'; }).length;
@@ -1474,6 +1511,7 @@ function v3PaintMeals(){
     '<div role="tabpanel" id="meal-panel" data-tab="'+tab+'" aria-labelledby="meal-tabs-'+tab+'" class="space-y-4 min-w-0">'+body+'</div>', 'meals-root');
   Object.keys(keep).forEach(function(k){ const el = document.getElementById(k); if (el && keep[k] && el.tagName !== 'SELECT') el.value = keep[k]; });
   bindQueueButtons(); v3BindMealCards(); v3BindFeedback(); r33BindMyMeals(); v3StartTicker();
+  $$('.s34-sp-btn').forEach(function(b){ b.onclick = function(){ s34OpenSpecialRequest(b.dataset.meal, b.dataset.date); }; });
 }
 async function renderMeals(){
   state.mealPill = 'meals';
@@ -1484,6 +1522,7 @@ async function renderMeals(){
   const jobs = V3_MEALS.map(function(m){ return v3FetchMeal(m).catch(function(){ return null; }); });
   jobs.push(v3FetchMenu().catch(function(){ return null; }));
   jobs.push(v3FetchMenu(false, today).catch(function(){ return null; }));
+  jobs.push(s34FetchIsland()); // 3.4.0
   if (!cacheGet('v3home')) jobs.push(v3RefreshHome());
   await Promise.all(jobs);
   if (state.tab === 'meals' && !v3HomeTyping()) v3PaintMeals();
@@ -2147,7 +2186,7 @@ function v3RenderDeptAdmin(){
       v3Tile(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view')+
       v3Tile(v3Nav('leavesummary'),'fa-table','Leave summary','Totals & list')+
       v3Tile(v3Nav('mealbehalf'),'fa-star','Meal on behalf','Staff without a phone')+
-      (featureOn('feature_my_schedule') ? v3Tile(v3Nav('rosterweekly'),'fa-calendar-week','Weekly roster','Upload Mon–Sun, before the week')+v3Tile(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','Link roster names to staff', state._r34Unm||0) : '')+ // 3.4.0
+      (featureOn('feature_my_schedule') ? v3Tile(v3Nav('deptstaff'),'fa-people-roof','Department staff','Roster vs app accounts · link · register · special meals', state._s34Req||0)+v3Tile(v3Nav('rosterweekly'),'fa-calendar-week','Weekly roster','Upload Mon–Sun, before the week')+v3Tile(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','Link roster names to staff', state._r34Unm||0) : '')+ // 3.4.0
       v3Tile(a31LogNav('dept'),'fa-clock-rotate-left','Activity log','Who changed what')+'</div>', 'deptadmin-root');
   v3RefreshHome().then(function(){ if (state.tab === 'deptadmin') { const el = $('#v3-hodbar'); if (el) el.outerHTML = v3HodBar(); } }).catch(function(){});
 }
@@ -3405,14 +3444,14 @@ function r34On(){ return !!state.user && !v3IsSuper() && featureOn('feature_my_s
   canPrivilegedTab = function(tab){
     if (tab === 'rosterarchive') return v3IsSuper();
     if (tab === 'rostermonthly' || tab === 'leaveallow' || tab === 'empcodes') return v3IsAdmin();
-    if (tab === 'rosterweekly' || tab === 'rosterunmatched') return v3CanDept();
+    if (tab === 'rosterweekly' || tab === 'rosterunmatched' || tab === 'deptstaff') return v3CanDept() || v3IsAdmin();
     return baseCan(tab);
   };
   const baseRenderNav = renderNav;
   renderNav = function(sel){ baseRenderNav(sel); const el = $(sel || '#bottom-nav'); if (el) el.classList.toggle('r34-five', el.children.length >= 5); };
 })();
-Object.assign(V3_TITLES, { schedule:'My schedule', rostermonthly:'Rosters (whole resort)', empcodes:'Employee codes', rosterweekly:'Weekly roster', rosterarchive:'Roster archive', rosterunmatched:'Unmatched names', leaveallow:'Leave allowances & codes' });
-Object.assign(V3_ROLE_TABS, { rostermonthly:'admin', empcodes:'admin', leaveallow:'admin', rosterarchive:'admin', rosterweekly:'dept', rosterunmatched:'dept' });
+Object.assign(V3_TITLES, { schedule:'My schedule', rostermonthly:'Rosters (whole resort)', empcodes:'Employee codes', rosterweekly:'Weekly roster', rosterarchive:'Roster archive', rosterunmatched:'Unmatched names', leaveallow:'Leave allowances & codes', deptstaff:'Department staff' });
+Object.assign(V3_ROLE_TABS, { rostermonthly:'admin', empcodes:'admin', leaveallow:'admin', rosterarchive:'admin', rosterweekly:'dept', rosterunmatched:'dept', deptstaff:'dept' });
 (function(){ try { const st = document.createElement('style'); st.textContent = '#bottom-nav.r34-five .nav-item{padding-left:2px;padding-right:2px;flex:1 1 0;min-width:0}#bottom-nav.r34-five .nav-item span:not(.v3-count){max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'+
   '.r34-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}.r34-cell{border-radius:8px;min-height:46px;padding:3px;font-size:10px;line-height:1.15;min-width:0;overflow:hidden;border:1px solid rgba(100,116,139,.35)}'+
   '.r34-work{background:rgba(20,184,166,.16)}.r34-off{background:rgba(245,158,11,.16)}.r34-leave{background:rgba(56,189,248,.18)}.r34-today{outline:2px solid #2dd4bf}.r34-bar{height:6px;border-radius:9px;background:rgba(100,116,139,.35);overflow:hidden}.r34-bar>i{display:block;height:100%;background:#14b8a6}'; document.head.appendChild(st); } catch (e) {} })();
@@ -3420,12 +3459,14 @@ function r34AdminGroup(g){
   if (!featureOn('feature_my_schedule')) return '';
   return g('Rosters', v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Rosters (whole resort)','Weekly workbooks for all departments · or a monthly grid') +
     v3Row(v3Nav('empcodes'),'fa-id-badge','Employee codes','Import the staff listing (GL codes) · matched first on rosters') +
+    v3Row(v3Nav('deptstaff'),'fa-people-roof','Department staff','Active · pending · roster-only, by department · register staff', state._s34Req||0) +
     v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','Link roster names to staff', state._r34Unm||0) +
     v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & codes','Days per year, leave types, roster codes, reminders'));
 }
 function r34ManageGroup(g){
   return g('Rosters', v3Row(v3Nav('rosterarchive'),'fa-box-archive','Roster archive','Past monthly rosters (Jan 2026 →) · leave used · patterns') +
     v3Row(v3Nav('empcodes'),'fa-id-badge','Employee codes','Import the staff listing') +
+    v3Row(v3Nav('deptstaff'),'fa-people-roof','Department staff','Active · pending · roster-only · register staff') +
     (featureOn('feature_my_schedule') ? v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Rosters (whole resort)','Weekly workbooks · monthly grid') + v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','') + v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & codes','') : ''));
 }
 /* ---------- employee codes: import the staff listing (New Code · Name · Date Started · Department) ---------- */
@@ -3535,6 +3576,7 @@ async function r34RenderSchedule(){
 }
 function r34PaintSchedule(d, cur){
   const el = $('#sch-body'); if (!el) return;
+  if (d.locked) { el.innerHTML = s34LockedHtml(d); s34BindLocked(d); return; }
   state._r34LeaveTypes = (d.leaveTypes||[]).slice();
   el.innerHTML = cur === 'leave' ? r34LeaveHtml(d) : r34RosterHtml(d);
   if (cur === 'leave') {
@@ -4203,3 +4245,104 @@ async function r34RenderAllowances(){
 
 /* ============ N. start ============ */
 boot();
+
+/* ============ 3.4.0 Schedule lock · link requests · department staff · registration · special meal approvals ============ */
+function s34LockedHtml(d){
+  const lr = d.linkRequest;
+  const st = lr && lr.status === 'pending' ? '<div class="rounded-xl border border-amber-400/40 bg-amber-500/10 p-3 text-xs text-amber-100" id="s34-lock-pending"><i class="fa-solid fa-hourglass-half mr-1"></i>'+
+      (lr.type === 'number' ? 'Waiting for your HOD or an admin to approve employee number <strong>'+esc(lr.code)+'</strong>.' : 'Your HOD or an admin will enter your employee number.')+' You will get a notification.</div>'
+    : (lr && lr.status === 'declined' ? '<p class="text-xs text-rose-200" id="s34-lock-declined">Your last request was not approved'+(lr.note?': '+esc(lr.note):'')+'. Check your number with your HOD.</p>' : '');
+  return v3Card(v3Title('fa-lock','Schedule is locked')+
+    '<p class="text-xs text-slate-300">Your account is not linked to the roster yet. The link is your employee number (e.g. GL018) — it makes sure you only ever see your own shifts.</p>'+st+
+    '<div class="space-y-2 mt-2" id="s34-lock-opts">'+
+    '<div class="rounded-xl border border-slate-700/60 p-3 space-y-2"><p class="text-xs text-slate-100 font-semibold"><i class="fa-solid fa-id-badge mr-1"></i>Enter my employee number</p>'+
+    '<input id="s34-code" class="ui-input w-full" maxlength="12" autocomplete="off" placeholder="GL…"/><button type="button" id="s34-send-code" class="btn-primary w-full rounded-xl py-2 text-sm text-white font-semibold">Send to my HOD for approval</button></div>'+
+    '<button type="button" id="s34-ask-code" class="w-full rounded-xl py-3 text-sm border border-slate-600 text-slate-100"><i class="fa-solid fa-circle-question mr-1"></i>I don\'t know my number – request it</button>'+
+    '</div><p class="text-[11px] text-slate-500 mt-2">Leave requests still work: <button type="button" id="s34-lock-leave" class="text-teal-300 underline">request leave</button>.</p>', 's34-lock');
+}
+function s34BindLocked(d){
+  const send = async function(type){
+    const code = type === 'number' ? $('#s34-code').value.trim() : '';
+    if (type === 'number' && !code) { toast('Enter your employee number','error'); return; }
+    const r = await v3Call('requestScheduleLink', { type: type, code: code }, type === 'number' ? 'Sent to your HOD' : 'Request sent to your HOD');
+    if (r) { cacheInvalidate(['r34my']); r34RenderSchedule(); }
+  };
+  const a = $('#s34-send-code'); if (a) a.onclick = function(){ send('number'); };
+  const b = $('#s34-ask-code'); if (b) b.onclick = function(){ send('unknown'); };
+  const l = $('#s34-lock-leave'); if (l) l.onclick = function(){ if (typeof v3OpenLeaveForm === 'function') v3OpenLeaveForm(); };
+}
+async function s34RenderDeptStaff(){
+  state._roleMode = v3IsAdmin() ? 'admin' : 'dept';
+  const f = state._s34Dept != null ? state._s34Dept : (v3IsAdmin() ? '' : ((state.user && state.user.department) || ''));
+  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack(v3IsAdmin() ? 'admin' : 'dept'))+
+    '<div id="ds-body">'+v3Card(v3Loading())+'</div>', 'deptstaff-root');
+  if (state.demo) { $('#ds-body').innerHTML = v3Card('<p class="text-xs text-slate-300">Needs the real server (not in the demo).</p>'); return; }
+  const r = await v3Call('getDeptRosterStaff', { department: f });
+  if (!r || state.tab !== 'deptstaff') return;
+  state._s34Req = r.counts.requests; state._s34DS = r;
+  s34PaintDeptStaff(r);
+}
+function s34PaintDeptStaff(d){
+  const box = $('#ds-body'); if (!box) return;
+  const depts = (d.departments && d.departments.length ? d.departments : PCR_DEPARTMENTS);
+  const pill = function(t, n, tone){ return '<span class="text-[11px] rounded-full px-2 py-0.5 border '+tone+'">'+t+' '+n+'</span>'; };
+  const ronly = d.rosterOnly || [];
+  const rosterPick = function(id, dept){ const l = ronly.filter(function(x){ return !dept || x.department === dept; }); return l.length ? '<select class="ui-input w-full ds-rn" id="'+id+'"><option value="">Roster name (optional)</option>'+l.map(function(x){ return '<option value="'+esc(x.rosterName)+'" data-dept="'+esc(x.department)+'">'+esc(x.rosterName)+' · '+esc(x.department)+'</option>'; }).join('')+'</select>' : ''; };
+  const reqHtml = (d.requests||[]).map(function(q){
+    return '<div class="rounded-xl border border-amber-400/40 bg-amber-500/10 p-2 space-y-1 text-xs ds-req" data-id="'+esc(q.id)+'"><p class="text-amber-100"><strong>'+esc(q.userName)+'</strong> · '+esc(q.department)+'</p>'+
+      '<p class="text-slate-300">'+(q.type === 'number' ? 'Entered employee number <strong>'+esc(q.code)+'</strong>' : 'Does not know their number')+'</p>'+
+      '<input class="ui-input w-full ds-req-code" maxlength="12" value="'+esc(q.code||'')+'" placeholder="GL…"/>'+rosterPick('ds-req-rn-'+q.id, q.department)+
+      '<div class="grid grid-cols-2 gap-2"><button type="button" class="glass rounded-lg py-2 ds-req-no" data-id="'+esc(q.id)+'">Decline</button><button type="button" class="btn-primary rounded-lg py-2 text-white font-semibold ds-req-ok" data-id="'+esc(q.id)+'">Approve &amp; link</button></div></div>';
+  }).join('');
+  const person = function(u, pending){
+    return '<div class="py-1.5 border-b border-slate-700/40 last:border-0 text-xs min-w-0 ds-person" data-email="'+esc(u.email)+'"><div class="v3-row min-w-0"><span class="text-slate-100 truncate">'+esc(u.name)+'</span><span class="text-[10px] text-slate-500 shrink-0">'+esc(u.code||'no code')+'</span></div>'+
+      '<p class="text-[10px] text-slate-400">'+esc(u.department)+' · '+(u.onRoster ? 'on the roster' : 'not on the current roster')+(u.firstLogin ? ' · has not signed in yet' : '')+'</p>'+
+      (pending ? '<div class="grid grid-cols-3 gap-1 mt-1"><input class="ui-input col-span-2 ds-code" maxlength="12" placeholder="Employee number"/><button type="button" class="btn-primary rounded-lg text-white ds-link" data-email="'+esc(u.email)+'">Link</button></div>'+rosterPick('ds-rn-'+u.email.replace(/[^a-z0-9]/gi,''), u.department) : '')+'</div>';
+  };
+  const sec = function(id, title, n, body, open){ return '<details class="rounded-xl border border-slate-700/60 p-2" id="'+id+'"'+(open?' open':'')+'><summary class="text-xs text-slate-100 font-semibold cursor-pointer">'+title+' '+v3Chip(String(n), n ? 'info' : 'mute')+'</summary><div class="mt-1">'+(body||'<p class="text-[11px] text-slate-500">None</p>')+'</div></details>'; };
+  box.innerHTML = '<div class="space-y-3"><div id="ds-spm"></div>'+
+    (d.isAdmin ? v3Card('<label for="ds-dept" class="text-[11px] text-slate-400">Department</label><select id="ds-dept" class="ui-input w-full"><option value="">All departments</option>'+depts.map(function(x){ return '<option'+(x===d.department?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select>') : '')+
+    v3Card(v3Title('fa-people-roof', esc(d.department || 'All departments'))+'<div class="flex flex-wrap gap-1" id="ds-counts">'+pill('Active', d.counts.active, 'border-teal-400/50 text-teal-100')+pill('Pending', d.counts.pending, 'border-amber-400/50 text-amber-100')+pill('Roster-only', d.counts.rosterOnly, 'border-slate-500 text-slate-200')+pill('Requests', d.counts.requests, 'border-sky-400/50 text-sky-100')+'</div>'+
+      '<p class="text-[10px] text-slate-500 mt-1">Roster weeks '+esc(d.window.from)+' → '+esc(d.window.to)+'. Active = account with an employee number and on the roster.</p>')+
+    ((d.requests||[]).length ? v3Card(v3Title('fa-inbox','Schedule link requests')+'<div class="space-y-2" id="ds-reqs">'+reqHtml+'</div>') : '')+
+    sec('ds-active', 'Active', d.active.length, d.active.map(function(u){ return person(u, false); }).join(''), false)+
+    sec('ds-pending', 'Pending (account, not linked)', d.pending.length, d.pending.map(function(u){ return person(u, true); }).join(''), true)+
+    sec('ds-ronly', 'Roster-only (no app account)', ronly.length, ronly.map(function(x){ return '<div class="py-1.5 border-b border-slate-700/40 last:border-0 text-xs ds-ro"><div class="v3-row"><span class="text-slate-100 truncate">'+esc(x.rosterName)+'</span><span class="text-[10px] text-slate-500 shrink-0">'+esc(x.department)+' · '+x.shifts+' days</span></div><button type="button" class="text-[11px] text-teal-300 underline ds-reg-from" data-name="'+esc(x.rosterName)+'" data-dept="'+esc(x.department)+'">Register this person</button></div>'; }).join(''), false)+
+    v3Card(v3Title('fa-user-plus','Register a staff member')+
+      '<div class="grid grid-cols-2 gap-2"><input id="ds-fn" class="ui-input w-full min-w-0" placeholder="First name"/><input id="ds-ln" class="ui-input w-full min-w-0" placeholder="Last name"/></div>'+
+      '<input id="ds-email" class="ui-input w-full" type="email" autocomplete="off" placeholder="Email"/>'+
+      (d.isAdmin ? '<select id="ds-rdept" class="ui-input w-full">'+depts.map(function(x){ return '<option'+(x===d.department?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select>' : '<p class="text-[11px] text-slate-400">Department: '+esc(d.department)+'</p>')+
+      '<input id="ds-rcode" class="ui-input w-full" maxlength="12" placeholder="Employee number (GL…)"/>'+rosterPick('ds-rrn', d.isAdmin ? '' : d.department)+
+      '<p class="text-[10px] text-slate-500">A one-time password is emailed; they choose their own at first sign-in.</p>'+
+      '<button type="button" id="ds-reg" class="btn-primary w-full rounded-xl py-3 text-sm text-white font-semibold"><i class="fa-solid fa-paper-plane mr-1"></i>Create account &amp; email login</button><div id="ds-reg-out"></div>', 'ds-register')+'</div>';
+  const reload = function(){ state._s34DS = null; s34RenderDeptStaff(); };
+  s34RenderSpecialApprovals('#ds-spm');
+  const dd = $('#ds-dept'); if (dd) dd.onchange = function(){ state._s34Dept = this.value; reload(); };
+  const rnOf = function(sel){ const o = sel && sel.selectedOptions && sel.selectedOptions[0]; return o && o.value ? { rosterName: o.value, rosterDept: o.dataset.dept || '' } : {}; };
+  $$('.ds-req-ok').forEach(function(b){ b.onclick = async function(){ const card = b.closest('.ds-req'); const code = card.querySelector('.ds-req-code').value.trim();
+    const r = await v3Call('decideLinkRequest', Object.assign({ id: b.dataset.id, decision: 'approve', code: code }, rnOf(card.querySelector('.ds-rn'))), 'Linked — Schedule unlocked'); if (r) reload(); }; });
+  $$('.ds-req-no').forEach(function(b){ b.onclick = async function(){ const r = await v3Call('decideLinkRequest', { id: b.dataset.id, decision: 'decline' }, 'Declined'); if (r) reload(); }; });
+  $$('.ds-link').forEach(function(b){ b.onclick = async function(){ const row = b.closest('.ds-person'); const code = row.querySelector('.ds-code').value.trim(); if (!code) { toast('Enter the employee number','error'); return; }
+    const r = await v3Call('setStaffLink', Object.assign({ targetEmail: b.dataset.email, code: code }, rnOf(row.querySelector('.ds-rn'))), 'Linked — Schedule unlocked'); if (r) reload(); }; });
+  $$('.ds-reg-from').forEach(function(b){ b.onclick = function(){ const n = b.dataset.name.split(' '); $('#ds-fn').value = n[0] || ''; $('#ds-ln').value = n.slice(1).join(' '); const rd = $('#ds-rdept'); if (rd) rd.value = b.dataset.dept; const rr = $('#ds-rrn'); if (rr) rr.value = b.dataset.name; $('#ds-email').focus(); }; });
+  $('#ds-reg').onclick = async function(){
+    const rd = $('#ds-rdept');
+    const p = Object.assign({ firstName: $('#ds-fn').value.trim(), lastName: $('#ds-ln').value.trim(), email: $('#ds-email').value.trim(), department: rd ? rd.value : d.department, employeeCode: $('#ds-rcode').value.trim() }, rnOf($('#ds-rrn')));
+    if (!p.firstName || !p.lastName || !p.email) { toast('Name and email are required','error'); return; }
+    this.disabled = true;
+    const r = await v3Call('registerStaff', p);
+    this.disabled = false;
+    if (r) $('#ds-reg-out').innerHTML = '<div class="rounded-xl bg-teal-500/10 border border-teal-400/30 p-3 text-xs mt-2" id="ds-reg-done"><p class="text-teal-100 font-semibold">'+esc(r.name)+' registered ('+esc(r.department)+')'+(r.code?' · '+esc(r.code):'')+'</p><p class="text-slate-300">'+(r.emailed ? 'Login emailed to '+esc(r.email)+'.' : 'The login email could not be sent'+(r.error?': '+esc(r.error):'')+'.')+'</p></div>';
+  };
+}
+/* HOD: approve special meal requests (Department Admin → leave approvals card area) */
+async function s34RenderSpecialApprovals(host){
+  const el = typeof host === 'string' ? $(host) : host; if (!el || state.demo) return;
+  const r = await api('getSpecialMeals', {}).catch(function(){ return null; });
+  if (!r || !r.success) return;
+  const pend = (r.data.requests||[]).filter(function(x){ return x.status === 'pending'; });
+  el.innerHTML = pend.length ? v3Card(v3Title('fa-utensils','Special meal requests')+'<div class="space-y-2" id="spm-list">'+pend.map(function(x){
+    return '<div class="rounded-xl border border-slate-700/60 p-2 text-xs spm-row" data-id="'+esc(x.id)+'"><p class="text-slate-100"><strong>'+esc(x.userName)+'</strong> · '+esc(V3_MEAL_LABEL[x.meal]||x.meal)+' · '+esc(v3DateLabel(x.serviceDate))+'</p><p class="text-slate-400">'+esc(x.reason)+'</p>'+
+      '<div class="grid grid-cols-2 gap-2 mt-1"><button type="button" class="glass rounded-lg py-2 spm-no" data-id="'+esc(x.id)+'">Decline</button><button type="button" class="btn-primary rounded-lg py-2 text-white spm-ok" data-id="'+esc(x.id)+'">Approve</button></div></div>'; }).join('')+'</div>', 'spm-card') : '';
+  $$('.spm-ok,.spm-no').forEach(function(b){ b.onclick = async function(){ const ok = b.classList.contains('spm-ok'); const rr = await v3Call('decideSpecialMeal', { id: b.dataset.id, decision: ok ? 'approve' : 'decline' }, ok ? 'Approved — the chef will see it' : 'Declined'); if (rr) s34RenderSpecialApprovals(el); }; });
+}
