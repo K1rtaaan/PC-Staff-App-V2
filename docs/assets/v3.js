@@ -1316,10 +1316,10 @@ async function s34FetchIsland(){
   return null;
 }
 function s34OffCard(meal, date, isl){
-  const mine = ((isl && isl.mySpecial) || []).filter(function(x){ return x.meal === meal; })[0];
+  const mine = ((isl && isl.mySpecial) || []).filter(function(x){ return x.meal === meal && (x.status === 'pending' || x.status === 'approved'); }).slice(-1)[0];
   return '<div class="rounded-xl border border-sky-400/40 bg-sky-500/10 p-3 space-y-2 text-xs" id="s34-off-'+meal+'"><p class="text-sky-100 font-semibold"><i class="fa-solid fa-plane-departure mr-1"></i>You are rostered off '+esc(/^(Today|Tomorrow)$/.test(v3DateLabel(date)) ? v3DateLabel(date).toLowerCase()+' ('+v3DayDate(date)+')' : 'on '+v3DateLabel(date))+'</p>'+
     '<p class="text-slate-300">Your roster shows leave that day, so normal '+esc(V3_MEAL_LABEL[meal].toLowerCase())+' orders are closed for you. On the island anyway? Ask your HOD for a special meal.</p>'+
-    (mine ? '<p class="text-slate-200 s34-sp-status">Special meal request: <strong>'+esc(mine.status)+'</strong> — '+esc(mine.reason||'')+'</p>' :
+    (mine ? '<p class="text-slate-200 s34-sp-status">Special meal request: <strong>'+esc(mine.status)+'</strong> — '+esc(mine.reason||'')+'</p><button type="button" class="text-[11px] text-slate-400 underline s34-sp-cancel" data-id="'+esc(mine.id)+'">Cancel this request</button>' :
       '<button type="button" class="w-full rounded-xl py-2 text-sm border border-sky-400/50 text-sky-100 s34-sp-btn" data-meal="'+meal+'" data-date="'+esc(date)+'"><i class="fa-solid fa-utensils mr-1"></i>Special meal request</button>')+'</div>';
 }
 function s34OpenSpecialRequest(meal, date){
@@ -1512,6 +1512,7 @@ function v3PaintMeals(){
   Object.keys(keep).forEach(function(k){ const el = document.getElementById(k); if (el && keep[k] && el.tagName !== 'SELECT') el.value = keep[k]; });
   bindQueueButtons(); v3BindMealCards(); v3BindFeedback(); r33BindMyMeals(); v3StartTicker();
   $$('.s34-sp-btn').forEach(function(b){ b.onclick = function(){ s34OpenSpecialRequest(b.dataset.meal, b.dataset.date); }; });
+  $$('.s34-sp-cancel').forEach(function(b){ b.onclick = async function(){ const r = await v3Call('cancelSpecialMeal', { id: b.dataset.id }, 'Request cancelled'); if (r) { await s34FetchIsland(); if (state.tab === 'meals') v3PaintMeals(); } }; });
 }
 async function renderMeals(){
   state.mealPill = 'meals';

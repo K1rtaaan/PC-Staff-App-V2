@@ -369,6 +369,17 @@ function decideSpecialMeal(p) {
   s34Log(me, 'dept', 'decideSpecialMeal', r.userEmail, (ok ? 'Approved' : 'Declined') + ' special ' + r.meal + ' for ' + r.userName + ' on ' + String(r.serviceDate).slice(0, 10));
   return { success: true, data: { status: ok ? 'approved' : 'declined' } };
 }
+/** staff: cancel my own special meal request (pending or approved) */
+function cancelSpecialMeal(p) {
+  var me = v3Requester(p);
+  s34Ensure();
+  var r = sheetToObjects(S34.SPECIAL).filter(function (x) { return String(x.id) === String(p.id); })[0];
+  if (!r || s34Lower(r.userEmail) !== s34Lower(me.email)) return { success: false, error: 'Request not found' };
+  if (String(r.status) !== 'pending' && String(r.status) !== 'approved') return { success: false, error: 'Already ' + r.status };
+  updateRowById(S34.SPECIAL, r.id, { status: 'cancelled', decidedAt: nowIso() });
+  s34Log(me, 'dept', 'cancelSpecialMeal', me.email, 'Cancelled the special ' + r.meal + ' request for ' + String(r.serviceDate).slice(0, 10));
+  return { success: true, data: { status: 'cancelled' } };
+}
 /** for the kitchen summary / printouts: approved special meals of one date, by meal */
 function s34SpecialFor(date) {
   var o = { breakfast: [], lunch: [], dinner: [] };
@@ -383,7 +394,7 @@ function s34SpecialFor(date) {
 function routeStaff34(action, p) {
   var map = { requestScheduleLink: requestScheduleLink, decideLinkRequest: decideLinkRequest, setStaffLink: setStaffLink, getLinkRequests: getLinkRequests,
     getDeptRosterStaff: getDeptRosterStaff, registerStaff: registerStaff, setFirstPassword: setFirstPassword,
-    getIslandEstimate: getIslandEstimate, requestSpecialMeal: requestSpecialMeal, getSpecialMeals: getSpecialMeals, decideSpecialMeal: decideSpecialMeal };
+    getIslandEstimate: getIslandEstimate, requestSpecialMeal: requestSpecialMeal, cancelSpecialMeal: cancelSpecialMeal, getSpecialMeals: getSpecialMeals, decideSpecialMeal: decideSpecialMeal };
   var fn = map[action];
   if (!fn && action === 'testMailLog' && typeof testMailLogAction === 'function') fn = testMailLogAction; // TEST backend only (TestEnv.gs)
   if (!fn) return null;
