@@ -70,6 +70,9 @@ const hide = s => String(s).split(PW).join('***');
   const ts = Date.now().toString(36).slice(-5);
   const NEW = 'groupit.paradisecoveresortfiji+t-n' + ts + '@gmail.com', NEWPW = PW + 'N1';
 
+  // re-runnable: decline link requests left open by an earlier (crashed) run of this suite (TEST accounts t-n…)
+  await login('admin');
+  for (const it of (((await api('getDeptPending', {})).data || {}).items || [])) if (it.kind === 'link' && /\+t-n/.test(it.userEmail)) await api('decideOnBehalf', { kind: 'link', id: it.id, decision: 'decline' });
   // ================= HOD: department staff page + register a staff member
   await login('hod');
   const hodDept = await page.evaluate(() => state.user.department);
