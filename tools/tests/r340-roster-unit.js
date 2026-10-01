@@ -514,6 +514,8 @@ const s34sun = run('r34PlanReminders', s34remCtx('2026-10-04', 9, s34sentK));
 check('Sunday: admins get one pending alert naming the department; HOD not warned twice', s34sun.some(x => x.kind === 'weekly_admin' && x.email === 'admin@x.com' && /Housekeeping/.test(x.body)) && !s34sun.some(x => x.kind === 'weekly_due'), JSON.stringify(s34sun));
 s34sun.forEach(x => { s34sentK[x.key] = 1; });
 check('Sunday again: nothing repeated', run('r34PlanReminders', s34remCtx('2026-10-04', 20, s34sentK)).length === 0);
+const s34pl = run('r34PlanCodes', [{ code: 'GL601', name: 'Sami Lal', department: 'PENSION' }, { code: 'GL602', name: 'Vicky Singh', department: 'Kitchen' }], store.Users.filter(u => u.active !== false).map(u => Object.assign({}, u, { employeeCode: '' })));
+check('import: unknown listing department → "check" (never filled automatically)', s34pl.rows[0].status === 'check' && s34pl.rows[1].status === 'match', JSON.stringify(s34pl.rows.map(r => r.status + ':' + r.why)));
 settings.schedule_link_required = 'false';
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

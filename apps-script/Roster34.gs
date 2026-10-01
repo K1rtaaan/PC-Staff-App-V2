@@ -1188,6 +1188,8 @@ function r34Tick() {
 /** listing department ("ELECTRICIAN", "GARDEN", "RESTAURANT", …) → app departments it may be (null = any) */
 function r34ListDepts(d) {
   var k = String(d || '').toUpperCase().replace(/\s+/g, ' ').trim();
+  if (!k) return null;
+  try { var same = r34DeptList().filter(function (x) { return r34DeptEq(x, d); }); if (same.length) return same; } catch (e) {} // the app's own department name
   var T = [[/ELECTRIC|MAINT|CONSTRUCT|PLUMB|JOINER|CARPENT|PAINT|MARINE|MECHANIC|WORKSHOP/, ['Maintenance']], [/GARDEN|GROUND/, ['Grounds']],
     [/RESTAURANT|F ?& ?B|WAIT|FOOD/, ['F&B', 'Bar']], [/\bBAR\b/, ['Bar', 'F&B']], [/BOAT|CAPTAIN|DECK/, ['Boatman']], [/HOUSEKEEP|LAUNDRY|ROOM/, ['Housekeeping']],
     [/KIDS/, ['Kids Club']], [/KITCHEN|CHEF|COOK|BAKER|PASTRY|STEWARD/, ['Kitchen', 'BR Kitchen', 'Donu Kitchen']], [/DIVE/, ['Diveshop']],
@@ -1215,7 +1217,8 @@ function r34PlanCodes(rows, users) {
     var has = function (t) { return toks.indexOf(t) >= 0; };
     var cands = ppl.filter(function (p) { return p.last.length && p.last.every(has) && (p.first.some(has) || p.pref.some(has)); });
     var o = { code: code, name: String(r.name || '').replace(/\s+/g, ' ').trim().substring(0, 80), department: String(r.department || '').trim().substring(0, 40), suggestions: [] };
-    var deptOk = function (p) { return !okDept || okDept.some(function (d) { return r34DeptEq(d, p.dept); }); };
+    // Pranav: a code is filled automatically ONLY when the name AND the department match; an unknown listing department → check by hand
+    var deptOk = function (p) { return !!okDept && okDept.some(function (d) { return r34DeptEq(d, p.dept); }); };
     var holder = byCode[code];
     if (holder && cands.indexOf(holder) >= 0) { o.status = 'already'; o.email = holder.email; o.userName = holder.name; o.why = 'already has this code'; }
     else if (holder) { o.status = 'taken'; o.email = ''; o.why = 'code already on ' + holder.name; o.suggestions = cands.slice(0, 4).map(function (p) { return { email: p.email, name: p.name, department: p.dept }; }); }
@@ -1230,7 +1233,7 @@ function r34PlanCodes(rows, users) {
       else { o.status = 'ambiguous'; o.why = cands.length + ' people with this name'; o.suggestions = cands.slice(0, 6).map(function (p) { return { email: p.email, name: p.name, department: p.dept }; }); }
     } else {
       o.status = 'unmatched'; o.why = 'no account with this name';
-      o.suggestions = ppl.filter(function (p) { return !p.code && (p.first.some(has) || p.last.some(has)) && deptOk(p); }).slice(0, 4).map(function (p) { return { email: p.email, name: p.name, department: p.dept }; });
+      o.suggestions = ppl.filter(function (p) { return !p.code && (p.first.some(has) || p.last.some(has)) && (!okDept || deptOk(p)); }).slice(0, 4).map(function (p) { return { email: p.email, name: p.name, department: p.dept }; });
     }
     if (o.email && (o.status === 'match' || o.status === 'check')) (hits[o.email] = hits[o.email] || []).push(o);
     out.push(o);
