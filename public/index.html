@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" href="assets/golden-logo.jpg"/>
 <link rel="apple-touch-icon" href="assets/golden-logo.jpg"/>
-<link rel="stylesheet" href="assets/fa/fa.css?v=3.4.0"/>
+<link rel="stylesheet" href="assets/fa/fa.css?v=3.4.1"/>
 <style>
 :root {
   color-scheme: dark;
@@ -210,7 +210,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 @media print{.pcr-credit-wrap{display:none}}
 </style>
 <!-- 2.10.0: self-hosted purged Tailwind (tools/ builds it); loaded after the inline styles like the old CDN -->
-<link rel="stylesheet" href="assets/app.css?v=3.4.0"/>
+<link rel="stylesheet" href="assets/app.css?v=3.4.1"/>
 </head>
 <body class="text-slate-100 antialiased">
 
@@ -218,11 +218,14 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '3.4.0';
-const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Front Office','Stores','Other'];
+const APP_VERSION = '3.4.1';
+const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Front Office','Stores','Medical','Admin','Other']; // 3.4.1: + Medical, Admin (listing "HR" → Admin); "Construction" = Maintenance
 /* 3.4.0: the server's department list (App Setting "departments") wins; merged in place (never removes/renames), cached for the sign-up form */
+const PCR_REMOVED_DEPTS = ['band','naisoso']; // 3.4.1 (Pranav): not app departments
 function pcrMergeDepartments(list){
   if (!Array.isArray(list)) return;
+  for (let i = PCR_DEPARTMENTS.length - 1; i >= 0; i--) if (PCR_REMOVED_DEPTS.indexOf(String(PCR_DEPARTMENTS[i]).toLowerCase()) >= 0) PCR_DEPARTMENTS.splice(i, 1);
+  list = list.filter(function(d){ return PCR_REMOVED_DEPTS.indexOf(String(d||'').trim().toLowerCase()) < 0; });
   list.forEach(function(d){ d = String(d||'').trim(); if (!d || PCR_DEPARTMENTS.some(function(x){ return x.toLowerCase() === d.toLowerCase(); })) return; const oi = PCR_DEPARTMENTS.indexOf('Other'); if (oi >= 0) PCR_DEPARTMENTS.splice(oi, 0, d); else PCR_DEPARTMENTS.push(d); });
 }
 try { pcrMergeDepartments(JSON.parse(localStorage.getItem('pcr_depts_340') || 'null')); } catch (e) {}
@@ -710,11 +713,22 @@ function specialMealsPrintHtml(list){
     '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="4"><tr><th style="width:40px">Served</th><th>Name</th><th>Department</th><th>Reason</th></tr>'+
     list.map(function(o){ return '<tr><td style="text-align:center">☐</td><td>'+esc(o.name||'')+'</td><td>'+esc(o.department||'')+'</td><td>'+esc(o.reason||'')+'</td></tr>'; }).join('')+'</table></div>';
 }
-/** 3.4.0: "orders received vs estimated staff on island" line */
+/** 3.4.0: "orders received vs estimated staff on island" line. 3.4.1: per meal (roster of that date + confirmed resort boat trips that day) */
+function islandMeal(isl, meal){
+  const m = isl && isl.meals && isl.meals[meal];
+  return m ? { on: m.onIsland, bin: m.boatIn || 0, bout: m.boatOut || 0 } : { on: isl ? isl.onIsland : 0, bin: 0, bout: 0 };
+}
+function islandBoatNote(x){ return (x.bin || x.bout) ? ' (boat '+(x.bin?'+'+x.bin:'')+(x.bin&&x.bout?' / ':'')+(x.bout?'−'+x.bout:'')+')' : ''; }
 function islandLineHtml(isl, meal, orders){
-  if (!isl || !isl.hasRoster) return '<p class="text-[10px] text-slate-500 isl-line" data-meal="'+meal+'">No roster for this date yet — no island estimate</p>';
-  const sp = (isl.specialApproved && isl.specialApproved[meal]) || 0;
-  return '<p class="text-[11px] text-sky-200 isl-line" data-meal="'+meal+'"><i class="fa-solid fa-people-group mr-1"></i>'+(orders != null ? orders : (isl.orders||{})[meal]||0)+' orders vs ~'+isl.onIsland+' staff on island'+(sp?' · +'+sp+' special':'')+'</p>';
+  if (!isl || !isl.hasRoster) return '<p class="text-[10px] text-slate-500 isl-line" data-meal="'+meal+'"'+(isl&&isl.date?' data-date="'+isl.date+'"':'')+'>No roster for this date yet — no island estimate</p>';
+  const sp = (isl.specialApproved && isl.specialApproved[meal]) || 0, x = islandMeal(isl, meal);
+  return '<p class="text-[11px] text-sky-200 isl-line" data-meal="'+meal+'" data-date="'+esc(isl.date||'')+'" data-on="'+x.on+'"><i class="fa-solid fa-people-group mr-1"></i>'+(orders != null ? orders : (isl.orders||{})[meal]||0)+' orders vs ~'+x.on+' staff on island'+islandBoatNote(x)+(sp?' · +'+sp+' special':'')+'</p>';
+}
+/** 3.4.1: the same line for printouts / PDFs */
+function islandPrintHtml(isl, meal, orders){
+  if (!isl || !isl.hasRoster) return '';
+  const x = islandMeal(isl, meal), lab = { breakfast:'Breakfast', lunch:'Lunch', dinner:'Dinner' }[meal] || '';
+  return '<p style="font-size:12px;margin:6px 0" class="isl-print" data-meal="'+meal+'">'+lab+' orders '+(orders||0)+' vs estimated staff on island ~'+x.on+islandBoatNote(x)+' · '+esc(isl.label||isl.date||'')+'</p>';
 }
 /** "Allergies & special requests" block for print / PDF (top of every kitchen sheet) */
 function notesSectionPrintHtml(entries, showMeal){
@@ -4543,7 +4557,7 @@ async function renderKitchen(){
         (data.sourceNote?'<p style="color:#555;font-size:11px;margin:2px 0">'+esc(data.sourceNote)+'</p>':'')+
         '<p>Total dinner orders: <strong>'+(prep.totalOrders||0)+'</strong></p></div>'+
         notesSectionPrintHtml(noteEntries, false)+specialMealsPrintHtml(data.specialMeals)+
-        (data.island && data.island.hasRoster ? '<p style="font-size:12px;margin:6px 0">Orders '+(prep.totalOrders||0)+' vs estimated staff on island ~'+data.island.onIsland+'</p>' : '')+
+        islandPrintHtml(data.island, 'dinner', prep.totalOrders||0)+
         '<h2 style="font-size:14px;margin-top:16px">Breakdown (sorted by food)</h2>'+breakdown+
         '<p style="font-size:11px;color:#666">Cross off Served when handed out. Sum of counts should equal total.</p>'+
         sections+
@@ -4834,13 +4848,13 @@ function wireKitDays(fx){
       } catch (e) { toast((e && e.message) || 'Saved PDF failed','error'); }
     });
     $$('.kit-day-hc-print').forEach(b => b.onclick = () => {
-      const m = b.dataset.meal; const html = buildHeadcountOrderSheetHtml(m==='breakfast'?'Breakfast':'Lunch', current[m] || {});
+      const m = b.dataset.meal; const html = buildHeadcountOrderSheetHtml(m==='breakfast'?'Breakfast':'Lunch', Object.assign({ island: current.island, serviceDate: current.serviceDate }, current[m] || {}));
       const w = window.open('', '_blank');
       if (w) { w.document.write('<!doctype html><html><head><title>'+esc(m)+' order list</title></head><body>'+html+'</body></html>'); w.document.close(); w.focus(); setTimeout(()=>w.print(), 350); }
       else toast('Allow popups to print','error');
     });
     $$('.kit-day-hc-pdf').forEach(b => b.onclick = () => {
-      const m = b.dataset.meal; const d = current[m] || {};
+      const m = b.dataset.meal; const d = Object.assign({ island: current.island, serviceDate: current.serviceDate }, current[m] || {});
       downloadChefPdf(buildHeadcountOrderSheetHtml(m==='breakfast'?'Breakfast':'Lunch', d), m+'-order-'+(d.serviceDate||current.serviceDate)+'.pdf');
     });
   }
@@ -4922,7 +4936,7 @@ function buildHeadcountOrderSheetHtml(mealLabel, data){
   ).join('');
   if (!main.length) rows = '<tr><td colspan="5" style="padding:10px;color:#666">No counted orders yet (0 counted)</td></tr>';
   const hcMeal = String(mealLabel).toLowerCase().indexOf('breakfast')>=0 ? 'breakfast' : 'lunch';
-  let body = notesSectionPrintHtml(noteEntriesFrom(hcMeal, orders), false)+specialMealsPrintHtml(data.specialMeals)+
+  let body = islandPrintHtml(data.island, hcMeal, total)+notesSectionPrintHtml(noteEntriesFrom(hcMeal, orders), false)+specialMealsPrintHtml(data.specialMeals)+
     '<table style="width:100%;border-collapse:collapse;font-size:12px" border="1" cellpadding="5">'+
     '<thead><tr style="background:#f0fdfa"><th style="width:56px">Served</th><th>Name</th><th>Department</th><th>Time ordered</th><th>Special note / allergy</th></tr></thead><tbody>'+rows+'</tbody></table>';
   if (waitList.length) {
@@ -4991,7 +5005,7 @@ function buildDinnerOrderSheetHtml(data){
     if (seen[key]) return false; seen[key]=1; return String(o.status||'late_pending')==='late_pending' || o.late;
   }).filter(o => String(o.status||'late_pending')==='late_pending').sort(sheetTimeSort);
   const subtotal = prep.totalOrders != null ? prep.totalOrders : (data.total != null ? data.total : mainTotal);
-  let body = notesSectionPrintHtml(prepNoteEntries(prep, (data.orders||[]).length ? data.orders : ordersFlat), false) + sections +
+  let body = islandPrintHtml(data.island, 'dinner', subtotal)+notesSectionPrintHtml(prepNoteEntries(prep, (data.orders||[]).length ? data.orders : ordersFlat), false) + specialMealsPrintHtml(data.specialMeals) + sections +
     '<div style="margin-top:20px;padding:12px;background:#f0fdfa;border:1px solid #99f6e4;text-align:center">'+
     '<p style="margin:0;font-size:14px"><strong>Subtotal: total dinner orders for that day</strong></p>'+
     '<p style="margin:6px 0 0;font-size:22px;font-weight:700;color:#0f766e">'+esc(String(subtotal))+'</p></div>';
@@ -6734,6 +6748,6 @@ async function openPending(){
 }
 // 3.0: boot() is called at the end of assets/v3.js (loaded next) so the 3.0 screens are in place first
 </script>
-<script src="assets/v3.js?v=3.4.0"></script>
+<script src="assets/v3.js?v=3.4.1"></script>
 </body>
 </html>

@@ -39,7 +39,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
     check('credit + About at the bottom of ' + t, ok);
   }
   await go("navigate('more')");
-  check('About sits under the version info (UI 3.3.0)', await page.evaluate(() => { const t = document.getElementById('main-content').innerText; return /PCR Staff App 3\.4\.0/.test(t) && t.lastIndexOf('3.4.0') < t.lastIndexOf('About'); }));
+  check('About sits under the version info (UI 3.3.0)', await page.evaluate(() => { const t = document.getElementById('main-content').innerText; return /PCR Staff App 3\.4\.1/.test(t) && t.lastIndexOf('3.4.1') < t.lastIndexOf('About'); }));
   check('More shows the version line once (3.3.0 fix)', await page.evaluate(() => (document.getElementById('main-content').innerText.match(/PCR Staff App 3\.4\.0/g) || []).length === 1));
   const st = await page.evaluate(() => { const e = document.querySelector('#pcr-credit .pcr-about-btn'), t = e.querySelector('.pcr-rasta'); const a = getComputedStyle(e), b = getComputedStyle(t), r = e.getBoundingClientRect(); return { op: +a.opacity, bg: a.backgroundColor, fs: parseFloat(a.fontSize), h: r.height, w: r.width, clip: b.webkitBackgroundClip || b.backgroundClip, img: b.backgroundImage, icon: !!t.querySelector('.fa-circle-info') }; });
   check('Rasta gradient text (red/yellow/green, clipped to text)', /text/.test(st.clip) && /255, 77, 77/.test(st.img) && /255, 210, 63/.test(st.img) && /47, 211, 95/.test(st.img), JSON.stringify(st));
@@ -72,7 +72,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   check('admin: alert emails saved', r.success && JSON.stringify(r.data).includes('alerts@x.com'), JSON.stringify(r).slice(0, 200));
   for (const t of ['settings', 'migrate', 'superlog', 'reports', 'aboutimage']) { await go(`navigate('${t}')`); check('admin cannot open ' + t, await page.evaluate((t) => state.tab !== t, t)); }
   // delete user with the admin code
-  await go("navigate('usersv3')");
+  await go("navigate('usersv3')"); await page.fill('#uf-q', '@').catch(() => {}); await page.waitForTimeout(400); 
   const victim = await page.evaluate(() => { const b = [...document.querySelectorAll('.v3-user')].find(x => /staff/i.test(x.innerText) && !/Superadmin|it@/i.test(x.innerText) && x.dataset.email !== 'ana.tui@paradisecoveresortfiji.com'); return b ? b.dataset.email : ''; });
   await page.click(`.v3-user[data-email="${victim}"]`); await page.waitForTimeout(700);
   check('admin sees "Delete this user" for a staff account', await page.isVisible('#v3-del-user'), victim);
@@ -83,7 +83,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   const still = JSON.stringify(r).includes(victim);
   check('user deleted', !still, victim);
   await page.evaluate(() => closeModal && closeModal());
-  await go("navigate('usersv3')");
+  await go("navigate('usersv3')"); await page.fill('#uf-q', '@').catch(() => {}); await page.waitForTimeout(400); 
   await page.click('.v3-user[data-email="it@paradisecoveresortfiji.com"]').catch(() => {}); await page.waitForTimeout(700);
   check('no delete button on a superadmin account', !(await page.isVisible('#v3-del-user')));
   await page.evaluate(() => closeModal && closeModal());

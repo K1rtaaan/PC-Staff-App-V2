@@ -739,7 +739,7 @@ roleLandingTab = function(){
 };
 const V3_TITLES = { home:'Home', meals:'Meals', boat:'Boat', more:'More', bookings:'My boat bookings', profile:'My profile', history:'My orders & history', leave:'My leave',
   notifications:'Notifications', deptstaff:'Department staff', deptupdates:'Department updates', chefreq:'Late & special requests', chefcomments:'Staff feedback',
-  chefmenu:'Dinner menus', kitchen:'Kitchen lists & summaries', manage:'Manage', usersv3:'Users & roles', reminders:'Reminders', adminstatus:'Reports & downloads',
+  chefmenu:'Dinner menus', kitchen:'Kitchen lists & summaries', manage:'Manage', usersv3:'People & roles', reminders:'Reminders', adminstatus:'Reports & downloads',
   leavecal:'Leave calendar', users:'Staff directory', settings:'App settings', admin:'Classic admin tools', suggestions:'Suggestions', approvals:'Approvals', special:'Special meal order', schedule:'My schedule',
   kitchenadmin:'Kitchen Admin', boatadmin:'Boat Admin', deptadmin:'Department Admin', adminhub:'Admin Settings', mealtimes:'Meal times', mealstats:'Meal statistics', offmenu:'Orders not on the menu',
   boatruns:'Boat runs (admin)', emergency:'Emergency travel', leavesummary:'Leave summary', mealbehalf:'Meal on behalf', migrate:'Role migration', deptupdatespost:'Department updates',
@@ -772,7 +772,8 @@ navigate = function(tab){
     adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports, pushsettings: a33RenderSettings,
     adminoverview: a34RenderOverview, admintools: a34RenderTools, aboutimage: a34RenderAboutImage, resortboat: r33RenderResortAdmin,
     rostermonthly: function(){ return r34RenderUpload('monthly'); }, rosterweekly: function(){ return r34RenderUpload('weekly'); }, rosterarchive: function(){ return r34RenderUpload('archive'); },
-    rosterunmatched: r34RenderUnmatched, leaveallow: r34RenderAllowances, empcodes: r34RenderEmpCodes, deptstaff: s34RenderDeptStaff // 3.4.0
+    rosterunmatched: r34RenderUnmatched, leaveallow: r34RenderAllowances, empcodes: r34RenderEmpCodes, deptstaff: s34RenderDeptStaff, // 3.4.0
+    gllink: g341RenderGlLink // 3.4.1
   };
   if (['home','meals','boat','kitchen'].includes(tab)) paintSkeleton({ cards: 3 });
   try { history.replaceState(null, '', location.pathname + location.search + (tab === 'home' ? '' : '#'+tab)); } catch (e) {}
@@ -2161,7 +2162,7 @@ function v3RenderAdminHub(){
   const h = v3Home(), hb = h.hodBar || {};
   const g = function(title, rows){ return '<section class="space-y-1.5 min-w-0"><h3 class="v3-section-title px-1">'+title+'</h3><div class="glass rounded-2xl overflow-hidden">'+rows+'</div></section>'; };
   let html = v3Back('more','More');
-  html += g('People', v3Row(v3Nav('usersv3'),'fa-users-gear','Users & roles','Give people one or more roles, departments, active') +
+  html += g('People', v3Row(v3Nav('usersv3'),'fa-users-gear','People & roles','By department · pending requests · roles · GL link') +
     v3Row(v3Nav('users'),'fa-address-book','Staff directory (classic)','Add user, import CSV'));
   html += g('Leave', v3Row("state.leaveTabForce='final';navigate('leave')",'fa-stamp','Leave — final approval','After the HOD step', hb.leaveMgmt||0) +
     v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','All departments') + v3Row(v3Nav('leavesummary'),'fa-table','Leave summary','Per department'));
@@ -2187,7 +2188,7 @@ function v3RenderDeptAdmin(){
       v3Tile(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view')+
       v3Tile(v3Nav('leavesummary'),'fa-table','Leave summary','Totals & list')+
       v3Tile(v3Nav('mealbehalf'),'fa-star','Meal on behalf','Staff without a phone')+
-      (featureOn('feature_my_schedule') ? v3Tile(v3Nav('deptstaff'),'fa-people-roof','Department staff','Roster vs app accounts · link · register · special meals', state._s34Req||0)+v3Tile(v3Nav('rosterweekly'),'fa-calendar-week','Weekly roster','Upload Mon–Sun, before the week')+v3Tile(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','Link roster names to staff', state._r34Unm||0) : '')+ // 3.4.0
+      (featureOn('feature_my_schedule') ? v3Tile(v3Nav('deptstaff'),'fa-people-roof','Department staff','Roster vs app accounts · link · register · special meals', state._s34Req||0)+v3Tile(v3Nav('rosterweekly'),'fa-calendar-week','Weekly roster','Upload Mon–Sun, before the week')+v3Tile(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','Link roster names to staff', state._r34Unm||0)+v3Tile(v3Nav('gllink'),'fa-id-badge','Link GL numbers','Check against listing + roster') : '')+ // 3.4.0 · 3.4.1 GL link
       v3Tile(a31LogNav('dept'),'fa-clock-rotate-left','Activity log','Who changed what')+'</div>', 'deptadmin-root');
   v3RefreshHome().then(function(){ if (state.tab === 'deptadmin') { const el = $('#v3-hodbar'); if (el) el.outerHTML = v3HodBar(); } }).catch(function(){});
 }
@@ -2225,43 +2226,6 @@ async function v3RenderMigrate(){
     const d = await v3Call('migrateRoles', { dryRun: 0, passcode: pass }, 'Roles written'); if (d) show(d);
   };
 }
-async function v3RenderUsers(){
-  const f = state.uf || { q:'', role:'', dept:'' }; state.uf = f;
-  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('admin')) +
-    '<section class="glass rounded-2xl p-3 space-y-2 min-w-0"><input id="uf-q" class="ui-input w-full" placeholder="Search name or email" value="'+esc(f.q)+'"/>'+
-    '<div class="grid grid-cols-2 gap-2"><select id="uf-role" class="ui-input w-full min-w-0"><option value="">All roles</option>'+V3_ROLE_FILTERS.map(function(r){ return '<option value="'+r+'"'+(f.role===r?' selected':'')+'>'+V3_ROLE_LABEL[r]+'</option>'; }).join('')+'<option value="inactive"'+(f.role==='inactive'?' selected':'')+'>Inactive</option></select>'+
-    '<select id="uf-dept" class="ui-input w-full min-w-0"><option value="">All departments</option>'+PCR_DEPARTMENTS.map(function(d){ return '<option'+(f.dept===d?' selected':'')+'>'+esc(d)+'</option>'; }).join('')+'</select></div></section>'+
-    '<div id="uf-list" class="space-y-2">'+v3Loading()+'</div>', 'users-root');
-  const r = await api('getUsers', { activeOnly:false }).catch(function(){ return null; });
-  if (state.tab !== 'usersv3') return;
-  if (!r || !r.success) { $('#uf-list').innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load users')+'</p>'); return; }
-  const all = r.data.users || [];
-  const countBox = r.data.roleCounts ? '<section class="glass rounded-2xl p-3 space-y-2 min-w-0">'+v3Title('fa-users','Role counts')+v3RoleCountChips(r.data.roleCounts)+
-    '<p class="text-[10px] text-slate-500">Active accounts. Someone with two roles (e.g. chef + HOD) counts in both. No limits.</p></section>' : '';
-  const paint = function(){
-    const q = f.q.toLowerCase();
-    const list = all.filter(function(u){
-      if (q && (u.email+' '+u.firstName+' '+u.lastName+' '+(u.preferredName||'')).toLowerCase().indexOf(q) < 0) return false;
-      if (f.dept && u.department !== f.dept) return false;
-      if (f.role === 'inactive') return !u.active;
-      if (f.role === 'staff') return v3RoleLabel(u) === 'Staff';
-      if (f.role && !v3Has(f.role, u)) return false;
-      return true;
-    });
-    $('#uf-list').innerHTML = countBox + '<p class="text-[11px] text-slate-400 px-1">'+list.length+' of '+all.length+' users</p>'+list.slice(0, 200).map(function(u){
-      const lab = v3RoleLabel(u), warn = (u.warnings||[]);
-      return '<button type="button" class="v3-user w-full text-left glass rounded-xl p-3 min-w-0" data-email="'+esc(u.email)+'"><div class="v3-row"><p class="text-sm text-slate-100 truncate min-w-0">'+esc(fullDisplayName(u))+'</p>'+
-        '<span class="flex gap-1 shrink-0">'+(!u.active?v3Chip('inactive','bad'):'')+'</span></div><p class="text-[11px] '+(lab==='Staff'?'text-slate-500':'text-teal-200')+' truncate" data-roles>'+esc(lab)+'</p>'+
-        '<p class="text-[11px] text-slate-400 truncate">'+esc(u.email)+' · '+esc(u.department||'—')+'</p>'+
-        (warn.length ? '<p class="text-[10px] text-amber-200 mt-1 break-words"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+esc(warn.join(' · '))+'</p>' : '')+'</button>';
-    }).join('');
-    $$('.v3-user').forEach(function(b){ b.onclick = function(){ v3EditUser(all.find(function(u){ return u.email === b.dataset.email; })); }; });
-  };
-  paint();
-  $('#uf-q').oninput = function(){ f.q = this.value; paint(); };
-  $('#uf-role').onchange = function(){ f.role = this.value; paint(); };
-  $('#uf-dept').onchange = function(){ f.dept = this.value; paint(); };
-}
 function v3EditUser(u){
   if (!u) return;
   const cur = v3Perms(u).filter(function(x){ return x !== 'staff'; });
@@ -2298,7 +2262,7 @@ function v3EditUser(u){
     const r = await v3Call('setUserAccess', p, 'Saved');
     this.disabled = false;
     if (r && r.warnings && r.warnings.length) toast(r.warnings[0], 'info');
-    if (r) { closeModal(); v3RenderUsers(); }
+    if (r) { closeModal(); state._ufKeep = true; v3RenderUsers(); }
   };
   $('#v3-msg-user').onclick = function(){
     closeModal();
@@ -2310,7 +2274,7 @@ function v3EditUser(u){
     if (!confirm('Delete '+u.email+' permanently? Their past orders stay in the sheets.')) return;
     const pass = await askAdminCode(); if (!pass) return; // 3.2.0: admins too (admin code)
     const r = await v3Call('deleteUser', { targetEmail: u.email, passcode: pass }, 'User deleted');
-    if (r) { closeModal(); v3RenderUsers(); }
+    if (r) { closeModal(); state._ufKeep = true; v3RenderUsers(); }
   };
 }
 async function v3RenderReminders(){
@@ -3495,8 +3459,10 @@ async function r34RenderEmpCodes(){
   state._roleMode = 'admin';
   $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('admin'))+
     '<p class="text-xs text-slate-400 px-1">Upload the staff listing workbook (columns New Code, Name, Date Started, Department). Codes are matched to app accounts by name AND department; you check the preview, then confirm. Rosters with an employee code column are matched by code first.</p>'+
-    v3Card(v3Title('fa-id-badge','Import employee codes')+'<input id="ec-file" type="file" accept=".xlsx,.xlsm,.xls,.csv" class="w-full text-xs text-slate-200"/><div id="ec-prev"></div>', 'ec-card'), 'empcodes-root');
-  if (state.demo) { $('#ec-prev').innerHTML = '<p class="text-xs text-slate-300">Needs the real server (not in the demo).</p>'; return; }
+    v3Card(v3Title('fa-id-badge','Import employee codes')+'<p class="text-[11px] text-slate-400" id="ec-listing">Staff listing: …</p><input id="ec-file" type="file" accept=".xlsx,.xlsm,.xls,.csv" class="w-full text-xs text-slate-200"/><div id="ec-prev"></div>', 'ec-card'), 'empcodes-root');
+  if (state.demo) { $('#ec-prev').innerHTML = '<p class="text-xs text-slate-300">Needs the real server (not in the demo).</p>'; $('#ec-listing').textContent = ''; return; }
+  api('getStaffListingInfo', {}).then(function(r){ const el = $('#ec-listing'); if (!el) return; const d = r && r.success ? r.data : null;
+    el.innerHTML = d && d.count ? 'Staff listing on the server: <strong class="text-slate-200">'+d.count+' people</strong> · saved '+esc(String(d.importedAt).replace('T',' ').slice(0,16))+' by '+esc(d.importedBy)+'. GL numbers typed in People & roles are checked against it.' : 'No staff listing saved yet — upload it so GL numbers can be checked (People & roles → department → GL box).'; }).catch(function(){});
   $('#ec-file').onchange = async function(){
     const f = this.files && this.files[0]; if (!f) return;
     const box = $('#ec-prev'); box.innerHTML = v3Loading();
@@ -3505,7 +3471,7 @@ async function r34RenderEmpCodes(){
     if (!rows.length) { box.innerHTML = '<p class="text-xs text-amber-200">No rows with a code and a name found. The header row needs “New Code” (or “Code”) and “Name”.</p>'; return; }
     const d = await v3Call('previewEmployeeCodes', { rows: JSON.stringify(rows.map(function(r){ return { code: r.code, name: r.name, department: r.department }; })) });
     if (!d) { box.innerHTML = ''; return; }
-    state._ecPlan = d; r34PaintEmpCodes(f.name);
+    state._ecRows = rows; state._ecPlan = d; r34PaintEmpCodes(f.name);
   };
 }
 function r34PaintEmpCodes(fileName){
@@ -3521,13 +3487,23 @@ function r34PaintEmpCodes(fileName){
   const total = d.total || d.rows.length, matchedNow = (n.match||0) + (n.already||0);
   box.innerHTML = '<div class="space-y-2 mt-2" id="ec-preview">'+
     '<p class="text-xs text-slate-200 font-semibold">'+esc(fileName)+' · '+total+' codes</p>'+
-    '<p class="text-[11px] text-slate-300" id="ec-rate">'+matchedNow+' of '+total+' match an app account ('+(total ? Math.round(100*matchedNow/total) : 0)+'%) · '+(n.check||0)+' to check · '+(n.ambiguous||0)+' ambiguous · '+(n.taken||0)+' code already used · '+(n.unmatched||0)+' without an account</p>'+
+    '<p class="text-[11px] text-slate-300" id="ec-rate">'+matchedNow+' of '+total+' match an app account ('+(total ? Math.round(100*matchedNow/total) : 0)+'%) · '+(n.check||0)+' to check · '+(n.ambiguous||0)+' ambiguous · '+(n.taken||0)+' code already used · '+(n.unmatched||0)+' without an account'+(n.skipped ? ' · '+n.skipped+' Band / Naisoso skipped' : '')+'</p>'+
     sec('ec-match', 'Will be saved', by('match'), 'ok', function(r){ return line(r, '<label class="text-[11px] text-slate-300"><input type="checkbox" class="ec-ok" data-code="'+esc(r.code)+'" data-email="'+esc(r.email)+'" checked/> save</label>'); }, true)+
     sec('ec-check', 'Check first (other department / has another code)', by('check'), 'warn', function(r){ return line(r, '<label class="text-[11px] text-amber-200"><input type="checkbox" class="ec-ok" data-code="'+esc(r.code)+'" data-email="'+esc(r.email)+'"/> save anyway</label>'); }, true)+
     sec('ec-amb', 'Ambiguous: pick the person', by('ambiguous').concat(by('taken')), 'warn', function(r){ return line(r, pick(r)); }, true)+
     sec('ec-unm', 'No matching account (link manually if they have one)', by('unmatched'), 'mute', function(r){ return line(r, pick(r)); }, false)+
     sec('ec-already', 'Already saved', by('already'), 'mute', function(r){ return line(r); }, false)+
-    '<button type="button" id="ec-apply" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white"><i class="fa-solid fa-check mr-1"></i>Confirm and save codes</button><div id="ec-result"></div></div>';
+    sec('ec-skipped', 'Skipped (Band / Naisoso — not app staff)', by('skipped'), 'mute', function(r){ return line(r); }, false)+
+    '<button type="button" id="ec-apply" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white"><i class="fa-solid fa-check mr-1"></i>Confirm and save codes</button>'+
+    '<button type="button" id="ec-listing-only" class="glass w-full rounded-xl py-2.5 text-xs text-slate-100">Save staff listing only (for GL checks)</button><div id="ec-result"></div><div id="ec-list-result"></div></div>';
+  const saveListing = async function(quiet){
+    const rows = (state._ecRows || []).map(function(r){ return { code: r.code, name: r.name, department: r.department, started: r.started }; });
+    if (!rows.length) return null;
+    const x = await v3Call('saveStaffListing', { rows: JSON.stringify(rows) }, quiet ? '' : 'Staff listing saved');
+    if (x) { const el = $('#ec-list-result'); if (el) el.innerHTML = '<p class="text-[11px] text-teal-200 mt-1" id="ec-list-done">Staff listing saved: '+x.saved+' people'+(x.skippedDept ? ' · '+x.skippedDept+' Band / Naisoso skipped' : '')+'</p>'; }
+    return x;
+  };
+  $('#ec-listing-only').onclick = async function(){ this.disabled = true; await saveListing(false); this.disabled = false; };
   $('#ec-apply').onclick = async function(){
     const items = [];
     $$('.ec-ok').forEach(function(c){ if (c.checked) items.push({ code: c.dataset.code, email: c.dataset.email }); });
@@ -3535,6 +3511,7 @@ function r34PaintEmpCodes(fileName){
     if (!items.length) { toast('Nothing selected','info'); return; }
     this.disabled = true;
     const r = await v3Call('applyEmployeeCodes', { items: JSON.stringify(items) }, 'Employee codes saved');
+    if (r) await saveListing(true); // 3.4.1: the listing is kept for GL checks
     this.disabled = false;
     if (r) $('#ec-result').innerHTML = '<div class="rounded-xl bg-teal-500/10 border border-teal-400/30 p-3 text-xs" id="ec-done"><p class="text-teal-100 font-semibold">'+r.saved+' codes saved</p>'+(r.skippedCount ? '<p class="text-amber-200">'+r.skippedCount+' skipped: '+esc(r.skipped.slice(0,5).map(function(x){ return x.code+' ('+x.why+')'; }).join(', '))+'</p>' : '')+'</div>';
   };
@@ -3721,7 +3698,7 @@ function r34Sheets(wb){
 function r34ParseTable(t, per, opts){
   const raw = t.raw, txt = t.txt, warnings = [], rows = [];
   const depts = (opts.departments||[]).map(function(x){ return { name:x, k:r34Hdr(x) }; });
-  const deptOf = function(s){ const k = r34Hdr(s); if (!k) return ''; const hit = depts.find(function(d){ return d.k === k || (k.length >= 3 && (d.k.indexOf(k) >= 0 || k.indexOf(d.k) >= 0)); }); return hit ? hit.name : ''; };
+  const deptOf = function(s){ const k0 = r34Hdr(s); if (!k0) return ''; const k = R34_SHEET_ALIAS[k0] && /^(construction|hr|humanresources)$/.test(k0) ? r34Hdr(R34_SHEET_ALIAS[k0]) : k0; /* 3.4.1 alias */ const hit = depts.find(function(d){ return d.k === k || (k.length >= 3 && (d.k.indexOf(k) >= 0 || k.indexOf(d.k) >= 0)); }); return hit ? hit.name : ''; };
   let hi = -1, layout = '', cols = {};
   for (let i = 0; i < Math.min(raw.length, 25) && hi < 0; i++) {
     const h = (txt[i]||[]).map(r34Hdr), c = {};
@@ -3776,7 +3753,7 @@ const R34_TOTAL = /^day ?(total|hours)\b/i;
 const R34_SECTION = /\b(team|staff|cooks|restaurant|reservations|shifts|construction|stores|maintenance|joinery|electrical|painting|marine|kids ?club|food ?& ?beverage|front office|housekeeping|security|kitchen|grounds|porters?|diveshop|dive|spa|bar|donu|tepaniyaki|boatman)\b/i;
 const R34_ROLE = /^(supervisor|hostess|waithelp|waiter|shift ?leader|captain|captn|runner|assistant|mechanic|trainee|gro|dm|am|pm|night|bartender|barman|cook|chef|steward|cashier|driver|crew|security|spa|stores)\b/i;
 /** sheet name → app department (known list first; typos like "Houskeeping"; else the sheet name) */
-const R34_SHEET_ALIAS = { houskeeping:'Housekeeping', housekeeping:'Housekeeping', bar:'Bar', bar1:'Bar', maint:'Maintenance', 'newfb':'F&B', fb:'F&B', diveshop:'Diveshop', boatman:'Boatman', frontoffice:'Front Office', brkitchen:'BR Kitchen', donukitchen:'Donu Kitchen', kidsclub:'Kids Club' };
+const R34_SHEET_ALIAS = { houskeeping:'Housekeeping', housekeeping:'Housekeeping', bar:'Bar', bar1:'Bar', maint:'Maintenance', 'newfb':'F&B', fb:'F&B', diveshop:'Diveshop', boatman:'Boatman', frontoffice:'Front Office', brkitchen:'BR Kitchen', donukitchen:'Donu Kitchen', kidsclub:'Kids Club', construction:'Maintenance', hr:'Admin', humanresources:'Admin' }; // 3.4.1: Construction = Maintenance, HR = Admin
 function r34SheetDept(name, depts){
   const k = r34Hdr(name);
   const known = (depts||[]).find(function(d){ return r34Hdr(d) === k; });
@@ -3800,7 +3777,7 @@ function r34IsCode(t, codes){
   const rep = k.match(/^(.+?) \1$/); if (rep) k = rep[1];
   if (codes[k] !== undefined) return true;
   if (/^(DAY|DAT|BAY|DAYS|D)\s?\/?\s?OFF$/.test(k)) return true;
-  return !/\d/.test(k) && /LEAVE|SICK|MATERN|MARENITY|PATERN|BEREAV|BREVEA|FUNERAL|WITHOUT PAY|LWOP|LOPW/.test(k);
+  return !/\d/.test(k) && /LEAVE|SICK|MATERN|MARENITY|PATERN|BEREAV|BREVEA|FUNERAL|FAMILY|WITHOUT PAY|LWOP|LOPW/.test(k);
 }
 const R34_STATS = /^(arriv|arrive|arriv rms|depart rms|occ ?%?|pax|children|infants|inf|rooms|dept|ave .*|\d+c(\/.*)?|\d*inf)$/i;
 /** → [{ name, department, dateCols:[{c, date}] , rows:[…], people:n }] for every roster sheet of the workbook */
@@ -3839,26 +3816,32 @@ function r34ParseWorkbook(sheets, per, opts){
       if (tx.some(function(t){ return t.some(function(v){ return /^(start|end)$/i.test(v); }); })) continue;
       if (/^(occupancy|forecast|arriv|depart|pax|children|infants|rooms ?- ?|total rooms)/i.test(a) || tx.filter(function(t){ return t.some(function(v){ return R34_STATS.test(v); }); }).length >= 3) { blk = null; continue; } // occupancy / guest stats rows
       if (nameLike(a) && !hasPair) {
-        if (blk && !blk.pay && !blk.pairs && (R34_ROLE.test(a) || blk.rows.some(function(r){ return r.tx.some(function(t){ return t.length; }); }) || !tx.some(function(t){ return t.length; }))) { blk.rows.push({ pr: pr, tx: tx }); continue; } // role row under the name (before the pay row); an empty name row followed by a filled one = two people
+        if (blk && !blk.pay && !blk.pairs && (R34_ROLE.test(a) || blk.rows.some(function(r){ return r.tx.some(function(t){ return t.length; }); }) || !tx.some(function(t){ return t.length; }))) { blk.rows.push({ pr: pr, tx: tx, a: a }); continue; } // role row under the name (before the pay row); an empty name row followed by a filled one = two people
         if (R34_SECTION.test(a) && /^[^a-z]*$/.test(a)) { res.sections.push(a); blk = null; continue; } // ALL-CAPS section heading
-        if (R34_ROLE.test(a) && blk) { blk.rows.push({ pr: pr, tx: tx }); continue; }
-        blk = { name: a.replace(/\(\d+\)$/, '').trim(), row: i + 1, rows: [{ pr: pr, tx: tx }], pay: false, pairs: false };
+        if (R34_ROLE.test(a) && blk) { blk.rows.push({ pr: pr, tx: tx, a: a }); continue; }
+        blk = { name: a.replace(/\(\d+\)$/, '').trim(), row: i + 1, rows: [{ pr: pr, tx: tx, a: '' }], pay: false, pairs: false };
         blocks.push(blk); continue;
       }
       if (!blk) continue;
       if (R34_PAY.test(a)) blk.pay = true;
       if (hasPair) blk.pairs = true;
-      blk.rows.push({ pr: pr, tx: tx });
+      blk.rows.push({ pr: pr, tx: tx, a: a });
     }
     blocks.forEach(function(b){
       if (!b.pay && !b.pairs && !b.rows.some(function(r){ return r.tx.some(function(t){ return t.length; }); })) return; // a heading with nothing under it
       res.people++;
+      // 3.4.1: pay type + position / notes from column A of the block (rows under the name; "Hourly", "Salary", "Wage", "supervisor", "56 Hours"…)
+      const aT = b.rows.map(function(r){ return r.a || ''; }).filter(function(t){ return t && !R34_TOTAL.test(t); });
+      const payT = aT.find(function(t){ return /\b(salary|salaried|hourly|hourely|wages?|wagw)\b/i.test(t); }) || '';
+      const pay = payT ? (/hour/i.test(payT) ? 'Hourly' : (/salar/i.test(payT) ? 'Salary' : 'Wage')) : '';
+      const pos = aT.find(function(t){ return t !== payT; }) || (payT && !/^(salary|salaried|hourly|hourely|wages?|wagw)$/i.test(payT.trim()) ? payT : '');
       dcols.forEach(function(x, k){
         if (x.date < per.start || x.date > per.end) return;
         const texts = [], pairs = [];
         b.rows.forEach(function(r){ r.tx[k].forEach(function(t){ if (texts.indexOf(t) < 0) texts.push(t); }); if (r.pr[k]) pairs.push(r.pr[k]); });
         const code = texts.find(function(t){ return r34IsCode(t, codes); }) || texts.find(function(t){ return /^(staff )?released?$/i.test(String(t).trim()); }); // RELEASED = left / let go (a marker, not leave)
         const o = { rawName: b.name, department: opts.forceDept || dept, date: x.date, row: b.row, sheet: sh.name };
+        if (pay) o.payType = pay; if (pos) o.position = String(pos).slice(0, 60);
         if (code) o.code = code;
         else if (pairs.length) {
           o.start = pairs[0][0]; o.end = pairs[pairs.length-1][1];
@@ -4245,6 +4228,218 @@ async function r34RenderAllowances(){
 }
 
 /* ============ N. start ============ */
+/* ============ 3.4.1: People & roles by department (grid · pending HOD-step requests · global search) + GL number linking ============ */
+function g341DK(d){ const k = String(d==null?'':d).toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]/g,''); return ({ construction:'maintenance', hr:'admin', humanresources:'admin' })[k] || k; }
+function g341DeptEq(a, b){ const x = g341DK(a), y = g341DK(b); return !!x && !!y && (x === y || (x.length >= 3 && y.length >= 3 && (x.indexOf(y) >= 0 || y.indexOf(x) >= 0))); }
+function g341Chip(u){ return '<span class="g341-have text-[10px] rounded-full px-2 py-0.5 border shrink-0 '+(u.employeeCode ? 'border-teal-400/50 text-teal-100' : 'border-slate-600 text-slate-400')+'">'+(u.employeeCode ? esc(u.employeeCode)+' ✓' : 'no GL')+'</span>'; }
+function g341RowHtml(u){
+  return '<div class="g341 mt-2 min-w-0" data-email="'+esc(u.email)+'"><div class="flex gap-1 min-w-0"><input class="ui-input flex-1 min-w-0 g341-code" maxlength="12" autocomplete="off" autocapitalize="characters" enterkeyhint="go" placeholder="'+(u.employeeCode ? 'GL (now '+esc(u.employeeCode)+')' : 'GL number, e.g. GL018')+'" aria-label="GL number for '+esc(fullDisplayName(u))+'"/>'+
+    '<button type="button" class="g341-link shrink-0 btn-primary rounded-lg px-3 text-xs font-semibold text-white min-h-[40px]">Link</button></div><div class="g341-panel min-w-0"></div></div>';
+}
+/** one delegated binding per list host: Enter in a GL box or the Link button → look up → verify panel */
+function g341Bind(host, findUser, onLinked){
+  if (!host || host._g341) return; host._g341 = true;
+  host.addEventListener('keydown', function(e){ if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('g341-code')) { e.preventDefault(); g341Lookup(e.target.closest('.g341'), findUser, onLinked, host); } });
+  host.addEventListener('click', function(e){
+    const b = e.target.closest && e.target.closest('.g341-link'); if (b && host.contains(b)) { e.preventDefault(); e.stopPropagation(); g341Lookup(b.closest('.g341'), findUser, onLinked, host); return; }
+    const a = e.target.closest && e.target.closest('.g341-do'); if (a && host.contains(a)) { e.preventDefault(); e.stopPropagation(); g341Apply(a.closest('.g341'), a.dataset.mode, findUser, onLinked, host); return; }
+    const x = e.target.closest && e.target.closest('.g341-close'); if (x && host.contains(x)) { e.preventDefault(); const bx = x.closest('.g341'); bx.querySelector('.g341-panel').innerHTML = ''; bx._g = null; }
+  });
+  host.addEventListener('change', function(e){
+    const t = e.target; if (!t.closest) return; const bx = t.closest('.g341'); if (!bx || !bx._g) return;
+    if (t.classList.contains('g341-pick')) { bx._pick = t.value; g341Paint(bx); }
+    else if (t.classList.contains('g341-all')) { bx.querySelectorAll('.g341-f').forEach(function(c){ if (!c.disabled) c.checked = t.checked; }); g341Count(bx); }
+    else if (t.classList.contains('g341-f')) g341Count(bx);
+    else if (t.classList.contains('g341-ov')) g341Paint(bx);
+  });
+}
+async function g341Lookup(box, findUser, onLinked, host){
+  if (!box) return;
+  const code = box.querySelector('.g341-code').value.trim(), panel = box.querySelector('.g341-panel');
+  if (!code) { toast('Type the GL number','error'); box.querySelector('.g341-code').focus(); return; }
+  panel.innerHTML = '<p class="text-[11px] text-slate-400 mt-1 g341-busy"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Looking up '+esc(code.toUpperCase())+'…</p>';
+  let r = null; try { r = await api('glLookup', { targetEmail: box.dataset.email, code: code }); } catch (e) { r = { success:false, error: e.message }; }
+  if (!r || !r.success) { panel.innerHTML = '<div class="rounded-lg border border-rose-500/50 bg-rose-500/10 p-2 mt-1 text-[11px] text-rose-100 g341-err break-words">'+esc((r && r.error) || 'Lookup failed')+'</div>'; return; }
+  box._g = r.data; box._pick = undefined; box._ov = false;
+  g341Paint(box);
+  const first = box.querySelector('.g341-do[data-mode="link"]'); if (first && !first.disabled) first.focus({ preventScroll: true }); // Enter again = Link only
+}
+function g341Count(box){ const n = box.querySelectorAll('.g341-f:checked').length, b = box.querySelector('.g341-do[data-mode="update"]'); if (b) { b.textContent = 'Link + update '+n+' field'+(n===1?'':'s'); b.disabled = !n || box._blocked; } }
+function g341Paint(box){
+  const d = box._g, panel = box.querySelector('.g341-panel'); if (!d) return;
+  const close = '<button type="button" class="g341-close text-[10px] text-slate-400 underline">close</button>';
+  if (d.notFound) { panel.innerHTML = '<div class="rounded-lg border border-rose-500/50 bg-rose-500/10 p-2 mt-1 text-[11px] text-rose-100 g341-notfound break-words"><p><strong>'+esc(d.code)+' not found.</strong> '+esc(d.message||'')+'</p>'+close+'</div>'; return; }
+  const ovBox = box.querySelector('.g341-ov'); const ov = !!(ovBox && ovBox.checked);
+  const cands = d.candidates || []; const pick = box._pick !== undefined ? box._pick : (d.pick || '');
+  const cand = cands.find(function(c){ return c.key === pick; }) || null, prop = cand ? cand.proposed : d.noRoster, app = d.app, L = d.listing;
+  const F = [['name','Name'],['department','Department'],['position','Position / role'],['payType','Pay type'],['dateStarted','Date started']];
+  const same = function(f, a, b){ return f === 'department' ? g341DK(a) === g341DK(b) : String(a||'').trim().toLowerCase() === String(b||'').trim().toLowerCase(); };
+  const rows = F.map(function(x){
+    const f = x[0], av = app[f] || '', nv = prop[f] || '', src = prop[f+'Source'] || '';
+    const dis = !nv || same(f, av, nv) || (f === 'department' && !d.canEditDept);
+    const diff = nv && !same(f, av, nv);
+    return '<tr class="border-t border-slate-700/40 align-top"><td class="py-1 pr-1 text-slate-400 text-[10px] break-words">'+x[1]+'</td><td class="py-1 pr-1 text-slate-200 break-words">'+esc(av||'—')+'</td><td class="py-1 pr-1 break-words '+(diff?'text-amber-200':'text-slate-300')+'">'+esc(nv||'—')+(nv?' <span class="text-[9px] text-slate-500">'+esc(src)+'</span>':'')+'</td>'+
+      '<td class="py-1 text-center"><input type="checkbox" class="g341-f" value="'+f+'" aria-label="Update '+x[1]+'"'+(dis?' disabled':'')+'/>'+(f==='department'&&diff&&!d.canEditDept?'<br><span class="text-[9px] text-slate-500">admin</span>':'')+'</td></tr>';
+  }).join('');
+  const deptWarn = (cand && !g341DeptEq(cand.department, app.department)) || !d.listingDeptOk;
+  const blocked = !!d.holder && !(d.canOverride && ov);
+  box._blocked = blocked;
+  const opt = function(c){ return '<option value="'+esc(c.key)+'"'+(c.key===pick?' selected':'')+'>'+esc(c.rosterName)+' · '+esc(c.department)+' · '+esc(c.why)+(c.lastDate?' · last '+esc(c.lastDate):'')+(c.linkedTo && c.linkedTo.length ? ' · now on another account' : '')+'</option>'; };
+  panel.innerHTML = '<div class="rounded-xl border border-teal-500/40 bg-slate-900/60 p-2 mt-1 space-y-2 text-[11px] g341-verify min-w-0">'+
+    '<div class="flex items-start justify-between gap-2 min-w-0"><p class="text-teal-100 min-w-0 break-words"><strong>'+esc(d.code)+'</strong> · listing: '+esc(L.name)+' · '+esc(L.listingDepartment||L.department||'—')+(L.dateStarted?' · started '+esc(L.dateStarted):'')+'</p>'+close+'</div>'+
+    (d.already ? '<p class="text-teal-200 g341-already">This account already has '+esc(d.code)+'. You can still link the roster person / update details.</p>' : '')+
+    (d.holder ? '<div class="rounded-lg border border-rose-500/60 bg-rose-500/10 p-2 text-rose-100 g341-taken break-words"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+esc(d.code)+' is already linked to <strong>'+esc(d.holder.name)+'</strong> ('+esc(d.holder.department||'—')+').'+
+      (d.canOverride ? '<label class="flex items-center gap-2 mt-1"><input type="checkbox" class="g341-ov"'+(ov?' checked':'')+'/> Superadmin override: move it to this account</label>' : ' Blocked — only a superadmin can move it.')+'</div>' : '')+
+    (deptWarn ? '<div class="rounded-lg border border-amber-400/60 bg-amber-500/10 p-2 text-amber-100 g341-dept break-words"><i class="fa-solid fa-building mr-1"></i><strong>Different department</strong> — app: '+esc(app.department||'—')+(cand?' · roster: '+esc(cand.department):'')+' · listing: '+esc(L.listingDepartment||'—')+(L.department && L.department !== L.listingDepartment ? ' (= '+esc(L.department)+')' : '')+'</div>' : '')+
+    '<label class="block text-slate-400">Roster person'+(d.pick ? ' (picked automatically: name + department)' : (cands.length ? ' — pick the right one' : ''))+'</label>'+
+    '<select class="ui-input w-full g341-pick min-w-0"><option value="">No roster person — link the GL number only</option>'+cands.map(opt).join('')+'</select>'+
+    (cand && cand.linkedTo && cand.linkedTo.length ? '<p class="text-amber-200 break-words">These roster days are now on '+esc(cand.linkedTo.join(', '))+' — linking moves them to this account.</p>' : '')+
+    (!cands.length ? '<p class="text-slate-400">No roster name looks like '+esc(L.name)+' (current + archive rosters).</p>' : '')+
+    '<div class="overflow-x-auto"><table class="w-full text-[11px] table-fixed g341-table"><colgroup><col style="width:27%"><col style="width:31%"><col style="width:31%"><col style="width:11%"></colgroup><thead><tr class="text-slate-400 text-left"><th class="font-medium">Field</th><th class="font-medium">App</th><th class="font-medium">Roster</th><th class="font-medium text-center" aria-label="Update"><i class="fa-solid fa-check"></i></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<label class="flex items-center gap-2 text-slate-300"><input type="checkbox" class="g341-all"/> Update all fields that differ</label>'+
+    '<div class="grid grid-cols-2 gap-2"><button type="button" class="g341-do glass rounded-lg py-2 text-xs font-semibold text-slate-100 min-h-[40px]" data-mode="link"'+(blocked?' disabled':'')+'>Link only</button><button type="button" class="g341-do btn-primary rounded-lg py-2 text-xs font-semibold text-white min-h-[40px]" data-mode="update" disabled>Link + update 0 fields</button></div>'+
+    '<p class="text-[10px] text-slate-500">Every change is logged (GL Link Log + activity log).</p></div>';
+  g341Count(box);
+}
+async function g341Apply(box, mode, findUser, onLinked, host){
+  const d = box._g; if (!d || box._blocked) return;
+  const pick = box._pick !== undefined ? box._pick : (d.pick || '');
+  const fields = mode === 'update' ? Array.from(box.querySelectorAll('.g341-f:checked')).map(function(c){ return c.value; }) : [];
+  const ov = box.querySelector('.g341-ov');
+  box.querySelectorAll('.g341-do').forEach(function(b){ b.disabled = true; });
+  let r = null; try { r = await api('glLink', { targetEmail: box.dataset.email, code: d.code, rosterKey: pick, fields: JSON.stringify(fields), override: ov && ov.checked ? 'true' : '' }); } catch (e) { r = { success:false, error: e.message }; }
+  if (!r || !r.success) { toast((r && r.error) || 'Link failed','error'); box.querySelectorAll('.g341-do').forEach(function(b){ b.disabled = false; }); g341Count(box); return; }
+  const x = r.data;
+  box.querySelector('.g341-panel').innerHTML = '<p class="rounded-lg bg-teal-500/10 border border-teal-400/30 p-2 mt-1 text-[11px] text-teal-100 g341-done break-words"><i class="fa-solid fa-check mr-1"></i>'+esc(x.code)+' linked'+(x.rosterName ? ' · roster '+esc(x.rosterName)+' ('+esc(x.rosterDept)+')' : ' · no roster person')+(function(){ const up = (x.updated||[]).filter(function(f){ return f !== 'GL number'; }); return up.length ? ' · updated '+esc(up.join(', ')) : ' · link only'; })()+(x.overrideFrom ? ' · moved from '+esc(x.overrideFrom) : '')+'</p>';
+  box._g = null; const inp = box.querySelector('.g341-code'); inp.value = ''; inp.placeholder = 'GL (now '+x.code+')';
+  const u = findUser(box.dataset.email); if (u && x.user) Object.assign(u, x.user);
+  const card = box.closest('[data-card]'); if (card && u) { const ch = card.querySelector('.g341-have'); if (ch) ch.outerHTML = g341Chip(u); const nm = card.querySelector('.g341-name'); if (nm) nm.textContent = fullDisplayName(u); const dp = card.querySelector('.g341-dept'); if (dp) dp.textContent = u.department || '—'; }
+  if (onLinked) onLinked(u, x);
+  // fast for many in a row: the list stays where it is; focus goes to the next person's GL box
+  const all = Array.from(host.querySelectorAll('.g341-code')), i = all.indexOf(inp), next = all[i + 1];
+  if (next) { next.focus({ preventScroll: true }); try { next.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+}
+function g341UserCard(u, canEdit){
+  const lab = v3RoleLabel(u), warn = (u.warnings||[]);
+  const inner = '<div class="v3-row min-w-0 gap-2"><p class="text-sm text-slate-100 truncate min-w-0 g341-name">'+esc(fullDisplayName(u))+'</p><span class="flex gap-1 shrink-0 items-center">'+(!u.active?v3Chip('inactive','bad'):'')+g341Chip(u)+'</span></div>'+
+    '<p class="text-[11px] '+(lab==='Staff'?'text-slate-500':'text-teal-200')+' truncate" data-roles>'+esc(lab)+'</p>'+
+    '<p class="text-[11px] text-slate-400 break-all">'+esc(u.email)+' · <span class="g341-dept">'+esc(u.department||'—')+'</span></p>'+
+    (warn.length ? '<p class="text-[10px] text-amber-200 mt-1 break-words"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+esc(warn.join(' · '))+'</p>' : '');
+  return '<div class="glass rounded-xl p-3 min-w-0 v3-user-card" data-card data-email="'+esc(u.email)+'">'+(canEdit ? '<button type="button" class="v3-user w-full text-left min-w-0" data-email="'+esc(u.email)+'" aria-label="Edit roles of '+esc(fullDisplayName(u))+'">'+inner+'</button>' : '<div class="min-w-0">'+inner+'</div>')+g341RowHtml(u)+'</div>';
+}
+const G341_KIND_ICON = { link:'fa-id-badge', leave:'fa-plane-departure', resortboat:'fa-anchor', special:'fa-utensils' };
+/** Admin Settings → People & roles: department grid → department users (search, roles, GL link) · pending HOD-step requests · global search */
+async function v3RenderUsers(){
+  const f = state.uf || { q:'', role:'', dept:'', view:'' }; state.uf = f; if (!state._ufKeep) { f.view = ''; f.q = ''; f.role = ''; } state._ufKeep = false; // opening the page = the department grid
+  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('admin')) +
+    '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="uf-top"><label for="uf-q" class="text-[11px] text-slate-400">Search all users</label><input id="uf-q" class="ui-input w-full" type="search" placeholder="Name, email or GL number" value="'+esc(f.q)+'"/>'+
+    '<button type="button" id="uf-pend" class="w-full rounded-xl py-2.5 px-3 text-sm border border-amber-400/50 text-amber-100 flex items-center justify-between gap-2 min-w-0"><span class="min-w-0 text-left leading-tight"><i class="fa-solid fa-inbox mr-1"></i>Pending department requests</span><span class="v3-count shrink-0 rounded-full bg-amber-500/30 px-2 text-xs" id="uf-pend-n">…</span></button></section>'+
+    '<div id="uf-list" class="space-y-2 min-w-0">'+v3Loading()+'</div>', 'users-root');
+  const [ru, rd] = await Promise.all([api('getUsers', { activeOnly:false }).catch(function(){ return null; }), state.demo ? Promise.resolve(null) : api('getPeopleDepartments', {}).catch(function(){ return null; })]);
+  if (state.tab !== 'usersv3') return;
+  if (!ru || !ru.success) { $('#uf-list').innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((ru && ru.error) || 'Could not load users')+'</p>'); return; }
+  const all = ru.data.users || [];
+  const dd = (rd && rd.success) ? rd.data : null;
+  state._g341 = { all: all, dd: dd, roleCounts: ru.data.roleCounts };
+  const findUser = function(em){ return all.find(function(u){ return u.email === em; }); };
+  const host = $('#uf-list');
+  g341Bind(host, findUser, function(){ });
+  host.addEventListener('click', function(e){ const b = e.target.closest && e.target.closest('.v3-user'); if (b && host.contains(b)) v3EditUser(findUser(b.dataset.email)); });
+  const pn = $('#uf-pend-n'); if (pn) pn.textContent = dd ? String(dd.pendingTotal) : '—';
+  const deptList = (dd && dd.departments) || PCR_DEPARTMENTS.map(function(d){ return { department: d, onRoster: 0, registered: all.filter(function(u){ return u.active && g341DeptEq(u.department, d); }).length, pending: 0 }; });
+  const listOf = function(arr){ return arr.slice(0, 200).map(function(u){ return g341UserCard(u, true); }).join('') + (arr.length > 200 ? '<p class="text-[10px] text-slate-500">… '+(arr.length-200)+' more — narrow the search</p>' : ''); };
+  const paint = function(){
+    const q = f.q.trim().toLowerCase();
+    if (q) { // global search across every user (all departments)
+      const hit = all.filter(function(u){ return (u.email+' '+u.firstName+' '+u.lastName+' '+(u.preferredName||'')+' '+(u.employeeCode||'')+' '+(u.department||'')).toLowerCase().indexOf(q) >= 0; });
+      host.innerHTML = '<p class="text-[11px] text-slate-400 px-1" id="uf-search-n">'+hit.length+' of '+all.length+' users match “'+esc(f.q.trim())+'” (all departments)</p>'+(hit.length ? listOf(hit) : v3Empty('Nobody matches.'));
+      return;
+    }
+    if (f.view === 'pending') return g341PaintPending(host, f, paint);
+    if (f.view === 'dept') {
+      const d = f.dept, row = deptList.find(function(x){ return x.department === d; }) || { onRoster: 0, registered: 0, pending: 0 };
+      const inD = all.filter(function(u){ return d === '—' ? !String(u.department||'').trim() : g341DeptEq(u.department, d) && g341DK(u.department) === g341DK(d); });
+      const list = inD.filter(function(u){
+        if (f.role === 'inactive') return !u.active;
+        if (f.role === 'staff') return v3RoleLabel(u) === 'Staff';
+        if (f.role && !v3Has(f.role, u)) return false;
+        return true;
+      });
+      host.innerHTML = '<button type="button" id="uf-back" class="text-xs text-teal-300 px-1"><i class="fa-solid fa-chevron-left mr-1"></i>All departments</button>'+
+        '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="uf-dept-head"><div class="v3-row min-w-0"><h3 class="text-sm font-semibold text-slate-100 truncate min-w-0">'+esc(d === '—' ? 'No department' : d)+'</h3>'+(row.pending ? '<button type="button" id="uf-dept-pend" class="shrink-0 text-[11px] rounded-full px-2 py-0.5 bg-amber-500/30 text-amber-100">'+row.pending+' pending</button>' : '')+'</div>'+
+        '<p class="text-[11px] text-slate-400">'+row.onRoster+' on roster · '+row.registered+' registered in app</p>'+
+        '<select id="uf-role" class="ui-input w-full min-w-0"><option value="">All roles</option>'+V3_ROLE_FILTERS.map(function(r){ return '<option value="'+r+'"'+(f.role===r?' selected':'')+'>'+V3_ROLE_LABEL[r]+'</option>'; }).join('')+'<option value="inactive"'+(f.role==='inactive'?' selected':'')+'>Inactive</option></select>'+
+        '<p class="text-[10px] text-slate-500">Type a GL number and press Enter (or Link) to check it against the staff listing and the roster. Tap a name to edit roles.</p></section>'+
+        '<p class="text-[11px] text-slate-400 px-1">'+list.length+' of '+inD.length+' users</p>'+(list.length ? listOf(list) : v3Empty('No users here.'));
+      $('#uf-back').onclick = function(){ f.view = ''; f.role = ''; paint(); };
+      $('#uf-role').onchange = function(){ f.role = this.value; paint(); };
+      const dp = $('#uf-dept-pend'); if (dp) dp.onclick = function(){ f.view = 'pending'; f.pdept = d; paint(); };
+      return;
+    }
+    host.innerHTML = '<div class="grid grid-cols-2 gap-2 min-w-0" id="uf-depts">'+deptList.filter(function(x){ return x.department !== 'Other' || x.registered || x.onRoster || x.pending; }).map(function(x){
+      return '<button type="button" class="uf-dept relative text-left glass rounded-xl p-2.5 min-w-0 min-h-[64px]" data-dept="'+esc(x.department||'—')+'">'+
+        (x.pending ? '<span class="absolute top-1.5 right-1.5 rounded-full bg-amber-500 text-slate-900 text-[10px] font-bold px-1.5 min-w-[18px] text-center uf-badge" aria-label="'+x.pending+' pending">'+x.pending+'</span>' : '')+
+        '<p class="text-[13px] font-semibold text-slate-100 break-words pr-5 leading-tight">'+esc(x.department || 'No department')+'</p>'+
+        '<p class="text-[10px] text-slate-400 mt-1 leading-snug break-words">'+x.onRoster+' on roster · '+x.registered+' registered in app</p></button>';
+    }).join('')+'</div>'+
+    (state._g341.roleCounts ? '<section class="glass rounded-2xl p-3 space-y-2 min-w-0">'+v3Title('fa-users','Role counts')+v3RoleCountChips(state._g341.roleCounts)+'<p class="text-[10px] text-slate-500">Active accounts. Someone with two roles counts in both.</p></section>' : '')+
+    (dd ? '<p class="text-[10px] text-slate-500 px-1">On roster = this and next week ('+esc(dd.window.from)+' → '+esc(dd.window.to)+'), incl. names without an account.</p>' : '');
+    $$('.uf-dept').forEach(function(b){ b.onclick = function(){ f.view = 'dept'; f.dept = b.dataset.dept; f.role = ''; paint(); try { window.scrollTo(0, 0); } catch (e) {} }; });
+  };
+  state._g341.paint = paint;
+  paint();
+  $('#uf-q').oninput = function(){ f.q = this.value; paint(); };
+  $('#uf-pend').onclick = function(){ f.q = ''; $('#uf-q').value = ''; f.view = 'pending'; f.pdept = ''; paint(); };
+}
+async function g341PaintPending(host, f, back){
+  host.innerHTML = '<button type="button" id="uf-back" class="text-xs text-teal-300 px-1"><i class="fa-solid fa-chevron-left mr-1"></i>All departments</button>'+v3Card(v3Loading());
+  $('#uf-back').onclick = function(){ f.view = f.pdept ? 'dept' : ''; if (f.pdept) f.dept = f.pdept; back(); };
+  const d = await v3Call('getDeptPending', { department: f.pdept || '' });
+  if (!d || state.tab !== 'usersv3' || f.view !== 'pending') return;
+  const items = d.items || [];
+  const card = function(it){
+    return '<div class="glass rounded-xl p-2.5 space-y-1 text-xs min-w-0 uf-pi" data-kind="'+esc(it.kind)+'" data-id="'+esc(it.id)+'"><div class="v3-row min-w-0 gap-2"><p class="text-slate-100 min-w-0 break-words"><i class="fa-solid '+(G341_KIND_ICON[it.kind]||'fa-inbox')+' mr-1 text-amber-300"></i><strong>'+esc(it.title)+'</strong> · '+esc(it.userName||it.userEmail)+'</p><span class="text-[10px] text-slate-500 shrink-0">'+esc(it.department||'—')+'</span></div>'+
+      '<p class="text-[11px] text-slate-300 break-words">'+esc(it.detail||'')+'</p>'+
+      (it.kind === 'link' ? '<input class="ui-input w-full uf-pi-code" maxlength="12" value="'+esc(it.code||'')+'" placeholder="GL number" aria-label="GL number"/>' : '')+
+      '<div class="grid grid-cols-2 gap-2"><button type="button" class="glass rounded-lg py-2 uf-pi-no min-h-[40px]">Decline</button><button type="button" class="btn-primary rounded-lg py-2 text-white font-semibold uf-pi-ok min-h-[40px]">Approve</button></div></div>';
+  };
+  host.innerHTML = '<button type="button" id="uf-back" class="text-xs text-teal-300 px-1"><i class="fa-solid fa-chevron-left mr-1"></i>'+(f.pdept ? esc(f.pdept) : 'All departments')+'</button>'+
+    '<section class="glass rounded-2xl p-3 min-w-0" id="uf-pend-head"><h3 class="text-sm font-semibold text-slate-100">Pending department requests '+v3Chip(String(items.length), items.length ? 'warn' : 'mute')+'</h3><p class="text-[11px] text-slate-400">Waiting for the HOD step'+(f.pdept ? ' in '+esc(f.pdept) : ' in every department')+'. Approving here is logged as “approved by admin on behalf of HOD”, and the HOD is told.</p></section>'+
+    '<div class="space-y-2" id="uf-pend-list">'+(items.length ? items.map(card).join('') : v3Empty('Nothing waiting.'))+'</div>';
+  $('#uf-back').onclick = function(){ f.view = f.pdept ? 'dept' : ''; if (f.pdept) f.dept = f.pdept; back(); };
+  $$('.uf-pi-ok,.uf-pi-no').forEach(function(b){ b.onclick = async function(){
+    const c = b.closest('.uf-pi'), ok = b.classList.contains('uf-pi-ok'), ci = c.querySelector('.uf-pi-code');
+    if (ok && c.dataset.kind === 'link' && ci && !ci.value.trim()) { toast('Enter the GL number','error'); ci.focus(); return; }
+    c.querySelectorAll('button').forEach(function(x){ x.disabled = true; });
+    const r = await v3Call('decideOnBehalf', { kind: c.dataset.kind, id: c.dataset.id, decision: ok ? 'approve' : 'decline', code: ci ? ci.value.trim() : '' }, ok ? 'Approved on behalf of the HOD' : 'Declined on behalf of the HOD');
+    if (!r) { c.querySelectorAll('button').forEach(function(x){ x.disabled = false; }); return; }
+    c.outerHTML = '<p class="text-[11px] text-teal-200 px-1 uf-pi-done">'+(ok ? 'Approved' : 'Declined')+' on behalf of the HOD.</p>';
+    const g = state._g341; if (g && g.dd) { g.dd.pendingTotal = Math.max(0, g.dd.pendingTotal - 1); const pn = $('#uf-pend-n'); if (pn) pn.textContent = String(g.dd.pendingTotal); }
+  }; });
+}
+/** HOD / assistant HOD (and admin): Department Admin → Link GL numbers — the department's accounts with the same GL link + verify panel (no role editing) */
+async function g341RenderGlLink(){
+  state._roleMode = v3IsAdmin() ? 'admin' : 'dept';
+  const f = state.glf || { q:'' }; state.glf = f;
+  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack(v3IsAdmin() ? 'admin' : 'dept'))+
+    '<section class="glass rounded-2xl p-3 space-y-2 min-w-0"><p class="text-xs text-slate-300">'+esc(v3IsAdmin() ? 'All departments' : (state.user.department||''))+' · type a GL number and press Enter. The number is checked against the staff listing and the roster before anything is saved.</p><input id="gl-q" class="ui-input w-full" type="search" placeholder="Search name or email" value="'+esc(f.q)+'"/></section>'+
+    '<div id="gl-list" class="space-y-2 min-w-0">'+v3Loading()+'</div>', 'gllink-root');
+  if (state.demo) { $('#gl-list').innerHTML = v3Card('<p class="text-xs text-slate-300">Needs the real server (not in the demo).</p>'); return; }
+  const r = await api('getUsers', { activeOnly: true }).catch(function(){ return null; });
+  if (state.tab !== 'gllink') return;
+  if (!r || !r.success) { $('#gl-list').innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load')+'</p>'); return; }
+  const mine = v3IsAdmin() ? null : (state.user.department || '');
+  const all = (r.data.users || []).filter(function(u){ return u.active && (!mine || g341DeptEq(u.department, mine)) && v3Perms(u).indexOf('super_admin') < 0; });
+  const host = $('#gl-list'), find = function(em){ return all.find(function(u){ return u.email === em; }); };
+  g341Bind(host, find, null);
+  const paint = function(){ const q = f.q.toLowerCase(); const l = all.filter(function(u){ return !q || (u.email+' '+u.firstName+' '+u.lastName+' '+(u.employeeCode||'')).toLowerCase().indexOf(q) >= 0; });
+    host.innerHTML = '<p class="text-[11px] text-slate-400 px-1">'+l.length+' accounts · '+l.filter(function(u){ return u.employeeCode; }).length+' with a GL number</p>'+l.slice(0, 300).map(function(u){ return g341UserCard(u, false); }).join(''); };
+  paint();
+  $('#gl-q').oninput = function(){ f.q = this.value; paint(); };
+}
+Object.assign(V3_TITLES, { gllink:'Link GL numbers' });
+Object.assign(V3_ROLE_TABS, { gllink:'dept' });
+(function(){ const base = canPrivilegedTab; canPrivilegedTab = function(tab){ if (tab === 'gllink') return v3CanDept() || v3IsAdmin(); return base(tab); }; })();
 boot();
 
 /* ============ 3.4.0 Schedule lock · link requests · department staff · registration · special meal approvals ============ */

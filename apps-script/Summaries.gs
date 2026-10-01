@@ -184,6 +184,14 @@ function dsumPrepHtml(serviceDate, prep, meta) {
     off.forEach(function (o) { h += '<li><strong>' + dsumEsc(o.name) + '</strong> (' + dsumEsc(o.department) + ') — ' + dsumEsc(o.dish) + '</li>'; });
     h += '</ul></div>';
   }
+  // 3.4.1: estimated staff on island at dinner (roster + confirmed resort boat trips)
+  try {
+    if (typeof s34Estimate === 'function') {
+      var isl = s34Estimate(serviceDate), im = isl.meals && isl.meals.dinner;
+      if (isl.hasRoster) h += '<p style="font-size:12px;margin:6px 0" class="isl-print">Dinner orders ' + (prep.totalOrders || 0) + ' vs estimated staff on island ~' + (im ? im.onIsland : isl.onIsland) +
+        (im && (im.boatIn || im.boatOut) ? ' (boat: +' + im.boatIn + ' / −' + im.boatOut + ')' : '') + '</p>';
+    }
+  } catch (eI) {}
   var spm = (typeof s34SpecialFor === 'function') ? s34SpecialFor(serviceDate).dinner : [];
   if (spm.length) {
     h += '<div style="margin:10px 0;padding:8px;border:2px solid #0d9488"><h2 style="margin:0 0 6px;font-size:14px;color:#0f766e">Special meal requests (' + spm.length + ', approved by HOD)</h2><ul style="margin:0;font-size:12px">';

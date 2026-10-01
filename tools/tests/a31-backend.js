@@ -109,7 +109,7 @@ function req(action, p) {
 }
 const MSG = "Superadmin accounts can't place orders or bookings. Use a staff account.";
 const LOG = () => store['Admin Log'] || [];
-check('APP_VERSION is 3.4.0', R('APP_VERSION') === '3.4.0');
+check('APP_VERSION is 3.4.1', R('APP_VERSION') === '3.4.1');
 check('handleRequest goes through a31Handle', /a31Handle\(action, payload, routeAction\)/.test(fs.readFileSync(path.join(root, 'apps-script/Code.gs'), 'utf8')));
 
 const tSuper = login('it@paradisecoveresortfiji.com', '21slands');

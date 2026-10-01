@@ -22,7 +22,7 @@ var R34 = {
   UNM: 'Roster Unmatched', ALLOW: 'Leave Allowances', REMLOG: 'Roster Reminder Log'
 };
 var R34_SHIFT_HEADERS = ['id', 'uploadId', 'period', 'userEmail', 'userName', 'department', 'date', 'start', 'end', 'dayOff', 'roleLabel',
-  'rawName', 'createdAt', 'kind', 'periodKey', 'code', 'leaveType', 'rosterDept'];
+  'rawName', 'createdAt', 'kind', 'periodKey', 'code', 'leaveType', 'rosterDept', 'payType', 'position']; // 3.4.1: + pay type / position from the roster block
 var R34_UPLOAD_HEADERS = ['id', 'period', 'department', 'fileName', 'fileType', 'uploadedBy', 'uploadedAt', 'rowCount', 'matchedCount',
   'unmatchedJson', 'notes', 'kind', 'periodKey', 'periodStart', 'periodEnd', 'status', 'layout', 'unmatchedCount', 'changedCount',
   'finalizedAt', 'totalRows', 'chunksDone', 'skippedCount', 'replacedBy'];
@@ -59,6 +59,7 @@ var R34_DEFAULT_CODES = {
   'SICK': 'Sick leave', 'SICK LEAVE': 'Sick leave', 'S/LEAVE': 'Sick leave', 'SICK SHEET': 'Sick leave',
   'MATERNITY LEAVE': 'Maternity / Paternity', 'MATERNITY': 'Maternity / Paternity', 'M/L': 'Maternity / Paternity', 'M/LEAVE': 'Maternity / Paternity', 'PATERNITY': 'Maternity / Paternity',
   'B/LEAVE': 'Family / Bereavement', 'BEREAVEMENT': 'Family / Bereavement', 'FAMILY LEAVE': 'Family / Bereavement', 'COMPASSIONATE': 'Family / Bereavement',
+  'FAMILY': 'Family / Bereavement', 'F/LEAVE': 'Family / Bereavement', 'F/L': 'Family / Bereavement', // 3.4.1: family leave = off-island, like bereavement (Pranav)
   'LWOP': 'Unpaid leave', 'LOPW': 'Unpaid leave', 'LEAVE WITHOUT PAY': 'Unpaid leave',
   'PUBLIC HOLIDAY': 'Public holiday', 'P/H': 'Public holiday',
   'LEAVE': 'Other'
@@ -71,7 +72,7 @@ function r34FuzzyCode(key, codes) {
   if (codes[k] !== undefined) return k;
   var pick = function (type) { var c = Object.keys(codes).filter(function (x) { return codes[x] === type; })[0]; return c || ''; };
   if (/^(DAY|DAT|BAY|DAYS|D)\s?\/?\s?OFF$/.test(k) || /^OFF$/.test(k)) return pick('Day off');
-  if (!/LEAVE|SICK|MATERN|MARENITY|PATERN|BEREAV|BREVEA|FUNERAL|WITHOUT PAY|LWOP|LOPW|ANNUAL/.test(k)) return '';
+  if (!/LEAVE|SICK|MATERN|MARENITY|PATERN|BEREAV|BREVEA|FUNERAL|FAMILY|WITHOUT PAY|LWOP|LOPW|ANNUAL/.test(k)) return '';
   if (/WITHOUT PAY|LWOP|LOPW|UNPAID/.test(k)) return pick('Unpaid leave');
   if (/SICK/.test(k)) return pick('Sick leave');
   if (/MATERN|MARENITY|PATERN/.test(k)) return pick('Maternity / Paternity');
@@ -84,6 +85,11 @@ function r34CodeKey(s) { return String(s == null ? '' : s).toUpperCase().replace
  *  Base = the 3.3 list; R34_ROSTER_DEPTS = departments that have their own sheet in the real PCR weekly rosters but were missing. */
 var R34_BASE_DEPTS = ['F&B', 'Bar', 'Kitchen', 'Boatman', 'Porters', 'Kids Club', 'BR Kitchen', 'Donu Kitchen', 'Housekeeping', 'Grounds', 'Spa', 'Maintenance', 'Diveshop', 'Activities', 'Security', 'Management', 'IT/Office', 'Other'];
 var R34_ROSTER_DEPTS = ['Front Office', 'Stores'];
+/** 3.4.1 (Pranav 2 Oct 2026): Medical and Admin added (listing "HR" → Admin); Band and Naisoso are not departments (removed if present);
+ *  "Construction" (roster section / Summary / listing) counts as Maintenance — see R34_DEPT_ALIAS. */
+var R34_341_DEPTS = ['Medical', 'Admin'];
+var R34_REMOVED_DEPTS = ['Band', 'Naisoso'];
+var R34_DEPT_ALIAS = { construction: 'maintenance', hr: 'admin', humanresources: 'admin', humanresource: 'admin' };
 var R34_SETTINGS = {
   leave_types: function () { return JSON.stringify(R34_DEFAULT_LEAVE_TYPES); },
   roster_leave_codes: function () { return JSON.stringify(R34_DEFAULT_CODES); },
@@ -94,7 +100,7 @@ var R34_SETTINGS = {
 /* ---------- schema + settings (idempotent) ---------- */
 function r34Ensure(force) {
   var c = null;
-  try { c = CacheService.getScriptCache(); if (!force && c.get('pcr_r34_schema_2') === '1') return; } catch (e) {}
+  try { c = CacheService.getScriptCache(); if (!force && c.get('pcr_r34_schema_3') === '1') return; } catch (e) {}
   var ss = getSS();
   ensureSheet(ss, R34.SHIFTS, R34_SHIFT_HEADERS);
   ensureSheet(ss, R34.ARCH, R34_SHIFT_HEADERS);
@@ -116,13 +122,24 @@ function r34Ensure(force) {
     setSetting('departments', JSON.stringify(list), 'system 3.4.0');
     setSetting('departments_roster_340', 'added: ' + R34_ROSTER_DEPTS.join(', '), 'system 3.4.0');
   }
-  try { if (c) c.put('pcr_r34_schema_2', '1', 21600); } catch (e2) {}
+  if (!have.departments_341) { // once (3.4.1): + Medical, Admin; − Band, Naisoso (accounts keep their value; nothing else is renamed)
+    var l2 = r34DeptList();
+    l2 = l2.filter(function (x) { return !R34_REMOVED_DEPTS.some(function (r) { return r.toLowerCase() === String(x).toLowerCase(); }); });
+    R34_341_DEPTS.forEach(function (d) {
+      if (l2.some(function (x) { return String(x).toLowerCase() === d.toLowerCase(); })) return;
+      var oi = l2.indexOf('Other'); if (oi >= 0) l2.splice(oi, 0, d); else l2.push(d);
+    });
+    setSetting('departments', JSON.stringify(l2), 'system 3.4.1');
+    setSetting('departments_341', 'added: ' + R34_341_DEPTS.join(', ') + '; removed: ' + R34_REMOVED_DEPTS.join(', '), 'system 3.4.1');
+  }
+  try { if (c) c.put('pcr_r34_schema_3', '1', 21600); } catch (e2) {}
 }
 
 function r34DeptList() {
   var v = r34Json(getSetting('departments', ''), null);
-  if (!Array.isArray(v) || !v.length) v = R34_BASE_DEPTS.concat(R34_ROSTER_DEPTS);
+  if (!Array.isArray(v) || !v.length) { v = R34_BASE_DEPTS.concat(R34_ROSTER_DEPTS); v.splice(v.indexOf('Other'), 0, 'Medical', 'Admin'); }
   var seen = {};
+  R34_REMOVED_DEPTS.forEach(function (r) { seen[r.toLowerCase()] = 1; }); // 3.4.1: never offered again
   return v.map(function (x) { return String(x || '').trim(); }).filter(function (x) { var k = x.toLowerCase(); if (!x || seen[k]) return false; seen[k] = 1; return true; });
 }
 /** Public (sign-up form needs it): the department list. */
@@ -333,7 +350,7 @@ function r34Norm(s) {
 }
 function r34Tokens(s) { var n = r34Norm(s); return n ? n.split(' ') : []; }
 function r34Key(tokens) { return tokens.slice().sort().join(' '); }
-function r34DeptKey(d) { return String(d == null ? '' : d).toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]/g, ''); }
+function r34DeptKey(d) { var k = String(d == null ? '' : d).toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]/g, ''); return R34_DEPT_ALIAS[k] || k; }
 function r34DeptEq(a, b) {
   var x = r34DeptKey(a), y = r34DeptKey(b);
   if (!x || !y) return false;
@@ -498,12 +515,14 @@ function rosterUploadChunk(p) {
       if (!e) return; // empty cell = nothing rostered that day
       if (e.unknown) unknown[e.code] = (unknown[e.code] || 0) + 1;
       var shift = { date: date, start: e.start, end: e.end, dayOff: e.dayOff, code: e.code, leaveType: e.leaveType, roleLabel: e.roleLabel };
+      var pay = String(r.payType || '').replace(/\s+/g, ' ').trim().substring(0, 30), pos = String(r.position || '').replace(/\s+/g, ' ').trim().substring(0, 60); // 3.4.1
+      if (pay) shift.payType = pay; if (pos) shift.position = pos;
       var m = r34Match(name, rowDept, mc, r.employeeCode || r.empCode || '');
       if (m.user) {
         people[r34Lower(m.user.email)] = 1;
         out.push({ id: uid('rsh'), uploadId: up.id, period: up.period, userEmail: r34Lower(m.user.email), userName: r34UserName(m.user), department: m.user.department || rowDept,
           date: date, start: shift.start, end: shift.end, dayOff: shift.dayOff, roleLabel: shift.roleLabel, rawName: name, createdAt: now, kind: kind, periodKey: key,
-          code: shift.code, leaveType: shift.leaveType, rosterDept: rowDept });
+          code: shift.code, leaveType: shift.leaveType, rosterDept: rowDept, payType: shift.payType || '', position: shift.position || '' });
       } else {
         var gk = r34MapKey(name, rowDept);
         if (!groups[gk]) groups[gk] = { rawName: name, department: rowDept, reason: m.reason, suggestions: m.suggestions, shifts: [] };
@@ -892,7 +911,7 @@ function linkRosterName(p) {
       r34Json(u.shiftsJson, []).forEach(function (s) {
         (byTab[r34Tab(kind)] = byTab[r34Tab(kind)] || []).push({ id: uid('rsh'), uploadId: u.uploadId, period: up.period, userEmail: r34Lower(target.email), userName: r34UserName(target),
           department: target.department || dept, date: s.date, start: s.start, end: s.end, dayOff: !!s.dayOff, roleLabel: s.roleLabel || '', rawName: name, createdAt: now,
-          kind: kind, periodKey: key, code: s.code || '', leaveType: s.leaveType || '', rosterDept: dept });
+          kind: kind, periodKey: key, code: s.code || '', leaveType: s.leaveType || '', rosterDept: dept, payType: s.payType || '', position: s.position || '' });
         rowsAdded++;
       });
       updateRowById(R34.UNM, u.id, { status: 'linked', resolvedEmail: r34Lower(target.email), resolvedBy: r34Lower(me.email), resolvedAt: now });
@@ -1189,11 +1208,13 @@ function r34Tick() {
 function r34ListDepts(d) {
   var k = String(d || '').toUpperCase().replace(/\s+/g, ' ').trim();
   if (!k) return null;
+  if (/^(BAND|NAISOSO)\b/.test(k)) return null; // 3.4.1: skipped rows (r34PlanCodes / saveStaffListing) — never an app department
   try { var same = r34DeptList().filter(function (x) { return r34DeptEq(x, d); }); if (same.length) return same; } catch (e) {} // the app's own department name
   var T = [[/ELECTRIC|MAINT|CONSTRUCT|PLUMB|JOINER|CARPENT|PAINT|MARINE|MECHANIC|WORKSHOP/, ['Maintenance']], [/GARDEN|GROUND/, ['Grounds']],
     [/RESTAURANT|F ?& ?B|WAIT|FOOD/, ['F&B', 'Bar']], [/\bBAR\b/, ['Bar', 'F&B']], [/BOAT|CAPTAIN|DECK/, ['Boatman']], [/HOUSEKEEP|LAUNDRY|ROOM/, ['Housekeeping']],
     [/KIDS/, ['Kids Club']], [/KITCHEN|CHEF|COOK|BAKER|PASTRY|STEWARD/, ['Kitchen', 'BR Kitchen', 'Donu Kitchen']], [/DIVE/, ['Diveshop']],
-    [/FRONT|GUEST REL|RESERV|RECEPT/, ['Front Office', 'IT/Office']], [/^IT\b|INFORMATION/, ['IT/Office']], [/HUMAN|^HR\b|MANAGEMENT|ACCOUNT|FINANCE|ADMIN/, ['Management', 'IT/Office']],
+    [/FRONT|GUEST REL|RESERV|RECEPT/, ['Front Office', 'IT/Office']], [/^IT\b|INFORMATION/, ['IT/Office']], [/HUMAN|^HR\b|ADMIN/, ['Admin']], [/ACCOUNT|FINANCE|PAYROLL/, ['Admin', 'Management', 'IT/Office']], [/MANAGEMENT|MANAGER/, ['Management']],
+    [/MEDIC|NURSE|CLINIC|DOCTOR|FIRST AID/, ['Medical']],
     [/SECUR/, ['Security']], [/\bSPA\b/, ['Spa']], [/STORE/, ['Stores']], [/PORTER/, ['Porters']], [/ACTIVIT/, ['Activities']]];
   for (var i = 0; i < T.length; i++) if (T[i][0].test(k)) return T[i][1];
   return null;
@@ -1213,6 +1234,7 @@ function r34PlanCodes(rows, users) {
   (rows || []).forEach(function (r) {
     var code = r34EmpCode(r.code); if (!code || seen[code]) return; seen[code] = 1;
     var toks = r34NameToks(r.name); if (!toks.length) return;
+    if (/^\s*(band|naisoso)\b/i.test(String(r.department || ''))) { out.push({ code: code, name: String(r.name || '').replace(/\s+/g, ' ').trim().substring(0, 80), department: String(r.department || '').trim().substring(0, 40), status: 'skipped', why: 'Band / Naisoso are not app departments — skipped', suggestions: [] }); return; }
     var okDept = r34ListDepts(r.department);
     var has = function (t) { return toks.indexOf(t) >= 0; };
     var cands = ppl.filter(function (p) { return p.last.length && p.last.every(has) && (p.first.some(has) || p.pref.some(has)); });
@@ -1307,6 +1329,9 @@ function routeRoster34(action, p) {
     getRosterUnmatched: getRosterUnmatched, linkRosterName: linkRosterName, ignoreRosterName: ignoreRosterName, unlinkRosterName: unlinkRosterName,
     getRosterAdmin: getRosterAdmin, getRosterSettings: getRosterSettings, saveRosterSettings: saveRosterSettings,
     previewEmployeeCodes: previewEmployeeCodes, applyEmployeeCodes: applyEmployeeCodes, setEmployeeCode: setEmployeeCode,
+    saveStaffListing: function (q) { return routeG341('saveStaffListing', q); }, getStaffListingInfo: function (q) { return routeG341('getStaffListingInfo', q); },
+    glLookup: function (q) { return routeG341('glLookup', q); }, glLink: function (q) { return routeG341('glLink', q); }, getGlLinkLog: function (q) { return routeG341('getGlLinkLog', q); }, // 3.4.1 (GlLink341.gs)
+    getPeopleDepartments: function (q) { return routeG341('getPeopleDepartments', q); }, getDeptPending: function (q) { return routeG341('getDeptPending', q); }, decideOnBehalf: function (q) { return routeG341('decideOnBehalf', q); },
     getLeaveAllowances: getLeaveAllowances, saveLeaveAllowance: saveLeaveAllowance, deleteLeaveAllowance: deleteLeaveAllowance
   };
   var fn = map[action];

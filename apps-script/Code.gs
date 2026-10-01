@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.4.0';
+var APP_VERSION = '3.4.1';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -197,7 +197,7 @@ function routeAction(action, p) {
     case 'approveAllLateBreakfast': return approveAllLateBreakfast(p);
     case 'processBreakfastWorkflow': return processBreakfastWorkflow(p);
     case 'processDinnerWorkflow': return processDinnerWorkflow(p);
-    case 'getDinnerPrepList': return getDinnerPrepList(p);
+    case 'getDinnerPrepList': return typeof s34Wrap === 'function' ? s34Wrap(getDinnerPrepList(p), 'dinner') : getDinnerPrepList(p); // 3.4.1 + island estimate, special meals
     case 'getKitchenDaySummary': return getKitchenDaySummary(p); // 2.10.1 Summaries.gs (read only)
     case 'getSavedSummaryPdf': return getSavedSummaryPdf(p); // 2.10.1
     case 'saveDinnerSummary': return saveDinnerSummary(p); // 2.10.1 admin
@@ -205,8 +205,8 @@ function routeAction(action, p) {
     case 'dinnerSummaryStatus': return dinnerSummaryStatus(p); // 2.10.1 superadmin
     case 'getMealStatistics': return getMealStatistics(p);
     case 'placeMealOnBehalf': return placeMealOnBehalf(p);
-    case 'getBreakfastOrderSheet': return getBreakfastOrderSheet(p);
-    case 'getLunchOrderSheet': return getLunchOrderSheet(p);
+    case 'getBreakfastOrderSheet': return typeof s34Wrap === 'function' ? s34Wrap(getBreakfastOrderSheet(p), 'breakfast') : getBreakfastOrderSheet(p); // 3.4.1 + island estimate, special meals
+    case 'getLunchOrderSheet': return typeof s34Wrap === 'function' ? s34Wrap(getLunchOrderSheet(p), 'lunch') : getLunchOrderSheet(p); // 3.4.1 + island estimate, special meals
 
     case 'getReminders': return getReminders(p);
     case 'addReminder': return addReminder(p);

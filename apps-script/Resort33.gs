@@ -64,7 +64,7 @@ function r33NoLead(row) {
 /** HOD step: the HOD / assistant HOD of that department; an admin only when the department has no other lead. */
 function r33CanHod(r, row) {
   if (!r || r33Lower(r.email) === r33Lower(row.userEmail)) return false;
-  return v3IsLeadOf(r, row.department) || (isAdminPerm(r) && r33NoLead(row));
+  return v3IsLeadOf(r, row.department) || (isAdminPerm(r) && (r33NoLead(row) || (typeof A341_BEHALF !== 'undefined' && A341_BEHALF))); // 3.4.1: admin on behalf of HOD
 }
 function r33CanConfirm(r, row) {
   if (!r || r33Lower(r.email) === r33Lower(row.userEmail)) return false;
@@ -215,7 +215,7 @@ function r33Decide(p, step) {
   targets.forEach(function (x) {
     var patch;
     if (step === 'hod') {
-      var n2 = note; if (!v3IsLeadOf(r, x.department)) n2 = (n2 ? n2 + ' ' : '') + '(department has no HOD — decided by admin)';
+      var n2 = note; if (!v3IsLeadOf(r, x.department)) n2 = (n2 ? n2 + ' ' : '') + (!r33NoLead(x) ? '(' + (approve ? 'approved' : 'declined') + ' by admin on behalf of HOD)' : '(department has no HOD — decided by admin)');
       patch = { status: approve ? 'pending_admin' : 'rejected', hodStatus: approve ? 'approved' : 'declined', hodBy: r33Lower(r.email), hodAt: now, hodNote: n2, updatedAt: now };
     } else {
       patch = { status: approve ? 'confirmed' : 'rejected', adminStatus: approve ? 'confirmed' : 'declined', adminBy: r33Lower(r.email), adminAt: now, adminNote: note, updatedAt: now };

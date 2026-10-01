@@ -268,14 +268,37 @@ function s34ApprovedLeaveOn(date) {
 function s34Counted(o) { var st = String(o.status || ''); return st && st !== 'cancelled' && st !== 'rejected' && st !== 'declined' && st !== 'late_pending'; }
 /** one service date: roster estimate (everyone on the roster, incl. names without an app account) vs counted orders per meal. */
 function s34Estimate(date) {
-  var off = s34OffList(), lv = s34ApprovedLeaveOn(date);
+  // the roster part is cached per roster version + the day's approved leave / boat trips / off-island list (all cheap to read)
+  var off = s34OffList(), lv = s34ApprovedLeaveOn(date), trips = s34BoatTrips(date);
+  var ck = null, r = null;
+  try { ck = scKey('r34', 'isl341:' + date + ':' + s34Hash(JSON.stringify([off, lv, trips]))); r = scGetJson(ck); } catch (e) { ck = null; }
+  if (!r) { r = s34IslandCount(date, off, lv, trips); if (ck) { try { scPutJson(ck, r, 3600); } catch (e2) {} } }
+  var orders = {}, special = {};
+  Object.keys(S34_MEALS).forEach(function (m) {
+    orders[m] = sheetToObjects(S34_MEALS[m]).filter(function (o) { return dsumDate(o.serviceDate) === date && s34Counted(o); }).length;
+    special[m] = 0;
+  });
+  sheetToObjects(S34.SPECIAL).forEach(function (x) { if (String(x.serviceDate).slice(0, 10) === date && String(x.status) === 'approved' && special[x.meal] !== undefined) special[x.meal]++; });
+  return { date: date, label: r34Label(date), onIsland: r.on, offIsland: r.offN, rostered: r.on + r.offN, orders: orders, specialApproved: special, hasRoster: r.on + r.offN > 0, meals: r.meals };
+}
+function s34Hash(str) { var h = 5381; for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return (h >>> 0).toString(36) + '.' + str.length; }
+function s34IslandCount(date, off, lv, trips) {
+  off = off || s34OffList(); lv = lv || s34ApprovedLeaveOn(date); trips = trips || s34BoatTrips(date);
   var uploads = r34Uploads(), active = r34ActiveIds(uploads);
   var idx = r34Index(r34AllRows(true), active, date, date);
-  var on = 0, offN = 0, seen = {};
+  var on = 0, offN = 0, seen = {}, meals = {};
+  S34_MEAL_ORDER.forEach(function (m) { meals[m] = { onIsland: 0, boatIn: 0, boatOut: 0 }; });
   Object.keys(idx).forEach(function (em) {
     seen[em] = 1;
     var st = s34Island(idx[em][date], off, lv[em]);
     if (st === 'on') on++; else if (st === 'off') offN++;
+    if (!st) return;
+    // 3.4.1: per meal — the roster status of the day, changed by a confirmed resort boat trip that day (leaves after breakfast / lunch, arrives before lunch / dinner)
+    S34_MEAL_ORDER.forEach(function (m) {
+      var t = trips[em], ms = t ? s34TripStatus(t, S34_MEAL_AT[m]) : st;
+      if (ms === 'on') meals[m].onIsland++;
+      if (t && ms !== st) { if (ms === 'on') meals[m].boatIn++; else meals[m].boatOut++; }
+    });
   });
   Object.keys(lv).forEach(function (em) { if (!seen[em] && off[r34Lower(lv[em])]) offN++; });
   var wk = r34Monday(date), mk = r34MonthKey(date), only = {};
@@ -288,14 +311,38 @@ function s34Estimate(date) {
     if (!s || (only[k] && only[k].kind === 'weekly')) return;
     only[k] = { kind: kind, e: { date: date, dayOff: !!s.dayOff, code: s.code || '', leaveType: s.leaveType || '', start: s.start || '' } };
   });
-  Object.keys(only).forEach(function (k) { var st = s34Island(only[k].e, off, ''); if (st === 'on') on++; else if (st === 'off') offN++; });
-  var orders = {}, special = {};
-  Object.keys(S34_MEALS).forEach(function (m) {
-    orders[m] = sheetToObjects(S34_MEALS[m]).filter(function (o) { return dsumDate(o.serviceDate) === date && s34Counted(o); }).length;
-    special[m] = 0;
-  });
-  sheetToObjects(S34.SPECIAL).forEach(function (r) { if (String(r.serviceDate).slice(0, 10) === date && String(r.status) === 'approved' && special[r.meal] !== undefined) special[r.meal]++; });
-  return { date: date, label: r34Label(date), onIsland: on, offIsland: offN, rostered: on + offN, orders: orders, specialApproved: special, hasRoster: on + offN > 0 };
+  Object.keys(only).forEach(function (k) { var st = s34Island(only[k].e, off, ''); if (st === 'on') { on++; S34_MEAL_ORDER.forEach(function (m) { meals[m].onIsland++; }); } else if (st === 'off') offN++; });
+  return { on: on, offN: offN, meals: meals };
+}
+/* 3.4.1: per-meal estimate. Meal times (Fiji) and the PCE resort boat: AM arrives ~10:00, AM leaves ~10:20, PM arrives ~15:00, PM leaves ~15:30. */
+var S34_MEAL_ORDER = ['breakfast', 'lunch', 'dinner'];
+var S34_MEAL_AT = { breakfast: 7 * 60, lunch: 12 * 60, dinner: 19 * 60 };
+var S34_TRIP_AT = { 'AM|to_resort': 10 * 60, 'AM|to_naisoso': 10 * 60 + 20, 'PM|to_resort': 15 * 60, 'PM|to_naisoso': 15 * 60 + 30 };
+/** confirmed resort boat trips on the date → { email: [{ at, dir }] } (sorted) */
+function s34BoatTrips(date) {
+  var o = {};
+  try {
+    if (typeof R33_SHEET === 'undefined') return o;
+    sheetToObjects(R33_SHEET).forEach(function (x) {
+      if (String(x.status) !== 'confirmed' || v3Date(x.date) !== date) return;
+      var at = S34_TRIP_AT[String(x.run) + '|' + String(x.direction)]; if (at === undefined) return;
+      var em = s34Lower(x.userEmail); (o[em] = o[em] || []).push({ at: at, dir: String(x.direction) });
+    });
+    Object.keys(o).forEach(function (em) { o[em].sort(function (a, b) { return a.at - b.at; }); });
+  } catch (e) {}
+  return o;
+}
+/** on / off the island at a time of day, from the boat trips of that day */
+function s34TripStatus(trips, at) {
+  var st = trips[0].dir === 'to_naisoso' ? 'on' : 'off';
+  trips.forEach(function (t) { if (t.at < at) st = t.dir === 'to_resort' ? 'on' : 'off'; });
+  return st;
+}
+function s34Wrap(res, meal) { try { if (res && res.success && res.data) s34AttachIsland(res.data, meal, String(res.data.serviceDate || '').slice(0, 10)); } catch (e) {} return res; }
+/** 3.4.1: kitchen order sheets / prep list: the island estimate of that meal + approved special meals */
+function s34AttachIsland(data, meal, date) {
+  try { if (!data || !date) return data; data.island = s34Estimate(date); if (!data.specialMeals) data.specialMeals = s34SpecialFor(date)[meal] || []; } catch (e) {}
+  return data;
 }
 function s34MyIsland(me, date) {
   if (!s34Linked(me)) return '';

@@ -207,7 +207,7 @@ async function setClock(page, d) { await page.clock.setSystemTime(d); await j('/
   await nav('usersv3'); await wait(1200);
   check('Users shows role counts (no seat limits)', /Admin/.test(await txt('#role-counts')) && !/of \d+ used/.test(await txt('#role-counts')));
   await shot('40-admin-users-role-counts');
-  await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Newstarter/.test(b.innerText)).click()); await wait(600);
+  await page.fill('#uf-q', '@').catch(() => {}); await page.waitForTimeout(400); await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Newstarter/.test(b.innerText)).click()); await wait(600);
   await shot('41-admin-edit-user', false);
   await page.click('#eu3-cancel');
   await nav('reminders'); await wait(900);

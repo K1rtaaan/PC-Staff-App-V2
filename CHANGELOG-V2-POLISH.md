@@ -1,7 +1,20 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.4.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.4.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
+
+## 3.4.1 — GL number linking, People & roles by department, per-meal island estimate (2026-10-02)
+
+| ID | Change |
+|---|---|
+| C179 | **GL number linking** (Admin → People & roles → department, and Department Admin → **Link GL numbers** for HODs/assistant HODs, their own department only). Each person has a GL box: type the number, press Enter (or **Link**). The server checks it against the saved **staff listing** (new tab `Staff Listing`; the roster workbooks themselves carry no GL numbers) and the roster names (current + archive + unmatched), then shows a verify panel: listing name/department/start date, the roster person picked automatically (name + department) or a picker, and a field table (App vs Roster) for name, department, position, pay type and date started with per-field ticks and "update all". **Link only** (focused, so Enter twice links) or **Link + update selected**. Linking also links the roster name and moves its roster days to the account. Focus then jumps to the next person's GL box. |
+| C180 | **Checks**: a GL not in the listing is shown in red and nothing is saved; a GL already on another account is blocked (a superadmin can override, which moves it and clears it on the other account); a department difference between app / roster / listing is warned. HODs can't change departments. Every field change is written to the new `GL Link Log` tab and the activity log. Pending "enter my employee number" requests for that person are closed. |
+| C181 | **People & roles redesign** (was Users & roles): a 2-column grid of department buttons (works at 320px) showing "X on roster · Y registered in app" (roster = this + next week, incl. names without an account) and a badge with pending requests. Tapping a department lists its users with role filter, GL boxes and the same role editor. A search box at the top searches all users in every department (name, email, GL). |
+| C182 | **Pending department requests** button (total count) at the top of People & roles: every item waiting for the HOD step in all departments — GL / number link requests, leave (HOD step), resort boat (HOD step), special meal requests. An admin can approve or decline on behalf of the HOD; this is logged as "approved/declined by admin on behalf of HOD" and the HOD is told. |
+| C183 | **Staff listing**: Employee codes now saves the whole listing for GL checks (on Confirm, or "Save staff listing only") and shows when it was last saved. **Band** and **Naisoso** rows are skipped (not app staff) and those two departments are removed from the department list once (marker `departments_341`). HR maps to a new **Admin** department; **Medical** is added; Construction maps to Maintenance. |
+| C184 | Roster reading: pay type (Hourly / Salary / Wage) and position from column A of each employee block are stored with the shifts (used for the GL field table). Family leave codes (FAMILY, F/LEAVE, F/L → Family / Bereavement; counts as off-island). |
+| C185 | **Island estimate per meal**: roster status for the date, adjusted by **confirmed** resort boat (PCE) trips that day (AM in 10:00 / out 10:20, PM in 15:00 / out 15:30 vs breakfast 07:00, lunch 12:00, dinner 19:00). Shown on the Meals tab, kitchen summary, dinner prep / order sheets and the PDF/printouts with a boat note ("+2 arrive on the PM boat"). The roster part is cached for an hour (busted when rosters, leave or trips change). |
+| C186 | Tests: `tools/tests/r341-gl-unit.js` (listing, lookup, link, override, skip, departments, family codes, per-meal boat, on behalf of HOD), `tools/test-env/r342-gl-link.js` (TEST site + server at 390px and 320px: People & roles grid, global search, GL verify panel, pending requests, island lines). |
 
 ## 3.4.0 — Schedule tab: rosters, leave balances, roster reminders (2026-10-02)
 

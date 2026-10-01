@@ -245,7 +245,7 @@ const FJ = (d, hm) => new Date(d + 'T' + hm + ':00+12:00');
   await nav('usersv3'); await wait(900); await shot('flow-20-admin-users');
   const rcTxt = await txt('#role-counts');
   check('users screen shows role counts (no seat limits)', /Admin/.test(rcTxt) && /HOD/.test(rcTxt) && !/of \d+ used/.test(rcTxt), rcTxt.replace(/\n/g,' '));
-  await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Sami Koro/.test(b.innerText)).click()); await wait(400);
+  await page.fill('#uf-q', '@').catch(() => {}); await page.waitForTimeout(400); await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Sami Koro/.test(b.innerText)).click()); await wait(400);
   await shotView('flow-21-admin-edit-user-permissions');
   await page.check('.eu3-perm[value="assistant_hod"]'); await page.click('#eu3-save'); await wait(900);
   check('admin set assistant HOD (permission + flag)', await page.evaluate(() => { const u = JSON.parse(localStorage.getItem(DEMO_KEY)).users.find(u => u.email === 'sam.fb@paradisecoveresortfiji.com'); return /assistant_hod/.test(u.permissions) && (u.assistantHod === true || u.assistantHod === 'TRUE'); }));

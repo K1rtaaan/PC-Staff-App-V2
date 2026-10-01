@@ -116,7 +116,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   await nav('more'); const ab = await roleBtns(); check('admin role buttons incl admin', ab.includes('admin'), ab); await shot('admin-more');
   await nav('adminhub'); await shot('admin-hub');
   await nav('usersv3'); await page.waitForTimeout(1200); await shot('admin-users'); check('role counts shown', !!(await page.$('#role-counts')));
-  await page.click('.v3-user'); await page.waitForTimeout(400); await shot('admin-edituser');
+  await page.fill('#uf-q', '@').catch(() => {}); await page.waitForTimeout(400); await page.click('.v3-user'); await page.waitForTimeout(400); await shot('admin-edituser');
   check('edit user: role checkboxes', (await page.$$('.eu3-perm')).length >= 6);
   await page.evaluate(() => closeModal());
 

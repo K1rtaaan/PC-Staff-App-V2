@@ -312,6 +312,7 @@ function v3UserOut(u) {
   pu.deptDecidedBy = u.deptDecidedBy || '';
   pu.deptDecidedAt = u.deptDecidedAt || '';
   pu.createdAt = u.createdAt || '';
+  pu.position = String(u.position || ''); pu.payType = String(u.payType || ''); pu.dateStarted = String(u.dateStarted || '').replace(/^'/, ''); // 3.4.1 GL link fields
   pu.employeeCode = String(u.employeeCode || ''); // 3.4.0
   return pu;
 }
@@ -467,6 +468,8 @@ function submitLeave(p) {
   to.forEach(function (x) { v3Notify(x.email, 'Leave request: ' + row.userName, type + ' ' + s + (e !== s ? ' → ' + e : '') + ' — ' + reason, 'leave', row.id); });
   return { success: true, data: { request: v3LeaveOut(row) } };
 }
+/** 3.4.1: true only while decideOnBehalf (GlLink341.gs, admin only) runs a HOD-step decision */
+var A341_BEHALF = false;
 function decideLeave(p) {
   var r = v3Requester(p);
   var l = sheetToObjects('Leave Requests').filter(function (x) { return String(x.id) === String(p.id); })[0];
@@ -480,10 +483,11 @@ function decideLeave(p) {
     // 3.0 (item 33): the department step is never skipped — only the HOD / assistant HOD of THAT department decides it.
     // An admin may act for the department only when it has no active HOD / assistant HOD (recorded as such).
     var noLead = !deptLeads(l.department).some(function (x) { return String(x.email).toLowerCase() !== String(l.userEmail).toLowerCase(); });
-    if (!v3IsLeadOf(r, l.department) && !(isAdminPerm(r) && noLead)) {
+    var behalf = A341_BEHALF && isAdminPerm(r); // 3.4.1: admin approves on behalf of the HOD (People & roles → Pending department requests)
+    if (!v3IsLeadOf(r, l.department) && !(isAdminPerm(r) && (noLead || behalf))) {
       return { success: false, error: 'Waiting for the HOD / assistant HOD of ' + (l.department || 'the department') + ' (HODs only decide their own department)' };
     }
-    if (!v3IsLeadOf(r, l.department)) note = (note ? note + ' ' : '') + '(department has no HOD — decided by admin)';
+    if (!v3IsLeadOf(r, l.department)) note = (note ? note + ' ' : '') + (behalf && !noLead ? '(' + (approve ? 'approved' : 'declined') + ' by admin on behalf of HOD)' : '(department has no HOD — decided by admin)');
     patch = { status: approve ? 'pending_manager' : 'rejected', hodStatus: approve ? 'approved' : 'declined', hodBy: r.email, hodAt: nowIso(), hodNote: note, reviewedBy: r.email };
     if (!approve) patch.notifyNote = note || 'Declined by HOD';
   } else if (st === 'pending_manager') {
@@ -2281,7 +2285,7 @@ function r33NoLead(row) {
 /** HOD step: the HOD / assistant HOD of that department; an admin only when the department has no other lead. */
 function r33CanHod(r, row) {
   if (!r || r33Lower(r.email) === r33Lower(row.userEmail)) return false;
-  return v3IsLeadOf(r, row.department) || (isAdminPerm(r) && r33NoLead(row));
+  return v3IsLeadOf(r, row.department) || (isAdminPerm(r) && (r33NoLead(row) || (typeof A341_BEHALF !== 'undefined' && A341_BEHALF))); // 3.4.1: admin on behalf of HOD
 }
 function r33CanConfirm(r, row) {
   if (!r || r33Lower(r.email) === r33Lower(row.userEmail)) return false;
@@ -2432,7 +2436,7 @@ function r33Decide(p, step) {
   targets.forEach(function (x) {
     var patch;
     if (step === 'hod') {
-      var n2 = note; if (!v3IsLeadOf(r, x.department)) n2 = (n2 ? n2 + ' ' : '') + '(department has no HOD — decided by admin)';
+      var n2 = note; if (!v3IsLeadOf(r, x.department)) n2 = (n2 ? n2 + ' ' : '') + (!r33NoLead(x) ? '(' + (approve ? 'approved' : 'declined') + ' by admin on behalf of HOD)' : '(department has no HOD — decided by admin)');
       patch = { status: approve ? 'pending_admin' : 'rejected', hodStatus: approve ? 'approved' : 'declined', hodBy: r33Lower(r.email), hodAt: now, hodNote: n2, updatedAt: now };
     } else {
       patch = { status: approve ? 'confirmed' : 'rejected', adminStatus: approve ? 'confirmed' : 'declined', adminBy: r33Lower(r.email), adminAt: now, adminNote: note, updatedAt: now };
