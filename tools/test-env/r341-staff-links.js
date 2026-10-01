@@ -172,7 +172,7 @@ const hide = s => String(s).split(PW).join('***');
   const chg = (up2 && up2.data && up2.data.changedEmails) || [];
   check('mid-week re-upload: only the changed person is notified', up2 && up2.success && chg.length === 1 && chg[0] === A('staff').toLowerCase(), JSON.stringify(up2 && up2.data).slice(0, 300));
   await login('staff');
-  const stn = (await notes()).find(n => /Your roster changed/.test(n.title));
+  const stn = (await notes()).find(n => /Your roster changed/.test(n.title) && up2 && up2.data && n.relatedId === up2.data.uploadId);
   check('the notice says what changed (Wed 10:00)', !!stn && /Wed .*10:00/.test(stn.body), JSON.stringify(stn));
 
   // ================= island estimate + meal block on leave + special meal request
