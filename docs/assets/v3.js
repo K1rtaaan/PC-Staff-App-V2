@@ -1565,9 +1565,10 @@ async function v3RenderApprovals(){
   $('#main-content').innerHTML = v3Page((v3IsSuper() ? '' : v3RoleBack('dept')) + '<div id="ap-body" class="space-y-4">'+v3Loading()+'</div>', 'approvals-root');
   const me = String(state.user.email).toLowerCase();
   const wantLeave = v3CanDept(), wantMeals = v3CanDept() || v3CanChef();
-  const [lv, mr] = await Promise.all([
+  const [lv, mr, rb] = await Promise.all([
     wantLeave ? api('getLeave', { scope: v3IsAdmin() ? 'all' : 'dept' }).catch(function(){ return null; }) : null,
-    wantMeals ? api('getMealRequests', { days: 3 }).catch(function(){ return null; }) : null
+    wantMeals ? api('getMealRequests', { days: 3 }).catch(function(){ return null; }) : null,
+    wantLeave ? api('getResortBoat', { scope:'hod' }).catch(function(){ return null; }) : null // 3.3.0, loaded in parallel
   ]);
   if (state.tab !== 'approvals') return;
   let html = '';
@@ -1589,7 +1590,7 @@ async function v3RenderApprovals(){
     if (v3CanChef()) html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-special">'+v3Title('fa-star','Special meal requests', v3Chip(String(sp.length), sp.length?'warn':'mute'))+
       (sp.length ? sp.map(function(x){ return v3RequestCard(x, true); }).join('') : v3Empty('No special requests waiting.'))+'</section>';
   }
-  if (wantLeave) { html += await r33ApprovalsSection(); if (state.tab !== 'approvals') return; } // 3.3.0 resort boat HOD step
+  if (wantLeave) html += r33ApprovalsSection(rb); // 3.3.0 resort boat HOD step
   $('#ap-body').innerHTML = html || v3Empty('Nothing needs your approval.');
   const root = $('#ap-body');
   const again = function(){ cacheInvalidate(['v3home']); v3RefreshHome().then(function(){ renderNav('#bottom-nav'); }); v3RenderApprovals(); };
@@ -3306,8 +3307,7 @@ function r33BindDecide(root, after){
     if (yes) go(''); else v3Form('Reject resort boat request', [{ id:'note', label:'Reason (optional, the staff member sees it)', type:'textarea', max:300 }], 'Reject', function(v){ return go(v.note); });
   }; });
 }
-async function r33ApprovalsSection(){
-  const r = await api('getResortBoat', { scope:'hod' }).catch(function(){ return null; });
+function r33ApprovalsSection(r){
   const list = ((r && r.success && r.data && r.data.requests) || []).filter(function(x){ return x.status === 'pending_hod' && x.canDecide; });
   const conf = (r && r.data && r.data.counts && r.data.counts.admin) || 0;
   return '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-resort">'+v3Title('fa-anchor','Resort boat — HOD step', v3Chip(String(list.length), list.length?'warn':'mute'))+
