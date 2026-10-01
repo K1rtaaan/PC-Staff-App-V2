@@ -1317,7 +1317,7 @@ async function s34FetchIsland(){
 }
 function s34OffCard(meal, date, isl){
   const mine = ((isl && isl.mySpecial) || []).filter(function(x){ return x.meal === meal; })[0];
-  return '<div class="rounded-xl border border-sky-400/40 bg-sky-500/10 p-3 space-y-2 text-xs" id="s34-off-'+meal+'"><p class="text-sky-100 font-semibold"><i class="fa-solid fa-plane-departure mr-1"></i>You are rostered off on '+esc(v3DateLabel(date))+'</p>'+
+  return '<div class="rounded-xl border border-sky-400/40 bg-sky-500/10 p-3 space-y-2 text-xs" id="s34-off-'+meal+'"><p class="text-sky-100 font-semibold"><i class="fa-solid fa-plane-departure mr-1"></i>You are rostered off '+esc(/^(Today|Tomorrow)$/.test(v3DateLabel(date)) ? v3DateLabel(date).toLowerCase()+' ('+v3DayDate(date)+')' : 'on '+v3DateLabel(date))+'</p>'+
     '<p class="text-slate-300">Your roster shows leave that day, so normal '+esc(V3_MEAL_LABEL[meal].toLowerCase())+' orders are closed for you. On the island anyway? Ask your HOD for a special meal.</p>'+
     (mine ? '<p class="text-slate-200 s34-sp-status">Special meal request: <strong>'+esc(mine.status)+'</strong> — '+esc(mine.reason||'')+'</p>' :
       '<button type="button" class="w-full rounded-xl py-2 text-sm border border-sky-400/50 text-sky-100 s34-sp-btn" data-meal="'+meal+'" data-date="'+esc(date)+'"><i class="fa-solid fa-utensils mr-1"></i>Special meal request</button>')+'</div>';
@@ -4297,7 +4297,7 @@ function s34PaintDeptStaff(d){
   const person = function(u, pending){
     return '<div class="py-1.5 border-b border-slate-700/40 last:border-0 text-xs min-w-0 ds-person" data-email="'+esc(u.email)+'"><div class="v3-row min-w-0"><span class="text-slate-100 truncate">'+esc(u.name)+'</span><span class="text-[10px] text-slate-500 shrink-0">'+esc(u.code||'no code')+'</span></div>'+
       '<p class="text-[10px] text-slate-400">'+esc(u.department)+' · '+(u.onRoster ? 'on the roster' : 'not on the current roster')+(u.firstLogin ? ' · has not signed in yet' : '')+'</p>'+
-      (pending ? '<div class="grid grid-cols-3 gap-1 mt-1"><input class="ui-input col-span-2 ds-code" maxlength="12" placeholder="Employee number"/><button type="button" class="btn-primary rounded-lg text-white ds-link" data-email="'+esc(u.email)+'">Link</button></div>'+rosterPick('ds-rn-'+u.email.replace(/[^a-z0-9]/gi,''), u.department) : '')+'</div>';
+      (pending ? '<div class="grid grid-cols-3 gap-1 mt-1"><input class="ui-input col-span-2 ds-code" maxlength="12" placeholder="'+(u.code ? 'Change number' : 'Employee number')+'"/><button type="button" class="btn-primary rounded-lg text-white ds-link" data-email="'+esc(u.email)+'">Link</button></div>'+rosterPick('ds-rn-'+u.email.replace(/[^a-z0-9]/gi,''), u.department) : '')+'</div>';
   };
   const sec = function(id, title, n, body, open){ return '<details class="rounded-xl border border-slate-700/60 p-2" id="'+id+'"'+(open?' open':'')+'><summary class="text-xs text-slate-100 font-semibold cursor-pointer">'+title+' '+v3Chip(String(n), n ? 'info' : 'mute')+'</summary><div class="mt-1">'+(body||'<p class="text-[11px] text-slate-500">None</p>')+'</div></details>'; };
   box.innerHTML = '<div class="space-y-3"><div id="ds-spm"></div>'+
