@@ -4387,6 +4387,7 @@ async function v3RenderUsers(){
     $$('.uf-dept').forEach(function(b){ b.onclick = function(){ f.view = 'dept'; f.dept = b.dataset.dept; f.role = ''; paint(); try { window.scrollTo(0, 0); } catch (e) {} }; });
   };
   state._g341.paint = paint;
+  const qi = $('#uf-q'); if (qi) f.q = qi.value; // typed while the list was loading
   paint();
   $('#uf-q').oninput = function(){ f.q = this.value; paint(); };
   $('#uf-pend').onclick = function(){ f.q = ''; $('#uf-q').value = ''; f.view = 'pending'; f.pdept = ''; paint(); };

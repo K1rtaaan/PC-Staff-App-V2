@@ -194,6 +194,7 @@ const hide = s => String(s).split(PW).join('***');
   check('estimate from the real archive workbook (names without accounts counted too)', real.every(x => x.onIsland > 50), JSON.stringify(real));
   await login('staff');
   for (const x of (((await api('getSpecialMeals', {})).data || {}).requests || [])) if (/auto-test/.test(x.reason) && (x.status === 'pending' || x.status === 'approved')) await api('cancelSpecialMeal', { id: x.id }); // re-runnable
+  await api('cancelMealOrder', { meal: 'dinner', serviceDate: D }).catch(() => null); // re-runnable: an order left by the smoke / r330 run would hide the rostered-off card
   await nav('meals');
   await page.evaluate(() => { try { r33PickMealTab('dinner'); } catch (e) { state._mealTab = 'dinner'; v3PaintMeals(); } });
   await until(() => page.isVisible('#s34-off-dinner'), 60000);
