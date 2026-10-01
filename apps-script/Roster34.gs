@@ -103,6 +103,7 @@ function r34Ensure(force) {
   ensureSheet(ss, R34.UNM, R34_UNM_HEADERS);
   ensureSheet(ss, R34.ALLOW, R34_ALLOW_HEADERS);
   ensureSheet(ss, R34.REMLOG, R34_REMLOG_HEADERS);
+  try { var ush = ss.getSheetByName('Users'); if (ush) ensureColumns(ush, ['employeeCode']); } catch (eu) {} // 3.4.0: payroll code (e.g. GL018)
   var have = {};
   sheetToObjects('App Settings').forEach(function (r) { have[String(r.key)] = 1; });
   Object.keys(R34_SETTINGS).forEach(function (k) { if (!have[k]) setSetting(k, R34_SETTINGS[k](), 'system 3.4.0'); });
@@ -201,6 +202,27 @@ function r34DeleteWhere(name, pred) {
   }
   scInvalidateSheet(name);
   return gone.length;
+}
+/* 3.4.0: patch many rows in one pass (one header + id read) instead of one updateRowById per row,
+   which re-reads the whole sheet each time and made whole-resort uploads time out. */
+function r34PatchRows(sheetName, list) {
+  if (!list || !list.length) return 0;
+  var sh = getSS().getSheetByName(sheetName);
+  if (list.length <= 3 || !sh || typeof sh.getRange !== 'function') {
+    list.forEach(function (x) { updateRowById(sheetName, x.u.id, x.patch); }); return list.length;
+  }
+  var last = sh.getLastRow(), lc = sh.getLastColumn();
+  var headers = sh.getRange(1, 1, 1, lc).getValues()[0].map(String), idCol = headers.indexOf('id');
+  var ids = last > 1 ? sh.getRange(2, idCol + 1, last - 1, 1).getValues().map(function (r) { return String(r[0]); }) : [];
+  var pos = {}; ids.forEach(function (id, i) { pos[id] = i + 2; });
+  var n = 0;
+  list.forEach(function (x) {
+    var row = pos[String(x.u.id)]; if (!row) return;
+    Object.keys(x.patch).forEach(function (k) { var c = headers.indexOf(k); if (c >= 0) sh.getRange(row, c + 1).setValue(x.patch[k] === true ? 'TRUE' : x.patch[k] === false ? 'FALSE' : x.patch[k]); });
+    n++;
+  });
+  scInvalidateSheet(sheetName);
+  return n;
 }
 function r34Lock() {
   var lock = LockService.getScriptLock();
@@ -324,7 +346,7 @@ function r34Matchable(u) { return truthy(u.active) && !isSuperPerm(u) && String(
 /** Prepare users + saved links once per request. */
 function r34MatchCtx(users) {
   users = (users || sheetToObjects('Users')).filter(r34Matchable);
-  var byEmail = {};
+  var byEmail = {}, byCode = {};
   users.forEach(function (u) {
     var f = r34Tokens(u.firstName), l = r34Tokens(u.lastName), pf = r34Tokens(u.preferredName);
     var v = {};
@@ -333,14 +355,26 @@ function r34MatchCtx(users) {
     if (pf.length && l.length) v[r34Key(pf.concat(l))] = 1;
     u._variants = v; u._first = f.concat(pf); u._last = l;
     byEmail[r34Lower(u.email)] = u;
+    var ec = r34EmpCode(u.employeeCode); if (ec) byCode[ec] = u;
   });
   var map = {};
   sheetToObjects(R34.MAP).forEach(function (m) { var u = byEmail[r34Lower(m.userEmail)]; if (u) map[r34MapKey(m.rosterName, m.department)] = u; });
-  return { users: users, byEmail: byEmail, map: map };
+  return { users: users, byEmail: byEmail, map: map, byCode: byCode };
 }
 function r34Sugg(u, why) { return { email: r34Lower(u.email), name: r34UserName(u), department: u.department || '', why: why }; }
 /** → { user, how } or { user:null, reason, suggestions[] }. Only a saved link or ONE exact full name in the department auto-assigns. */
-function r34Match(rawName, dept, mc) {
+/** "GL018", "gl 18", "GL-018" → "GL018" ('' = not a code) */
+function r34EmpCode(v) {
+  var s = String(v == null ? '' : v).toUpperCase().replace(/[\s\-_.]/g, '');
+  var m = s.match(/^([A-Z]{1,4})(\d{1,6})$/);
+  return m ? m[1] + (m[2].length < 3 ? ('000' + m[2]).slice(-3) : m[2]) : '';
+}
+/** Order: employee code (when the roster has one) → the saved name link → one exact full name in the department. */
+function r34Match(rawName, dept, mc, empCode) {
+  var cm = String(rawName || '').match(/^\s*([A-Za-z]{1,4}[\s\-]?\d{2,6})\b[\s\-.:,]*(.*)$/); // "GL018 Solomoni N" (code typed in front of the name)
+  if (cm && r34EmpCode(cm[1]) && /^[A-Za-z]{2}/.test(cm[1])) { if (!empCode) empCode = cm[1]; rawName = cm[2] || rawName; }
+  var ec = r34EmpCode(empCode);
+  if (ec && mc.byCode && mc.byCode[ec]) return { user: mc.byCode[ec], how: 'code' };
   var toks = r34Tokens(rawName);
   if (!toks.length) return { user: null, reason: 'blank name', suggestions: [] };
   var linked = mc.map[r34MapKey(rawName, dept)];
@@ -464,7 +498,7 @@ function rosterUploadChunk(p) {
       if (!e) return; // empty cell = nothing rostered that day
       if (e.unknown) unknown[e.code] = (unknown[e.code] || 0) + 1;
       var shift = { date: date, start: e.start, end: e.end, dayOff: e.dayOff, code: e.code, leaveType: e.leaveType, roleLabel: e.roleLabel };
-      var m = r34Match(name, rowDept, mc);
+      var m = r34Match(name, rowDept, mc, r.employeeCode || r.empCode || '');
       if (m.user) {
         people[r34Lower(m.user.email)] = 1;
         out.push({ id: uid('rsh'), uploadId: up.id, period: up.period, userEmail: r34Lower(m.user.email), userName: r34UserName(m.user), department: m.user.department || rowDept,
@@ -481,12 +515,14 @@ function rosterUploadChunk(p) {
     var existing = {};
     sheetToObjects(R34.UNM).forEach(function (u) { if (String(u.uploadId) === String(up.id)) existing[r34MapKey(u.rawName, u.department)] = u; });
     var newUnm = [];
+    var unmPatch = [];
     Object.keys(groups).forEach(function (gk) {
       var g = groups[gk], ex = existing[gk];
-      if (ex) updateRowById(R34.UNM, ex.id, { shiftsJson: JSON.stringify(r34Json(ex.shiftsJson, []).concat(g.shifts)) });
+      if (ex) unmPatch.push({ u: ex, patch: { shiftsJson: JSON.stringify(r34Json(ex.shiftsJson, []).concat(g.shifts)) } });
       else newUnm.push({ id: uid('run'), uploadId: up.id, kind: kind, periodKey: key, rawName: g.rawName, department: g.department, shiftsJson: JSON.stringify(g.shifts),
         suggestionsJson: JSON.stringify(g.suggestions), reason: g.reason, status: 'staging', resolvedEmail: '', resolvedBy: '', resolvedAt: '', createdAt: now });
     });
+    r34PatchRows(R34.UNM, unmPatch);
     r34Append(R34.UNM, R34_UNM_HEADERS, newUnm);
     done.push(idx);
     updateRowById(R34.UPLOADS, up.id, { rowCount: Number(up.rowCount || 0) + out.length, skippedCount: Number(up.skippedCount || 0) + skipped.length, chunksDone: done.join(',') });
@@ -560,12 +596,13 @@ function rosterUploadFinish(p) {
         updateRowById(R34.UPLOADS, u.id, { status: 'replaced', replacedBy: up.id });
     });
     // unmatched of this upload → open; older open ones of the same scope → superseded
-    var openList = [];
+    var openList = [], unmSt = [];
     sheetToObjects(R34.UNM).forEach(function (u) {
-      if (String(u.uploadId) === String(up.id) && String(u.status) === 'staging') { updateRowById(R34.UNM, u.id, { status: 'open' }); openList.push(u); }
+      if (String(u.uploadId) === String(up.id) && String(u.status) === 'staging') { unmSt.push({ u: u, patch: { status: 'open' } }); openList.push(u); }
       else if (String(u.status) === 'open' && String(u.kind) === kind && r34Pk(u.periodKey) === key && (allDept || r34DeptEq(u.department, up.department)) && String(u.uploadId) !== String(up.id))
-        updateRowById(R34.UNM, u.id, { status: 'superseded' });
+        unmSt.push({ u: u, patch: { status: 'superseded' } });
     });
+    r34PatchRows(R34.UNM, unmSt);
     var people = {}; newRows.forEach(function (s) { people[r34Lower(s.userEmail)] = 1; });
     var dups = kind === 'weekly' ? r34SameShifts(newRows, rows, uploads, up) : [];
     var released = r34ReleasedList(newRows);
@@ -1137,11 +1174,118 @@ function r34Tick() {
 }
 
 /* ---------- router ---------- */
+/* ---------- employee codes (staff listing import; admin edit) ---------- */
+/** listing department ("ELECTRICIAN", "GARDEN", "RESTAURANT", …) → app departments it may be (null = any) */
+function r34ListDepts(d) {
+  var k = String(d || '').toUpperCase().replace(/\s+/g, ' ').trim();
+  var T = [[/ELECTRIC|MAINT|CONSTRUCT|PLUMB|JOINER|CARPENT|PAINT|MARINE|MECHANIC|WORKSHOP/, ['Maintenance']], [/GARDEN|GROUND/, ['Grounds']],
+    [/RESTAURANT|F ?& ?B|WAIT|FOOD/, ['F&B', 'Bar']], [/\bBAR\b/, ['Bar', 'F&B']], [/BOAT|CAPTAIN|DECK/, ['Boatman']], [/HOUSEKEEP|LAUNDRY|ROOM/, ['Housekeeping']],
+    [/KIDS/, ['Kids Club']], [/KITCHEN|CHEF|COOK|BAKER|PASTRY|STEWARD/, ['Kitchen', 'BR Kitchen', 'Donu Kitchen']], [/DIVE/, ['Diveshop']],
+    [/FRONT|GUEST REL|RESERV|RECEPT/, ['Front Office', 'IT/Office']], [/^IT\b|INFORMATION/, ['IT/Office']], [/HUMAN|^HR\b|MANAGEMENT|ACCOUNT|FINANCE|ADMIN/, ['Management', 'IT/Office']],
+    [/SECUR/, ['Security']], [/\bSPA\b/, ['Spa']], [/STORE/, ['Stores']], [/PORTER/, ['Porters']], [/ACTIVIT/, ['Activities']]];
+  for (var i = 0; i < T.length; i++) if (T[i][0].test(k)) return T[i][1];
+  return null;
+}
+function r34CodeUsers() { return sheetToObjects('Users').filter(function (u) { return truthy(u.active); }); }
+function r34NameToks(s) { return r34Tokens(String(s || '').replace(/\bno\.?\s*\d+\b/ig, ' ')); }
+/** Pure: listing rows → per row { code, name, department, status, email?, userName?, why, suggestions[] }.
+ *  status: match (one person, department fits) · already (has this code) · check (one person, other department / has another code) ·
+ *  ambiguous (several people) · taken (code already on someone else) · unmatched. Only "match" is pre-selected. */
+function r34PlanCodes(rows, users) {
+  var byCode = {}, ppl = users.map(function (u) {
+    var f = r34Tokens(u.firstName), l = r34Tokens(u.lastName), pf = r34Tokens(u.preferredName);
+    var o = { u: u, email: r34Lower(u.email), name: r34UserName(u), dept: u.department || '', code: r34EmpCode(u.employeeCode), first: f, last: l, pref: pf };
+    if (o.code) byCode[o.code] = o; return o;
+  });
+  var seen = {}, out = [], hits = {};
+  (rows || []).forEach(function (r) {
+    var code = r34EmpCode(r.code); if (!code || seen[code]) return; seen[code] = 1;
+    var toks = r34NameToks(r.name); if (!toks.length) return;
+    var okDept = r34ListDepts(r.department);
+    var has = function (t) { return toks.indexOf(t) >= 0; };
+    var cands = ppl.filter(function (p) { return p.last.length && p.last.every(has) && (p.first.some(has) || p.pref.some(has)); });
+    var o = { code: code, name: String(r.name || '').replace(/\s+/g, ' ').trim().substring(0, 80), department: String(r.department || '').trim().substring(0, 40), suggestions: [] };
+    var deptOk = function (p) { return !okDept || okDept.some(function (d) { return r34DeptEq(d, p.dept); }); };
+    var holder = byCode[code];
+    if (holder && cands.indexOf(holder) >= 0) { o.status = 'already'; o.email = holder.email; o.userName = holder.name; o.why = 'already has this code'; }
+    else if (holder) { o.status = 'taken'; o.email = ''; o.why = 'code already on ' + holder.name; o.suggestions = cands.slice(0, 4).map(function (p) { return { email: p.email, name: p.name, department: p.dept }; }); }
+    else if (cands.length === 1) {
+      var p = cands[0]; o.email = p.email; o.userName = p.name;
+      if (p.code && p.code !== code) { o.status = 'check'; o.why = 'has another code (' + p.code + ')'; }
+      else if (!deptOk(p)) { o.status = 'check'; o.why = 'department ' + (p.dept || '—') + ' vs ' + (o.department || '—'); }
+      else { o.status = 'match'; o.why = 'name + department'; }
+    } else if (cands.length > 1) {
+      var inD = cands.filter(deptOk);
+      if (inD.length === 1 && !inD[0].code) { o.status = 'match'; o.email = inD[0].email; o.userName = inD[0].name; o.why = 'name + department (others elsewhere)'; }
+      else { o.status = 'ambiguous'; o.why = cands.length + ' people with this name'; o.suggestions = cands.slice(0, 6).map(function (p) { return { email: p.email, name: p.name, department: p.dept }; }); }
+    } else {
+      o.status = 'unmatched'; o.why = 'no account with this name';
+      o.suggestions = ppl.filter(function (p) { return !p.code && (p.first.some(has) || p.last.some(has)) && deptOk(p); }).slice(0, 4).map(function (p) { return { email: p.email, name: p.name, department: p.dept }; });
+    }
+    if (o.email && (o.status === 'match' || o.status === 'check')) (hits[o.email] = hits[o.email] || []).push(o);
+    out.push(o);
+  });
+  Object.keys(hits).forEach(function (em) { if (hits[em].length > 1) hits[em].forEach(function (o) { o.status = 'ambiguous'; o.why = 'several listing rows match ' + o.userName; o.suggestions = [{ email: o.email, name: o.userName, department: '' }]; o.email = ''; }); });
+  var n = {}; out.forEach(function (o) { n[o.status] = (n[o.status] || 0) + 1; });
+  return { rows: out, counts: n, total: out.length };
+}
+function previewEmployeeCodes(p) {
+  var me = v3Requester(p);
+  if (!isAdminPerm(me)) return { success: false, error: 'Admin only' };
+  r34Ensure();
+  var rows = r34Json(p.rows, null); if (!Array.isArray(rows)) rows = Array.isArray(p.rows) ? p.rows : [];
+  if (rows.length > 3000) return { success: false, error: 'Too many rows (max 3000)' };
+  var users = r34CodeUsers(), plan = r34PlanCodes(rows, users);
+  plan.people = users.map(function (u) { return { email: r34Lower(u.email), name: r34UserName(u), department: u.department || '', code: r34EmpCode(u.employeeCode) }; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+  return { success: true, data: plan };
+}
+function r34SetCode(u, code, by) {
+  updateRowById('Users', u.id, { employeeCode: code });
+  try { scInvalidateSheet('Users'); } catch (e) {}
+}
+/** items [{ code, email }] → saved / skipped with reasons. A code is never on two people; '' code is not allowed here. */
+function applyEmployeeCodes(p) {
+  var me = v3Requester(p);
+  if (!isAdminPerm(me)) return { success: false, error: 'Admin only' };
+  r34Ensure();
+  var items = r34Json(p.items, null); if (!Array.isArray(items)) items = Array.isArray(p.items) ? p.items : [];
+  var lock = r34Lock();
+  try {
+    var users = sheetToObjects('Users'), byEmail = {}, holder = {};
+    users.forEach(function (u) { byEmail[r34Lower(u.email)] = u; var c = r34EmpCode(u.employeeCode); if (c) holder[c] = r34Lower(u.email); });
+    var saved = 0, skipped = [], used = {};
+    items.forEach(function (it) {
+      var code = r34EmpCode(it.code), em = r34Lower(it.email), u = byEmail[em];
+      if (!code || !u) { skipped.push({ code: it.code, why: !code ? 'not a code' : 'no such user' }); return; }
+      if (used[code] || used[em]) { skipped.push({ code: code, why: 'used twice in this import' }); return; }
+      if (holder[code] && holder[code] !== em) { skipped.push({ code: code, why: 'already on another person' }); return; }
+      used[code] = used[em] = 1;
+      if (r34EmpCode(u.employeeCode) === code) return;
+      if (holder[r34EmpCode(u.employeeCode)] === em) delete holder[r34EmpCode(u.employeeCode)];
+      r34SetCode(u, code, me.email); holder[code] = em; saved++;
+    });
+    return { success: true, data: { saved: saved, skipped: skipped.slice(0, 50), skippedCount: skipped.length } };
+  } finally { lock.releaseLock(); }
+}
+function setEmployeeCode(p) {
+  var me = v3Requester(p);
+  if (!isAdminPerm(me)) return { success: false, error: 'Admin only' };
+  r34Ensure();
+  var u = findUserByEmail(String(p.targetEmail || '').trim().toLowerCase());
+  if (!u) return { success: false, error: 'User not found' };
+  var raw = String(p.code == null ? '' : p.code).trim(), code = raw ? r34EmpCode(raw) : '';
+  if (raw && !code) return { success: false, error: 'An employee code looks like GL018' };
+  if (code) { var other = sheetToObjects('Users').filter(function (x) { return r34EmpCode(x.employeeCode) === code && r34Lower(x.email) !== r34Lower(u.email); })[0]; if (other) return { success: false, error: code + ' is already on ' + r34UserName(other) }; }
+  r34SetCode(u, code, me.email);
+  return { success: true, data: { email: r34Lower(u.email), employeeCode: code } };
+}
+
 function routeRoster34(action, p) {
   var map = {
     getMyRoster: getMyRoster, getDepartments: getDepartments, rosterUploadStart: rosterUploadStart, rosterUploadChunk: rosterUploadChunk, rosterUploadFinish: rosterUploadFinish,
     getRosterUnmatched: getRosterUnmatched, linkRosterName: linkRosterName, ignoreRosterName: ignoreRosterName, unlinkRosterName: unlinkRosterName,
     getRosterAdmin: getRosterAdmin, getRosterSettings: getRosterSettings, saveRosterSettings: saveRosterSettings,
+    previewEmployeeCodes: previewEmployeeCodes, applyEmployeeCodes: applyEmployeeCodes, setEmployeeCode: setEmployeeCode,
     getLeaveAllowances: getLeaveAllowances, saveLeaveAllowance: saveLeaveAllowance, deleteLeaveAllowance: deleteLeaveAllowance
   };
   var fn = map[action];

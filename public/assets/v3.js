@@ -772,7 +772,7 @@ navigate = function(tab){
     adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports, pushsettings: a33RenderSettings,
     adminoverview: a34RenderOverview, admintools: a34RenderTools, aboutimage: a34RenderAboutImage, resortboat: r33RenderResortAdmin,
     rostermonthly: function(){ return r34RenderUpload('monthly'); }, rosterweekly: function(){ return r34RenderUpload('weekly'); }, rosterarchive: function(){ return r34RenderUpload('archive'); },
-    rosterunmatched: r34RenderUnmatched, leaveallow: r34RenderAllowances // 3.4.0
+    rosterunmatched: r34RenderUnmatched, leaveallow: r34RenderAllowances, empcodes: r34RenderEmpCodes // 3.4.0
   };
   if (['home','meals','boat','kitchen'].includes(tab)) paintSkeleton({ cards: 3 });
   try { history.replaceState(null, '', location.pathname + location.search + (tab === 'home' ? '' : '#'+tab)); } catch (e) {}
@@ -2233,6 +2233,7 @@ function v3EditUser(u){
   }).join('')+'</div><p class="text-[10px] text-slate-500">Only a superadmin can grant or remove Admin / Superadmin (asks for the superadmin code). Assistant HOD = the same Department Admin page as the HOD.</p></div>';
   const html = '<div class="space-y-3 min-w-0"><h3 class="font-semibold text-slate-100">Edit '+esc(fullDisplayName(u))+'</h3><p class="text-xs text-slate-400 break-all">'+esc(u.email)+'</p>'+warn+permBox+
     '<div class="space-y-1 min-w-0"><label for="eu3-dept" class="text-[11px] text-slate-400">Department</label><select id="eu3-dept" class="ui-input w-full">'+(PCR_DEPARTMENTS.indexOf(u.department) >= 0 || !u.department ? PCR_DEPARTMENTS : [u.department].concat(PCR_DEPARTMENTS)).map(function(d){ return '<option'+(d===u.department?' selected':'')+'>'+esc(d)+'</option>'; }).join('')+'</select></div>'+
+    (v3IsAdmin() ? '<div class="space-y-1 min-w-0"><label for="eu3-code" class="text-[11px] text-slate-400">Employee code (payroll, e.g. GL018)</label><input id="eu3-code" class="ui-input w-full" maxlength="12" autocomplete="off" value="'+esc(u.employeeCode||'')+'" placeholder="GL…"/></div>' : '')+
     '<label class="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" id="eu3-active"'+(u.active?' checked':'')+'/> Account active</label>'+
     '<div class="flex gap-2 pt-1"><button type="button" id="eu3-cancel" class="flex-1 rounded-xl py-2.5 text-sm border border-slate-600 text-slate-300">Close</button><button type="button" id="eu3-save" class="flex-1 btn-primary rounded-xl py-2.5 text-sm font-semibold text-white">Save changes</button></div>'+
     '<button type="button" id="v3-msg-user" class="text-teal-300 text-xs mr-4"><i class="fa-solid fa-bell mr-1"></i>Send an in-app notification</button>'+
@@ -2249,6 +2250,11 @@ function v3EditUser(u){
     const top = function(l){ return l.filter(function(x){ return x === 'admin' || x === 'super_admin'; }).sort().join(','); };
     if (!same && top(roles) !== top(cur)) { const pass = await askPasscode('super', true); if (!pass) return; p.passcode = pass; }
     this.disabled = true;
+    const ce = $('#eu3-code');
+    if (ce && ce.value.trim().toUpperCase() !== String(u.employeeCode||'').toUpperCase()) {
+      const rc = await v3Call('setEmployeeCode', { targetEmail: u.email, code: ce.value.trim() }, 'Employee code saved');
+      if (!rc) { this.disabled = false; return; }
+    }
     const r = await v3Call('setUserAccess', p, 'Saved');
     this.disabled = false;
     if (r && r.warnings && r.warnings.length) toast(r.warnings[0], 'info');
@@ -3398,27 +3404,98 @@ function r34On(){ return !!state.user && !v3IsSuper() && featureOn('feature_my_s
   const baseCan = canPrivilegedTab;
   canPrivilegedTab = function(tab){
     if (tab === 'rosterarchive') return v3IsSuper();
-    if (tab === 'rostermonthly' || tab === 'leaveallow') return v3IsAdmin();
+    if (tab === 'rostermonthly' || tab === 'leaveallow' || tab === 'empcodes') return v3IsAdmin();
     if (tab === 'rosterweekly' || tab === 'rosterunmatched') return v3CanDept();
     return baseCan(tab);
   };
   const baseRenderNav = renderNav;
   renderNav = function(sel){ baseRenderNav(sel); const el = $(sel || '#bottom-nav'); if (el) el.classList.toggle('r34-five', el.children.length >= 5); };
 })();
-Object.assign(V3_TITLES, { schedule:'My schedule', rostermonthly:'Monthly roster', rosterweekly:'Weekly roster', rosterarchive:'Roster archive', rosterunmatched:'Unmatched names', leaveallow:'Leave allowances & codes' });
-Object.assign(V3_ROLE_TABS, { rostermonthly:'admin', leaveallow:'admin', rosterarchive:'admin', rosterweekly:'dept', rosterunmatched:'dept' });
+Object.assign(V3_TITLES, { schedule:'My schedule', rostermonthly:'Rosters (whole resort)', empcodes:'Employee codes', rosterweekly:'Weekly roster', rosterarchive:'Roster archive', rosterunmatched:'Unmatched names', leaveallow:'Leave allowances & codes' });
+Object.assign(V3_ROLE_TABS, { rostermonthly:'admin', empcodes:'admin', leaveallow:'admin', rosterarchive:'admin', rosterweekly:'dept', rosterunmatched:'dept' });
 (function(){ try { const st = document.createElement('style'); st.textContent = '#bottom-nav.r34-five .nav-item{padding-left:2px;padding-right:2px;flex:1 1 0;min-width:0}#bottom-nav.r34-five .nav-item span:not(.v3-count){max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'+
   '.r34-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}.r34-cell{border-radius:8px;min-height:46px;padding:3px;font-size:10px;line-height:1.15;min-width:0;overflow:hidden;border:1px solid rgba(100,116,139,.35)}'+
   '.r34-work{background:rgba(20,184,166,.16)}.r34-off{background:rgba(245,158,11,.16)}.r34-leave{background:rgba(56,189,248,.18)}.r34-today{outline:2px solid #2dd4bf}.r34-bar{height:6px;border-radius:9px;background:rgba(100,116,139,.35);overflow:hidden}.r34-bar>i{display:block;height:100%;background:#14b8a6}'; document.head.appendChild(st); } catch (e) {} })();
 function r34AdminGroup(g){
   if (!featureOn('feature_my_schedule')) return '';
-  return g('Rosters', v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Monthly roster','All departments · upload before the 1st') +
+  return g('Rosters', v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Rosters (whole resort)','Weekly workbooks for all departments · or a monthly grid') +
+    v3Row(v3Nav('empcodes'),'fa-id-badge','Employee codes','Import the staff listing (GL codes) · matched first on rosters') +
     v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','Link roster names to staff', state._r34Unm||0) +
     v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & codes','Days per year, leave types, roster codes, reminders'));
 }
 function r34ManageGroup(g){
   return g('Rosters', v3Row(v3Nav('rosterarchive'),'fa-box-archive','Roster archive','Past monthly rosters (Jan 2026 →) · leave used · patterns') +
-    (featureOn('feature_my_schedule') ? v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Monthly roster','Current / next month') + v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','') + v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & codes','') : ''));
+    v3Row(v3Nav('empcodes'),'fa-id-badge','Employee codes','Import the staff listing') +
+    (featureOn('feature_my_schedule') ? v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Rosters (whole resort)','Weekly workbooks · monthly grid') + v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','') + v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & codes','') : ''));
+}
+/* ---------- employee codes: import the staff listing (New Code · Name · Date Started · Department) ---------- */
+/** workbook → [{ code, name, department, started, sheet }] from every sheet whose header row has "New Code"/"Code" and "Name" */
+function r34ListingRows(t){
+  const out = [], seen = {};
+  (t.sheets||[]).forEach(function(sh){
+    let hi = -1, c = {};
+    for (let i = 0; i < Math.min(sh.txt.length, 8) && hi < 0; i++) {
+      const h = (sh.txt[i]||[]).map(r34Hdr), x = {};
+      h.forEach(function(v, j){ if (x.code === undefined && /^(newcode|code|employeecode|empcode|staffcode|payrollcode|empno)$/.test(v)) x.code = j; if (x.name === undefined && /^(name|fullname|employeename|staffname)$/.test(v)) x.name = j; if (x.dept === undefined && /^(department|dept|section)$/.test(v)) x.dept = j; if (x.date === undefined && /^(datestarted|started|startdate|datejoined)$/.test(v)) x.date = j; });
+      if (x.code !== undefined && x.name !== undefined) { hi = i; c = x; }
+    }
+    if (hi < 0) return;
+    for (let i = hi + 1; i < sh.txt.length; i++) {
+      const X = sh.txt[i]||[], code = String(X[c.code]||'').toUpperCase().replace(/\s+/g,''), name = String(X[c.name]||'').replace(/\s+/g,' ').trim();
+      if (!/^[A-Z]{1,4}-?\d{1,6}$/.test(code) || !name || seen[code]) continue;
+      seen[code] = 1;
+      out.push({ code: code, name: name, department: c.dept !== undefined ? String(X[c.dept]||'').trim() : '', started: c.date !== undefined ? String(X[c.date]||'').trim() : '', sheet: sh.name });
+    }
+  });
+  return out;
+}
+async function r34RenderEmpCodes(){
+  state._roleMode = 'admin';
+  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('admin'))+
+    '<p class="text-xs text-slate-400 px-1">Upload the staff listing workbook (columns New Code, Name, Date Started, Department). Codes are matched to app accounts by name AND department; you check the preview, then confirm. Rosters with an employee code column are matched by code first.</p>'+
+    v3Card(v3Title('fa-id-badge','Import employee codes')+'<input id="ec-file" type="file" accept=".xlsx,.xlsm,.xls,.csv" class="w-full text-xs text-slate-200"/><div id="ec-prev"></div>', 'ec-card'), 'empcodes-root');
+  if (state.demo) { $('#ec-prev').innerHTML = '<p class="text-xs text-slate-300">Needs the real server (not in the demo).</p>'; return; }
+  $('#ec-file').onchange = async function(){
+    const f = this.files && this.files[0]; if (!f) return;
+    const box = $('#ec-prev'); box.innerHTML = v3Loading();
+    let rows;
+    try { rows = r34ListingRows(await r34ReadFile(f)); } catch (e) { box.innerHTML = '<p class="text-xs text-rose-200">'+esc(e.message||'Could not read the file')+'</p>'; return; }
+    if (!rows.length) { box.innerHTML = '<p class="text-xs text-amber-200">No rows with a code and a name found. The header row needs “New Code” (or “Code”) and “Name”.</p>'; return; }
+    const d = await v3Call('previewEmployeeCodes', { rows: JSON.stringify(rows.map(function(r){ return { code: r.code, name: r.name, department: r.department }; })) });
+    if (!d) { box.innerHTML = ''; return; }
+    state._ecPlan = d; r34PaintEmpCodes(f.name);
+  };
+}
+function r34PaintEmpCodes(fileName){
+  const d = state._ecPlan, box = $('#ec-prev'); if (!d || !box) return;
+  const by = function(st){ return d.rows.filter(function(r){ return r.status === st; }); };
+  const n = d.counts || {}, free = (d.people||[]).filter(function(p){ return !p.code; });
+  const pick = function(r){ const own = r.suggestions || [];
+    return '<select class="ui-input w-full ec-pick" data-code="'+esc(r.code)+'"><option value="">Link to…</option>'+own.map(function(s){ return '<option value="'+esc(s.email)+'">★ '+esc(s.name)+' · '+esc(s.department||'')+'</option>'; }).join('')+
+      '<optgroup label="Everyone without a code">'+free.map(function(p){ return '<option value="'+esc(p.email)+'">'+esc(p.name)+' · '+esc(p.department)+'</option>'; }).join('')+'</optgroup></select>'; };
+  const line = function(r, extra){ return '<div class="py-1.5 border-b border-slate-700/40 last:border-0 text-xs min-w-0 ec-row" data-code="'+esc(r.code)+'"><div class="v3-row min-w-0"><span class="text-slate-100 truncate"><strong>'+esc(r.code)+'</strong> '+esc(r.name)+'</span><span class="text-[10px] text-slate-500 shrink-0">'+esc(r.department)+'</span></div>'+
+    (r.userName ? '<p class="text-[11px] text-teal-200">→ '+esc(r.userName)+'</p>' : '')+'<p class="text-[10px] text-slate-400">'+esc(r.why||'')+'</p>'+(extra||'')+'</div>'; };
+  const sec = function(id, title, list, tone, body, open){ return list.length ? '<details class="rounded-xl border border-slate-700/60 p-2" id="'+id+'"'+(open?' open':'')+'><summary class="text-xs text-slate-100 font-semibold cursor-pointer">'+title+' '+v3Chip(String(list.length), tone)+'</summary><div class="mt-1">'+list.slice(0, 300).map(body).join('')+(list.length>300?'<p class="text-[10px] text-slate-500">… '+(list.length-300)+' more</p>':'')+'</div></details>' : ''; };
+  const total = d.total || d.rows.length, matchedNow = (n.match||0) + (n.already||0);
+  box.innerHTML = '<div class="space-y-2 mt-2" id="ec-preview">'+
+    '<p class="text-xs text-slate-200 font-semibold">'+esc(fileName)+' · '+total+' codes</p>'+
+    '<p class="text-[11px] text-slate-300" id="ec-rate">'+matchedNow+' of '+total+' match an app account ('+(total ? Math.round(100*matchedNow/total) : 0)+'%) · '+(n.check||0)+' to check · '+(n.ambiguous||0)+' ambiguous · '+(n.taken||0)+' code already used · '+(n.unmatched||0)+' without an account</p>'+
+    sec('ec-match', 'Will be saved', by('match'), 'ok', function(r){ return line(r, '<label class="text-[11px] text-slate-300"><input type="checkbox" class="ec-ok" data-code="'+esc(r.code)+'" data-email="'+esc(r.email)+'" checked/> save</label>'); }, true)+
+    sec('ec-check', 'Check first (other department / has another code)', by('check'), 'warn', function(r){ return line(r, '<label class="text-[11px] text-amber-200"><input type="checkbox" class="ec-ok" data-code="'+esc(r.code)+'" data-email="'+esc(r.email)+'"/> save anyway</label>'); }, true)+
+    sec('ec-amb', 'Ambiguous: pick the person', by('ambiguous').concat(by('taken')), 'warn', function(r){ return line(r, pick(r)); }, true)+
+    sec('ec-unm', 'No matching account (link manually if they have one)', by('unmatched'), 'mute', function(r){ return line(r, pick(r)); }, false)+
+    sec('ec-already', 'Already saved', by('already'), 'mute', function(r){ return line(r); }, false)+
+    '<button type="button" id="ec-apply" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white"><i class="fa-solid fa-check mr-1"></i>Confirm and save codes</button><div id="ec-result"></div></div>';
+  $('#ec-apply').onclick = async function(){
+    const items = [];
+    $$('.ec-ok').forEach(function(c){ if (c.checked) items.push({ code: c.dataset.code, email: c.dataset.email }); });
+    $$('.ec-pick').forEach(function(sel){ if (sel.value) items.push({ code: sel.dataset.code, email: sel.value }); });
+    if (!items.length) { toast('Nothing selected','info'); return; }
+    this.disabled = true;
+    const r = await v3Call('applyEmployeeCodes', { items: JSON.stringify(items) }, 'Employee codes saved');
+    this.disabled = false;
+    if (r) $('#ec-result').innerHTML = '<div class="rounded-xl bg-teal-500/10 border border-teal-400/30 p-3 text-xs" id="ec-done"><p class="text-teal-100 font-semibold">'+r.saved+' codes saved</p>'+(r.skippedCount ? '<p class="text-amber-200">'+r.skippedCount+' skipped: '+esc(r.skipped.slice(0,5).map(function(x){ return x.code+' ('+x.why+')'; }).join(', '))+'</p>' : '')+'</div>';
+  };
 }
 /* r34parse:begin-helpers */
 const R34_WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], R34_MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -3545,7 +3622,8 @@ function r34LeaveHtml(d){
 /* ---------- reading roster files (SheetJS; real date cells, raw serials, d/m vs m/d decided by the period) ---------- */
 function r34Hdr(s){ return String(s==null?'':s).toLowerCase().replace(/[^a-z]/g,''); }
 const R34_COLS = { name:/^(name|staffname|employee|employeename|staff|fullname)$/, department:/^(department|dept|section|team)$/, date:/^(date|day|shiftdate)$/,
-  start:/^(start|starttime|from|timein|in|begin)$/, end:/^(end|endtime|to|timeout|out|finish)$/, dayOff:/^(dayoff|off|rdo|isdayoff)$/, code:/^(code|shift|status|type|leave|leavecode)$/, role:/^(role|position|notes|note|remarks)$/ };
+  start:/^(start|starttime|from|timein|in|begin)$/, end:/^(end|endtime|to|timeout|out|finish)$/, dayOff:/^(dayoff|off|rdo|isdayoff)$/, code:/^(code|shift|status|type|leave|leavecode)$/, role:/^(role|position|notes|note|remarks)$/,
+  employeeCode:/^(employeecode|empcode|staffcode|payrollcode|newcode|empno|employeeno|employeenumber|staffno|glcode|codeno)$/ }; // 3.4.0: matched first when present
 function r34Ser(n){ // Excel serial → ISO date (1900 system)
   if (typeof XLSX !== 'undefined' && XLSX.SSF && XLSX.SSF.parse_date_code) { const c = XLSX.SSF.parse_date_code(n); if (c && c.y) return c.y+'-'+String(c.m).padStart(2,'0')+'-'+String(c.d).padStart(2,'0'); }
   const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000); return r34Iso(d);
@@ -3607,7 +3685,7 @@ function r34ParseTable(t, per, opts){
     h.forEach(function(x, j){ Object.keys(R34_COLS).forEach(function(k){ if (c[k] === undefined && R34_COLS[k].test(x)) c[k] = j; }); });
     if (c.name !== undefined && c.date !== undefined) { hi = i; layout = 'rows'; cols = c; break; }
     if (c.name !== undefined || (raw[i]||[]).length > 3) {
-      const dc = {}; (raw[i]||[]).forEach(function(v, j){ if (j === c.name || j === c.department) return; const iso = r34DateOf(v, (txt[i]||[])[j], per); if (iso) dc[j] = iso; });
+      const dc = {}; (raw[i]||[]).forEach(function(v, j){ if (j === c.name || j === c.department || j === c.employeeCode) return; const iso = r34DateOf(v, (txt[i]||[])[j], per); if (iso) dc[j] = iso; });
       if (Object.keys(dc).length >= 3) { hi = i; layout = 'grid'; cols = c; cols.dates = dc; if (cols.name === undefined) cols.name = 0; }
     }
   }
@@ -3629,12 +3707,15 @@ function r34ParseTable(t, per, opts){
       if (cols.dayOff !== undefined) o.dayOff = String(X[cols.dayOff]||'').trim();
       if (cols.code !== undefined) { const c = String(X[cols.code]||'').trim(); if (/\d.*[-–].*\d/.test(c) && !o.start) o.cell = c; else o.code = c; }
       if (cols.role !== undefined) o.roleLabel = String(X[cols.role]||'').trim().slice(0, 40);
+      if (cols.employeeCode !== undefined) o.employeeCode = String(X[cols.employeeCode]||'').trim().slice(0, 12);
       if (!o.start && !o.end && !o.code && !o.cell && !o.dayOff) continue;
       rows.push(o);
     } else {
       Object.keys(cols.dates).forEach(function(j){
         const v = r34CellText(R[j], X[j]); if (!v) return;
-        rows.push({ rawName: name, department: dep, date: cols.dates[j], cell: v, row: i + 1 });
+        const g = { rawName: name, department: dep, date: cols.dates[j], cell: v, row: i + 1 };
+        if (cols.employeeCode !== undefined && String(X[cols.employeeCode]||'').trim()) g.employeeCode = String(X[cols.employeeCode]).trim().slice(0, 12);
+        rows.push(g);
       });
     }
   }
@@ -3783,7 +3864,7 @@ function r34TemplateRows(kind, key, dept){
   for (let d = per.start; d <= per.end; d = r34Add(d,1)) days.push(d);
   if (kind === 'weekly') {
     const ex = [['Example Person', ['07:00','15:00','',''], 1], ['Another Person', ['14:00','22:00','',''], 3]];
-    const out = [['Name','Department','Date','Start','End','Day off','Code','Notes']];
+    const out = [['Name','Department','Date','Start','End','Day off','Code','Notes','Employee code']];
     ex.forEach(function(e){ days.forEach(function(d, i){ const off = (i % 7) === e[2] || (i % 7) === e[2] + 1; out.push([e[0], dept || 'Your department', d, off ? '' : e[1][0], off ? '' : e[1][1], off ? 'yes' : '', i === 4 && e[2] === 3 ? 'AL' : '', '']); }); });
     return { aoa: out, dates: [] };
   }
@@ -3929,7 +4010,8 @@ async function r34Push(P, bar){
   for (let i = 0; i < parts; i++) {
     bar(Math.round(5 + 85 * i / parts), 'Saving part '+(i+1)+' of '+parts+'…');
     let r = null;
-    for (let a = 0; a < 3 && !(r && r.success); a++) { try { r = await api('rosterUploadChunk', { uploadId: st.uploadId, chunkIndex: i, shifts: P.rows.slice(i*CH, (i+1)*CH) }); } catch (e) { r = { success:false, error: e.message }; } if (!(r && r.success) && !(r && /network|reach/i.test(r.error||''))) break; }
+    // 3.4.0: a part is safe to resend (the server skips parts it already saved), so retry on timeouts and "server busy"
+    for (let a = 0; a < 4 && !(r && r.success); a++) { if (a) { bar(Math.round(5 + 85 * i / parts), 'Saving part '+(i+1)+' of '+parts+' (retry '+a+')…'); await new Promise(function(res){ setTimeout(res, 4000 * a); }); } try { r = await api('rosterUploadChunk', { uploadId: st.uploadId, chunkIndex: i, shifts: P.rows.slice(i*CH, (i+1)*CH) }); } catch (e) { r = { success:false, error: e.message }; } if (!(r && r.success) && !(r && /network|reach|busy|timed? ?out|abort|took too long/i.test(r.error||''))) break; }
     if (!r || !r.success) { toast((r && r.error) || 'Upload failed','error'); bar(0, 'Stopped — nothing was replaced. Try again.'); return null; }
     skipped = skipped.concat(r.data.skipped||[]); skippedN += r.data.skippedCount||0; Object.keys(r.data.unknownCodes||{}).forEach(function(k){ unknown[k] = 1; });
   }

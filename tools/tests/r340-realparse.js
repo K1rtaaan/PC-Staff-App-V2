@@ -82,5 +82,6 @@ check('possible duplicate: WE 19TH JULY = WE 02ND AUGUST', dupHas(/19TH JULY/, /
 check('possible duplicate: we 19 APRIL = we 12 APRIL', dupHas(/19 APRIL/, /12 APRIL/));
 check('no false duplicates', report.duplicates.length <= 6, JSON.stringify(report.duplicates));
 if (outPath) { const o = Object.assign({}, report, { names: Object.keys(report.names).length }); fs.writeFileSync(outPath, JSON.stringify(o, null, 1)); }
+if (process.env.NAMES_OUT) fs.writeFileSync(process.env.NAMES_OUT, JSON.stringify(Object.keys(report.names))); // box-only, for the employee-code dry run
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

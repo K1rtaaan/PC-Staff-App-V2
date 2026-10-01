@@ -374,6 +374,45 @@ const hodAdm = api('getRosterAdmin', { sessionToken: T.khod, kind: 'weekly' });
 check('HOD page does not get the released list', hodAdm.success && hodAdm.data.released === undefined);
 at('2026-10-02T09:00:00Z');
 
+// ---------- employee codes ----------
+check('r34EmpCode normalises', run('r34EmpCode', 'gl 18') === 'GL018' && run('r34EmpCode', 'GL1009') === 'GL1009' && run('r34EmpCode', 'GL-018') === 'GL018' && run('r34EmpCode', 'Ana') === '');
+check('listing departments map (ELECTRICIAN → Maintenance, GARDEN → Grounds, RESTAURANT → F&B)', run('r34ListDepts', 'ELECTRICIAN ')[0] === 'Maintenance' && run('r34ListDepts', 'GARDEN')[0] === 'Grounds' && run('r34ListDepts', 'RESTAURANT')[0] === 'F&B' && run('r34ListDepts', 'BAND') === null);
+const listing = [
+  { code: 'GL101', name: 'ANA MARIA TUILAGI', department: 'HOUSEKEEPING' },   // middle name in the listing → match
+  { code: 'GL102', name: 'JONE RABUKA', department: 'HOUSEKEEPING' },        // two Jone Rabuka → ambiguous
+  { code: 'GL103', name: 'SAMI LAL', department: 'HOUSEKEEPING' },           // one person, other department → check
+  { code: 'GL104', name: 'NOBODY HERE', department: 'KITCHEN' },             // unmatched
+  { code: 'GL101', name: 'ANA MARIA TUILAGI', department: 'HOUSEKEEPING' },  // duplicate code row → ignored
+  { code: 'GL105', name: 'VICKY SINGH NO 2', department: 'KITCHEN' }         // "NO 2" ignored → match
+];
+let pv = api('previewEmployeeCodes', { sessionToken: T.admin, rows: JSON.stringify(listing) });
+check('preview: admin only', api('previewEmployeeCodes', { sessionToken: T.hod, rows: '[]' }).success === false);
+const st = c => (pv.data.rows.find(r => r.code === c) || {}).status;
+check('preview works', pv.success && pv.data.total === 5, JSON.stringify(pv).slice(0, 300));
+check('middle name in listing → match', st('GL101') === 'match' && pv.data.rows.find(r => r.code === 'GL101').email === 'ana@x.com');
+check('same name twice → ambiguous', st('GL102') === 'ambiguous' && pv.data.rows.find(r => r.code === 'GL102').suggestions.length === 2);
+check('other department → check (not pre-selected)', st('GL103') === 'check');
+check('no account → unmatched', st('GL104') === 'unmatched');
+check('"NO 2" suffix ignored → match', st('GL105') === 'match');
+r = api('applyEmployeeCodes', { sessionToken: T.admin, items: JSON.stringify([{ code: 'GL101', email: 'ana@x.com' }, { code: 'GL105', email: 'khod@x.com' }, { code: 'GL102', email: 'jone@x.com' }]) });
+check('apply saves 3 codes', r.success && r.data.saved === 3, JSON.stringify(r));
+check('Users.employeeCode written', store.Users.find(u => u.email === 'ana@x.com').employeeCode === 'GL101');
+r = api('applyEmployeeCodes', { sessionToken: T.admin, items: JSON.stringify([{ code: 'GL101', email: 'ana2@x.com' }]) });
+check('a code is never on two people', r.success && r.data.saved === 0 && /another person/.test(r.data.skipped[0].why));
+pv = api('previewEmployeeCodes', { sessionToken: T.admin, rows: JSON.stringify(listing) });
+check('re-preview: already has this code', st('GL101') === 'already' && st('GL105') === 'already');
+check('admin edits a code', api('setEmployeeCode', { sessionToken: T.admin, targetEmail: 'jone2@x.com', code: 'gl 77' }).data.employeeCode === 'GL077' && store.Users.find(u => u.email === 'jone2@x.com').employeeCode === 'GL077');
+check('edit refuses a taken code', api('setEmployeeCode', { sessionToken: T.admin, targetEmail: 'jone2@x.com', code: 'GL101' }).success === false);
+check('edit refuses junk', api('setEmployeeCode', { sessionToken: T.admin, targetEmail: 'jone2@x.com', code: 'hello' }).success === false);
+check('HOD cannot edit codes', api('setEmployeeCode', { sessionToken: T.hod, targetEmail: 'jone2@x.com', code: 'GL078' }).success === false);
+check('users list shows the code', /GL077/.test(JSON.stringify(run('v3UserOut', store.Users.find(u => u.email === 'jone2@x.com')))));
+const mc2 = run('r34MatchCtx');
+check('roster match: code first (beats an ambiguous name)', (run('r34Match', 'Jone Rabuka', 'Housekeeping', mc2, 'GL077').user || {}).email === 'jone2@x.com');
+check('roster match: "GL102 Jone R" (code in the name cell)', (run('r34Match', 'GL102 Jone R', 'Housekeeping', mc2).user || {}).email === 'jone@x.com');
+check('roster match: unknown code → name rules', /Several/.test(run('r34Match', 'Jone Rabuka', 'Housekeeping', mc2, 'GL999').reason || ''));
+r = upload(T.admin, 'weekly', '2026-11-09', 'ALL', [0, 1].map(i => ({ rawName: 'J. Rabuka', employeeCode: 'GL077', department: 'Housekeeping', date: run('r34Add', '2026-11-09', i), start: '07:00', end: '15:00' })));
+check('upload with an employee code column matches by code', r.success && r.data.people === 1 && !r.data.unmatched.length, JSON.stringify(r.data || r).slice(0, 200));
+
 // ---------- departments: roster departments added once, never renamed / duplicated ----------
 cache = {};
 let dl = api('getDepartments', {});

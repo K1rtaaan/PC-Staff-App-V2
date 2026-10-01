@@ -246,6 +246,7 @@ function v3UserOut(u) {
   pu.deptDecidedBy = u.deptDecidedBy || '';
   pu.deptDecidedAt = u.deptDecidedAt || '';
   pu.createdAt = u.createdAt || '';
+  pu.employeeCode = String(u.employeeCode || ''); // 3.4.0
   return pu;
 }
 function getDeptStaff(p) {

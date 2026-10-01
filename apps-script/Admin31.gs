@@ -44,6 +44,8 @@ var A31_LOGGED = {
   linkRosterName: ['dept', ['Roster Name Map'], 'Use Unlink on the Unmatched names page.'],
   unlinkRosterName: ['dept', ['Roster Name Map'], ''],
   saveLeaveAllowance: ['admin', ['Leave Allowances'], ''],
+  applyEmployeeCodes: ['admin', ['Users'], ''],
+  setEmployeeCode: ['admin', ['Users'], ''],
   deleteLeaveAllowance: ['admin', ['Leave Allowances'], ''],
   saveRosterSettings: ['admin', ['App Settings'], ''],
   // Kitchen Admin
