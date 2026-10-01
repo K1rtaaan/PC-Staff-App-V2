@@ -375,17 +375,19 @@ function submitLeave(p) {
   var s = v3Date(p.startDate), e = v3Date(p.endDate || p.startDate);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e)) return { success: false, error: 'Pick a start and end date' };
   if (e < s) return { success: false, error: 'End date is before start date' };
-  var type = V3_LEAVE_TYPES.indexOf(String(p.leaveType)) >= 0 ? String(p.leaveType) : 'Other';
-  var earliest = fijiDateString(addFijiDays(getFijiNow(), type === 'Sick sheet' ? -14 : -1));
-  if (s < earliest) return { success: false, error: type === 'Sick sheet' ? 'Sick sheets can be back-dated up to 14 days' : 'Start date is in the past' };
+  var type = V3_LEAVE_TYPES.indexOf(String(p.leaveType)) >= 0 ? String(p.leaveType)
+    : ((typeof r34CanonLeaveType === 'function' && r34CanonLeaveType(p.leaveType, false)) || 'Other'); // 3.4.0: configurable leave types
+  var sick = /sick/i.test(type);
+  var earliest = fijiDateString(addFijiDays(getFijiNow(), sick ? -14 : -1));
+  if (s < earliest) return { success: false, error: sick ? 'Sick leave can be back-dated up to 14 days' : 'Start date is in the past' };
   var reason = v3Clean(p.reason, 500);
   if (!reason) return { success: false, error: 'Please give a reason' };
   var open = sheetToObjects('Leave Requests').filter(function (l) {
     var st = String(l.status);
-    return String(l.userEmail).toLowerCase() === String(u.email).toLowerCase() && (st === 'pending' || st === 'pending_hod' || st === 'pending_manager') &&
+    return String(l.userEmail).toLowerCase() === String(u.email).toLowerCase() && (st === 'pending' || st === 'pending_hod' || st === 'pending_manager' || st === 'approved') &&
       !(v3Date(l.endDate) < s || v3Date(l.startDate) > e);
   });
-  if (open.length) return { success: false, error: 'You already have a pending request for those dates' };
+  if (open.length) return { success: false, error: open.some(function (l) { return String(l.status) === 'approved'; }) ? 'You already have approved leave on those dates' : 'You already have a pending request for those dates' };
   // HODs (and admins) go straight to management — nobody approves their own leave.
   var lead = v3HasHod(u) || isAdminPerm(u);
   var row = {

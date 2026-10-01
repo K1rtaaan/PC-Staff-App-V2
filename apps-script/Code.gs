@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.3.0';
+var APP_VERSION = '3.4.0';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -273,6 +273,8 @@ function routeAction(action, p) {
       if (a31res) return a31res;
       var r33res = typeof routeResort33 === 'function' ? routeResort33(action, p) : null; // 3.3.0 resort boat (Resort33.gs)
       if (r33res) return r33res;
+      var r34res = typeof routeRoster34 === 'function' ? routeRoster34(action, p) : null; // 3.4.0 rosters, schedule tab, leave balances (Roster34.gs)
+      if (r34res) return r34res;
       return { success: false, error: 'Unknown action: ' + action };
     }
   }
@@ -571,6 +573,7 @@ function initializeSheets() {
 
 function sheetCellToValue(v, headerName) {
   if (!(v instanceof Date)) return v;
+  if (headerName === 'roster') return rosterPatternText(v); // 3.4.0: "24/8" that Sheets turned into a date → show as text again (data untouched)
   var utcYear = Number(Utilities.formatDate(v, 'UTC', 'yyyy'));
   // Time-only serials from Sheets land near 1899/1900
   if (utcYear < 1950 || headerName === 'time') {
@@ -615,6 +618,16 @@ function sheetToObjectsRaw(sheetName) {
   return rows;
 }
 
+/** 3.4.0: a roster-pattern cell Sheets auto-converted to a date → the text that was typed (d/m, or m/d if the sheet locale is US). */
+function rosterPatternText(v) {
+  var tz = 'Pacific/Fiji';
+  try { tz = getSS().getSpreadsheetTimeZone() || tz; } catch (e) {}
+  var d = Number(Utilities.formatDate(v, tz, 'd')), m = Number(Utilities.formatDate(v, tz, 'M'));
+  var us = false;
+  try { us = /^en_US/i.test(String(getSS().getSpreadsheetLocale() || '')); } catch (e2) {}
+  return us ? m + '/' + d : d + '/' + m;
+}
+
 function appendRow(sheetName, obj, headers) {
   if (sheetName === 'Notifications' && typeof a33FromNotif === 'function') { try { a33FromNotif(obj); } catch (e) {} } // 3.2.0: in-app notification → phone
   var sh = getSS().getSheetByName(sheetName);
@@ -625,7 +638,7 @@ function appendRow(sheetName, obj, headers) {
   if (!useHeaders.length || (useHeaders.length === 1 && !String(useHeaders[0] || '').trim())) {
     useHeaders = headers || Object.keys(obj || {});
   }
-  var textKeys = { date:1, time:1, dueDate:1, serviceDate:1, startDate:1, endDate:1 };
+  var textKeys = { date:1, time:1, dueDate:1, serviceDate:1, startDate:1, endDate:1, roster:1 }; // 3.4.0: roster pattern stays plain text
   var row = useHeaders.map(function (h) {
     if (!h) return '';
     var v = obj[h];
@@ -668,6 +681,7 @@ function updateRowById(sheetName, id, patch) {
       var v = patch[k];
       if (v === true) v = 'TRUE';
       if (v === false) v = 'FALSE';
+      if (k === 'roster' && typeof v === 'string' && v !== '' && v.charAt(0) !== "'") v = "'" + v; // 3.4.0: plain text
       sh.getRange(found._row, col + 1).setValue(v);
     }
   }
@@ -1265,7 +1279,7 @@ function login(p) {
 
 /** Request-scoped identity (set by bindRequestIdentity for client requests; null for triggers / editor runs). */
 var R3_AUTH = null;
-var R3_PUBLIC_ACTIONS = { login: 1, register: 1, verifyEmail: 1, requestVerification: 1, requestPasswordReset: 1, resetPassword: 1, getVersion: 1, health: 1 };
+var R3_PUBLIC_ACTIONS = { login: 1, register: 1, verifyEmail: 1, requestVerification: 1, requestPasswordReset: 1, resetPassword: 1, getVersion: 1, health: 1, getDepartments: 1 }; // 3.4.0 department list (sign-up form)
 /**
  * 3.0.0: a valid signed session token (login) binds the requester. Without a token the claimed requesterEmail is used
  * as in 2.x, but role accounts then act as plain staff (role / admin actions answer needsSignIn). App Setting
@@ -4249,6 +4263,8 @@ function shiftsFingerprintList(list) {
 }
 
 function deleteSheetRowsByPredicate(sheetName, predicate) {
+  // 3.4.0: no row-by-row deletes — contiguous blocks, or keep-rows rewrite (Roster34.gs r34DeleteWhere)
+  if (typeof r34DeleteWhere === 'function') return r34DeleteWhere(sheetName, predicate);
   var rows = sheetToObjects(sheetName);
   var sh = getSS().getSheetByName(sheetName);
   if (!sh) return 0;

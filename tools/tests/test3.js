@@ -58,7 +58,7 @@ async function patchPdfCapture(page) {
   await page.reload({ waitUntil: 'load' });
   await login(page, 'ana.tui@paradisecoveresortfiji.com', 'staff123');
   const ver = await page.evaluate(() => APP_VERSION);
-  check('APP_VERSION is 3.3.0', ver === '3.3.0', ver);
+  check('APP_VERSION is 3.4.0', ver === '3.4.0', ver);
 
   await page.evaluate(() => navigate('breakfast'));
   await page.waitForSelector('#bf-note');

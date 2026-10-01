@@ -60,8 +60,8 @@ const TAG = '[auto-test] ' + new Date().toISOString().slice(0, 16);
   cur = 'site';
   const ver = await api('getVersion', {}).catch(e => ({ error: String(e.message || e) }));
   const vs = ver && (ver.version || (ver.data && ver.data.version)) || '';
-  check('backend getVersion is 3.3.0-test (or emulator)', /^3\.3\.0-test/.test(vs), JSON.stringify(ver));
-  check('frontend APP_VERSION 3.3.0', await page.evaluate(() => APP_VERSION) === '3.3.0');
+  check('backend getVersion is 3.3.0+-test (or emulator)', /^3\.[34]\.0-test/.test(vs), JSON.stringify(ver));
+  check('frontend APP_VERSION 3.3.0+', /^3\.[34]\.0$/.test(await page.evaluate(() => APP_VERSION)));
 
   // ================= meals sub-tabs + My meals + chef feedback (staff)
   await login('staff');

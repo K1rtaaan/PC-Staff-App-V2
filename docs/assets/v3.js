@@ -698,7 +698,7 @@ const V3_ROLE_TABS = {
   adminhub:'admin', usersv3:'admin', users:'admin', reminders:'admin', suggestions:'admin', adminstatus:'admin', settings:'admin', admin:'admin', manage:'admin', migrate:'admin',
   adminoverview:'admin', admintools:'admin', aboutimage:'admin' // 3.2.0
 };
-const V3_TAB_PARENT = { breakfast:'meals', lunch:'meals', dinner:'meals', myorders:'more', history:'more', leave:'more', profile:'more', notifications:'more', bookings:'more', deptupdates:'more', schedule:'more' };
+const V3_TAB_PARENT = { breakfast:'meals', lunch:'meals', dinner:'meals', myorders:'more', history:'more', leave:'more', profile:'more', notifications:'more', bookings:'more', deptupdates:'more' }; // 3.4.0: schedule is its own bottom tab
 renderNav = function(targetSel){
   const items = navItems(), ids = items.map(function(n){ return n.id; });
   let active = ids.includes(state.tab) ? state.tab : (V3_TAB_PARENT[state.tab] || (v3IsSuper() && V3_ROLE_TABS[state.tab] ? 'manage' : 'more'));
@@ -750,6 +750,7 @@ navigate = function(tab){
   if (tab === 'chef') tab = 'kitchenadmin';
   if (tab === 'stboat') tab = 'boatadmin';
   if (v3IsSuper() && A31_SUPER_NO_TABS[tab]) { toast(A31_SUPER_TOAST,'error'); tab = 'home'; } // 3.1.0: superadmin = admin-only account
+  if (tab === 'leave' && r34On() && (!v3CanDept() || state.leaveTabForce === 'mine')) { state._schTab = 'leave'; state.leaveTabForce = null; tab = 'schedule'; } // 3.4.0: own leave lives in the Schedule tab
   if (!canPrivilegedTab(tab)) { toast('That area is not part of your role','error'); tab = 'home'; }
   if (tab === 'schedule' && !featureOn('feature_my_schedule')) { toast('My Schedule is off for now.','error'); tab = 'more'; }
   if (state._v3Timer) { clearInterval(state._v3Timer); state._v3Timer = null; }
@@ -761,7 +762,7 @@ navigate = function(tab){
   const ht = $('#header-title'); if (ht) ht.textContent = V3_TITLES[tab] || tab;
   const sticky = $('#app-sticky'); if (sticky) sticky.classList.remove('hidden');
   const map = {
-    home: renderHome, meals: renderMeals, boat: renderBoat, more: renderMore, bookings: renderMyBookings, profile: renderMyProfile, schedule: renderSchedule,
+    home: renderHome, meals: renderMeals, boat: renderBoat, more: renderMore, bookings: renderMyBookings, profile: renderMyProfile, schedule: r34RenderSchedule,
     history: v3RenderHistory, leave: v3RenderLeave, notifications: v3RenderNotifications, deptstaff: v3RenderDeptStaff, deptupdates: v3RenderDeptUpdates, deptupdatespost: v3RenderDeptUpdates,
     chefreq: v3RenderChefRequests, chefcomments: v3RenderChefComments, chefmenu: v3RenderMenuEditor,
     kitchen: renderKitchen, manage: v3RenderManage, usersv3: v3RenderUsers, users: renderUsers, reminders: v3RenderReminders, adminstatus: v3RenderAdminStatus, leavecal: v3RenderLeaveCalendar,
@@ -769,7 +770,9 @@ navigate = function(tab){
     kitchenadmin: v3RenderKitchenAdmin, boatadmin: v3RenderBoatAdmin, deptadmin: v3RenderDeptAdmin, adminhub: v3RenderAdminHub, mealtimes: v3RenderMealTimes,
     mealstats: v3RenderMealStats, offmenu: v3RenderOffMenu, boatruns: v3RenderBoatRuns, emergency: v3RenderEmergency, leavesummary: v3RenderLeaveSummary, mealbehalf: v3RenderMealBehalf, migrate: v3RenderMigrate,
     adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports, pushsettings: a33RenderSettings,
-    adminoverview: a34RenderOverview, admintools: a34RenderTools, aboutimage: a34RenderAboutImage, resortboat: r33RenderResortAdmin
+    adminoverview: a34RenderOverview, admintools: a34RenderTools, aboutimage: a34RenderAboutImage, resortboat: r33RenderResortAdmin,
+    rostermonthly: function(){ return r34RenderUpload('monthly'); }, rosterweekly: function(){ return r34RenderUpload('weekly'); }, rosterarchive: function(){ return r34RenderUpload('archive'); },
+    rosterunmatched: r34RenderUnmatched, leaveallow: r34RenderAllowances // 3.4.0
   };
   if (['home','meals','boat','kitchen'].includes(tab)) paintSkeleton({ cards: 3 });
   try { history.replaceState(null, '', location.pathname + location.search + (tab === 'home' ? '' : '#'+tab)); } catch (e) {}
@@ -1089,7 +1092,7 @@ function v3OpenLeaveForm(){
   if (!v3DeptOk()) { toast('Leave requests open after your HOD accepts your department request','error'); return; }
   const tom = fijiDateString(addFijiDays(getFijiNow(),1));
   v3Form('Request leave', [
-    { id:'leaveType', label:'Type', type:'select', options: V3_LEAVE_TYPES, value:'Day off' },
+    { id:'leaveType', label:'Type', type:'select', options: (r34On() && state._r34LeaveTypes && state._r34LeaveTypes.length) ? state._r34LeaveTypes : V3_LEAVE_TYPES, value: (r34On() && state._r34LeaveTypes) ? 'Annual leave' : 'Day off' }, // 3.4.0: configurable types
     { id:'startDate', label:'First day', type:'date', value: tom, required:true },
     { id:'endDate', label:'Last day', type:'date', value: tom, required:true },
     { id:'reason', label:'Reason', type:'textarea', placeholder:'e.g. family function in the village', required:true, max:500 }
@@ -1097,7 +1100,8 @@ function v3OpenLeaveForm(){
     const d = await v3Call('submitLeave', Object.assign({ clientRequestId: newRequestId() }, v), v3IsLead() || v3IsAdmin() ? 'Sent to management for approval' : 'Sent to your HOD');
     if (!d) return false;
     cacheInvalidate(['v3home','leave:mine']); v3RefreshHome();
-    if (state.tab === 'leave') v3RenderLeave(); else if (state.tab === 'home') renderHome();
+    cacheInvalidate(['r34my']);
+    if (state.tab === 'leave') v3RenderLeave(); else if (state.tab === 'schedule') r34RenderSchedule(); else if (state.tab === 'home') renderHome();
     return true;
   }, v3IsLead() || v3IsAdmin() ? 'Your own leave goes straight to management (admin) for approval.' : 'Your HOD (or assistant HOD) reviews it first, then management gives final approval.');
 }
@@ -1154,7 +1158,7 @@ function v3BindLeaveCards(root, after){
   }; });
 }
 async function v3RenderLeave(){
-  const tabs = v3IsSuper() ? [] : [{ id:'mine', label:'My leave' }]; // 3.1.0: superadmin never applies for leave
+  const tabs = (v3IsSuper() || r34On()) ? [] : [{ id:'mine', label:'My leave' }]; // 3.1.0: superadmin never applies for leave · 3.4.0: own leave = Schedule tab
   if (v3CanDept()) tabs.push({ id:'dept', label: v3IsAdmin() ? 'HOD step' : 'Department' });
   if (v3IsAdmin()) tabs.push({ id:'final', label:'Final approval' });
   let cur = state.leaveTab && tabs.some(function(t){ return t.id === state.leaveTab; }) ? state.leaveTab : (v3IsAdmin() ? 'final' : (v3CanDept() ? 'dept' : 'mine'));
@@ -1705,13 +1709,13 @@ function renderMore(){
   if (v3IsSuper()) {
     html += group('Account', v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) + v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) + (a32Owner() ? v3Row(v3Nav('reports'),'fa-bug','Reports','Problems & requests from staff', state._a32RepNew||0) : '') + v3Row(v3Nav('pushsettings'),'fa-bell','Phone notifications', a32Owner() ? 'New reports on your phone' : 'Messages on your phone') + v3Row('a32OpenReport()','fa-flag','Report a problem','')) + a31SuperNoteHtml(); // 3.1.0: no staff features
   } else {
-    html += group('Me', v3Row(v3Nav('leave'),'fa-plane-departure','Leave requests','Request, track or cancel') +
+    html += group('Me', (r34On() ? '' : v3Row(v3Nav('leave'),'fa-plane-departure','Leave requests','Request, track or cancel')) + // 3.4.0: in the Schedule tab
       v3Row(v3Nav('history'),'fa-clock-rotate-left','My orders & history','Orders, boats, leave, requests, feedback') +
       v3Row(v3Nav('bookings'),'fa-ticket','My boat bookings','') +
       v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) +
       v3Row(v3Nav('pushsettings'),'fa-mobile-screen','Phone notifications','Alerts on your phone, meal reminders') +
       v3Row(v3Nav('deptupdates'),'fa-bullhorn','Department updates', esc(u.department||'')) +
-      (featureOn('feature_my_schedule') ? v3Row(v3Nav('schedule'),'fa-calendar-check','My schedule','') : '')) +
+      '') +
       group('Help', v3Row('a32OpenReport()','fa-flag','Report a problem','Error, change request or idea') + v3Row(v3Nav('myreports'),'fa-inbox','My reports','Status and replies'));
   }
   html += '<section class="glass rounded-2xl overflow-hidden">'+v3Row('doLogout()','fa-right-from-bracket','Sign out','')+'</section>'; // 3.3.0: the version line is shown once, in the footer under the page
@@ -1726,7 +1730,7 @@ async function v3RenderNotifications(){
   $('#nt-all').onclick = async function(){ const d = await v3Call('markNotificationRead', { markAll:true }, 'All marked read'); if (d) { state._v3Unread = 0; v3RenderNotifications(); } };
   const d = await v3Call('getMyNotifications', {});
   if (state.tab !== 'notifications' || !d) return;
-  const go = { leave: v3CanDept() ? 'approvals' : 'leave', late_meal: v3CanChef() ? 'chefreq' : (v3CanDept() ? 'approvals' : 'meals'), special_meal:'chefreq', meal_request:'meals', meal_cancelled:'meals', order_cancelled:'meals', admin_message:'notifications', chef_feedback: v3CanChef() ? 'chefcomments' : 'history', dept_update:'deptupdates', role:'more', resort_boat:'boat', resort_boat_hod: v3CanDept() ? 'approvals' : 'boat', resort_boat_admin: v3IsBoatManager() ? 'resortboat' : 'boat' };
+  const go = { leave: v3CanDept() ? 'approvals' : 'leave', late_meal: v3CanChef() ? 'chefreq' : (v3CanDept() ? 'approvals' : 'meals'), special_meal:'chefreq', meal_request:'meals', meal_cancelled:'meals', order_cancelled:'meals', admin_message:'notifications', chef_feedback: v3CanChef() ? 'chefcomments' : 'history', dept_update:'deptupdates', role:'more', resort_boat:'boat', resort_boat_hod: v3CanDept() ? 'approvals' : 'boat', resort_boat_admin: v3IsBoatManager() ? 'resortboat' : 'boat', roster:'schedule', roster_hod:'rosterweekly', roster_admin:'rostermonthly' };
   $('#nt-list').innerHTML = (d.notifications||[]).length ? d.notifications.map(function(n){
     return '<button type="button" class="v3-nt w-full text-left rounded-xl border p-3 min-w-0 '+(n.read?'border-slate-700/60 bg-slate-900/40':'border-teal-500/40 bg-teal-500/10')+'" data-id="'+esc(n.id)+'" data-go="'+esc(go[n.kind]||'')+'">'+
       '<p class="text-sm text-slate-100 break-words">'+(n.read?'':'<span class="inline-block w-2 h-2 rounded-full bg-teal-400 mr-1.5"></span>')+esc(n.title)+'</p><p class="text-[11px] text-slate-300 break-words">'+esc(n.body)+'</p><p class="text-[10px] text-slate-500">'+esc(v3Ts(n.createdAt))+'</p></button>';
@@ -2097,6 +2101,7 @@ function v3ManageGroups(){
     v3Row(v3Nav('kitchenadmin'),'fa-fire-burner','Kitchen Admin','Lists, menus, requests, meal times', h.chef ? h.chef.pending.late + h.chef.pending.special : 0) +
     v3Row(v3Nav('boatadmin'),'fa-anchor','Boat Admin','Runs, passengers, emergency travel') +
     v3Row(v3Nav('deptadmin'),'fa-people-group','Department Admin','Any department: staff, updates, leave'));
+  html += r34ManageGroup(g); // 3.4.0 rosters + archive
   html += g('People', v3Row(v3Nav('usersv3'),'fa-users-gear','Users & roles','Edit, delete, roles (more than one allowed), departments') +
     v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view · approved and waiting') +
     v3Row(v3Nav('users'),'fa-address-book','Staff directory (classic)','2.x list · add user, import CSV'));
@@ -2121,6 +2126,7 @@ function v3RenderAdminHub(){
   html += g('Leave', v3Row("state.leaveTabForce='final';navigate('leave')",'fa-stamp','Leave — final approval','After the HOD step', hb.leaveMgmt||0) +
     v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','All departments') + v3Row(v3Nav('leavesummary'),'fa-table','Leave summary','Per department'));
   html += g('Resort boat (PCE)', v3Row(v3Nav('resortboat'),'fa-anchor','Resort boat requests','Confirm HOD-approved requests · manifest · print', (h.resortBoat||{}).admin||0)); // 3.3.0
+  html += r34AdminGroup(g); // 3.4.0 rosters
   html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
   html += g('Overview & system', v3Row(v3Nav('adminoverview'),'fa-chart-line','Overview','Meals, approvals, boat load, people') +
     v3Row(v3Nav('admintools'),'fa-screwdriver-wrench','System tools','Alert emails, archive old records, kitchen summaries')); // 3.2.0
@@ -2141,6 +2147,7 @@ function v3RenderDeptAdmin(){
       v3Tile(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view')+
       v3Tile(v3Nav('leavesummary'),'fa-table','Leave summary','Totals & list')+
       v3Tile(v3Nav('mealbehalf'),'fa-star','Meal on behalf','Staff without a phone')+
+      (featureOn('feature_my_schedule') ? v3Tile(v3Nav('rosterweekly'),'fa-calendar-week','Weekly roster','Upload Mon–Sun, before the week')+v3Tile(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','Link roster names to staff', state._r34Unm||0) : '')+ // 3.4.0
       v3Tile(a31LogNav('dept'),'fa-clock-rotate-left','Activity log','Who changed what')+'</div>', 'deptadmin-root');
   v3RefreshHome().then(function(){ if (state.tab === 'deptadmin') { const el = $('#v3-hodbar'); if (el) el.outerHTML = v3HodBar(); } }).catch(function(){});
 }
@@ -3372,5 +3379,456 @@ async function r33RenderResortAdmin(){
 function r33TimetableMini(){
   return '<p class="text-[11px] text-slate-400 px-1"><i class="fa-solid fa-water mr-1 text-teal-400"></i>PCE: AM 9:00am Naisoso → resort (marina by 8:15am), back ~10:20–10:30am · PM 2:00pm Naisoso → resort (marina by 1:00pm), back ~3:30pm (Dive Shop by 2:30pm).</p>';
 }
+/* ============ P. 3.4.0: Schedule tab (my roster + leave), monthly / weekly roster upload, unmatched names, leave allowances, roster archive ============ */
+function r34On(){ return !!state.user && !v3IsSuper() && featureOn('feature_my_schedule'); }
+(function(){
+  const baseNav = navItems;
+  navItems = function(){
+    const items = baseNav();
+    if (!r34On()) return items;
+    const i = items.findIndex(function(n){ return n.id === 'more'; });
+    items.splice(i < 0 ? items.length : i, 0, { id:'schedule', icon:'fa-calendar-check', label:'Schedule' });
+    return items;
+  };
+  const baseCan = canPrivilegedTab;
+  canPrivilegedTab = function(tab){
+    if (tab === 'rosterarchive') return v3IsSuper();
+    if (tab === 'rostermonthly' || tab === 'leaveallow') return v3IsAdmin();
+    if (tab === 'rosterweekly' || tab === 'rosterunmatched') return v3CanDept();
+    return baseCan(tab);
+  };
+  const baseRenderNav = renderNav;
+  renderNav = function(sel){ baseRenderNav(sel); const el = $(sel || '#bottom-nav'); if (el) el.classList.toggle('r34-five', el.children.length >= 5); };
+})();
+Object.assign(V3_TITLES, { schedule:'My schedule', rostermonthly:'Monthly roster', rosterweekly:'Weekly roster', rosterarchive:'Roster archive', rosterunmatched:'Unmatched names', leaveallow:'Leave allowances & codes' });
+Object.assign(V3_ROLE_TABS, { rostermonthly:'admin', leaveallow:'admin', rosterarchive:'admin', rosterweekly:'dept', rosterunmatched:'dept' });
+(function(){ try { const st = document.createElement('style'); st.textContent = '#bottom-nav.r34-five .nav-item{padding-left:2px;padding-right:2px;flex:1 1 0;min-width:0}#bottom-nav.r34-five .nav-item span:not(.v3-count){max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'+
+  '.r34-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}.r34-cell{border-radius:8px;min-height:46px;padding:3px;font-size:10px;line-height:1.15;min-width:0;overflow:hidden;border:1px solid rgba(100,116,139,.35)}'+
+  '.r34-work{background:rgba(20,184,166,.16)}.r34-off{background:rgba(245,158,11,.16)}.r34-leave{background:rgba(56,189,248,.18)}.r34-today{outline:2px solid #2dd4bf}.r34-bar{height:6px;border-radius:9px;background:rgba(100,116,139,.35);overflow:hidden}.r34-bar>i{display:block;height:100%;background:#14b8a6}'; document.head.appendChild(st); } catch (e) {} })();
+function r34AdminGroup(g){
+  if (!featureOn('feature_my_schedule')) return '';
+  return g('Rosters', v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Monthly roster','All departments · upload before the 1st') +
+    v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','Link roster names to staff', state._r34Unm||0) +
+    v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & codes','Days per year, leave types, roster codes, reminders'));
+}
+function r34ManageGroup(g){
+  return g('Rosters', v3Row(v3Nav('rosterarchive'),'fa-box-archive','Roster archive','Past monthly rosters (Jan 2026 →) · leave used · patterns') +
+    (featureOn('feature_my_schedule') ? v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Monthly roster','Current / next month') + v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','') + v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & codes','') : ''));
+}
+const R34_WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], R34_MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const R34_MONTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+function r34D(iso){ const p = String(iso).split('-'); return new Date(Date.UTC(+p[0], +p[1]-1, +(p[2]||1))); }
+function r34Iso(d){ return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0'); }
+function r34Add(iso, n){ const d = r34D(iso); d.setUTCDate(d.getUTCDate()+n); return r34Iso(d); }
+function r34Monday(iso){ const w = r34D(iso).getUTCDay(); return r34Add(iso, w === 0 ? -6 : 1-w); }
+function r34MonthAdd(k, n){ const d = new Date(Date.UTC(+k.slice(0,4), +k.slice(5,7)-1+n, 1)); return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0'); }
+function r34MonthEnd(k){ return k+'-'+String(new Date(Date.UTC(+k.slice(0,4), +k.slice(5,7), 0)).getUTCDate()).padStart(2,'0'); }
+function r34Short(iso){ const d = r34D(iso); return R34_WD[d.getUTCDay()]+' '+d.getUTCDate()+' '+R34_MN[d.getUTCMonth()]; }
+function r34MonthName(k){ return ['January','February','March','April','May','June','July','August','September','October','November','December'][+k.slice(5,7)-1]+' '+k.slice(0,4); }
+function r34Seg(tabs, cur, cls){
+  return '<div class="grid gap-1 rounded-xl bg-slate-900/60 p-1" style="grid-template-columns:repeat('+tabs.length+',1fr)">'+tabs.map(function(t){ return '<button type="button" class="'+cls+' rounded-lg py-2 text-xs '+(t.id===cur?'bg-teal-600 text-white font-semibold':'text-slate-300')+'" data-t="'+t.id+'">'+t.label+'</button>'; }).join('')+'</div>';
+}
+const R34_TONE = { work:'ok', off:'warn', leave:'info', unknown:'mute' };
+
+/* ---------- Schedule tab ---------- */
+async function r34RenderSchedule(){
+  if (!r34On()) { if (typeof renderSchedule === 'function') return renderSchedule(); return; }
+  const cur = state._schTab === 'leave' ? 'leave' : 'roster';
+  const root = '<div id="sch-body">'+v3Card(v3Loading())+'</div>';
+  $('#main-content').innerHTML = v3Page(r34Seg([{ id:'roster', label:'<i class="fa-solid fa-calendar-week mr-1"></i>My roster' }, { id:'leave', label:'<i class="fa-solid fa-plane-departure mr-1"></i>Leave' }], cur, 'sch-seg') + root, 'schedule-root');
+  $$('.sch-seg').forEach(function(b){ b.onclick = function(){ state._schTab = b.dataset.t; r34RenderSchedule(); }; });
+  if (state.demo) { $('#sch-body').innerHTML = v3Card(v3Title('fa-circle-info','Not in the demo')+'<p class="text-xs text-slate-300">Rosters, leave balances and roster reminders need the real server. Sign in with a staff account to try them.</p>'); return; }
+  const peek = cachePeek('r34my');
+  if (peek) r34PaintSchedule(peek, cur);
+  let r = null;
+  try { r = await api('getMyRoster', {}); } catch (e) { if (!peek) $('#sch-body').innerHTML = v3Card('<p class="text-xs text-rose-200">'+esc(e.message||'Could not load')+'</p>'); return; }
+  if (state.tab !== 'schedule') return;
+  if (!r || !r.success) { if (!peek) $('#sch-body').innerHTML = v3Card('<p class="text-xs text-amber-200">'+esc((r && r.error) || 'Could not load your schedule')+'</p>'); return; }
+  cacheSet('r34my', r.data);
+  state._r34LeaveTypes = (r.data.leaveTypes||[]).slice();
+  if (r.data.lead) state._r34Unm = r.data.lead.unmatched || 0;
+  r34PaintSchedule(r.data, state._schTab === 'leave' ? 'leave' : 'roster');
+}
+function r34PaintSchedule(d, cur){
+  const el = $('#sch-body'); if (!el) return;
+  state._r34LeaveTypes = (d.leaveTypes||[]).slice();
+  el.innerHTML = cur === 'leave' ? r34LeaveHtml(d) : r34RosterHtml(d);
+  if (cur === 'leave') {
+    const nb = $('#sch-lv-new'); if (nb) nb.onclick = v3OpenLeaveForm;
+    const list = $('#sch-lv-list'); if (list) v3BindLeaveCards(list, function(){ cacheInvalidate(['r34my']); r34RenderSchedule(); });
+  } else {
+    $$('.sch-mv').forEach(function(b){ b.onclick = function(){ state._schMonthView = b.dataset.t; r34PaintSchedule(d, 'roster'); }; });
+  }
+}
+function r34Countdown(d){
+  const n = d.next || {};
+  if (n.onBreak && n.reportBack) {
+    const rb = n.reportBack;
+    return '<div class="rounded-xl bg-sky-500/10 border border-sky-400/30 p-3" id="sch-reportback"><p class="text-sm text-sky-100 font-semibold"><i class="fa-solid fa-person-walking-arrow-right mr-1"></i>Report back to work on '+esc(rb.label)+(rb.startText ? ' at '+esc(rb.startText) : '')+'</p>'+
+      '<p class="text-[11px] text-sky-200/80">'+(rb.inDays === 1 ? 'Tomorrow' : 'In '+rb.inDays+' days')+'</p></div>';
+  }
+  if (n.onBreak) return '<div class="rounded-xl bg-slate-800/60 p-3" id="sch-reportback"><p class="text-xs text-slate-300">You are off today. Your next shift is not on a roster yet.</p></div>';
+  if (n.nextOff) {
+    const x = n.nextOff.inDays;
+    return '<div class="rounded-xl bg-amber-500/10 border border-amber-400/30 p-3" id="sch-countdown"><p class="text-sm text-amber-100 font-semibold"><i class="fa-solid fa-umbrella-beach mr-1"></i>'+x+' day'+(x===1?'':'s')+' until your next day off</p>'+
+      '<p class="text-[11px] text-amber-200/80">'+esc(n.nextOff.label)+' · '+esc(n.nextOff.text)+'</p></div>';
+  }
+  return d.hasRoster ? '<div class="rounded-xl bg-slate-800/60 p-3" id="sch-countdown"><p class="text-xs text-slate-300">No day off on the roster yet.</p></div>' : '';
+}
+function r34DayRow(x, today){
+  return '<div class="v3-row py-1.5 border-b border-slate-700/40 last:border-0 text-xs min-w-0'+(x.date===today?' bg-teal-500/10 rounded-lg px-1':'')+'"><span class="text-slate-200 shrink-0 w-24">'+esc(x.label)+'</span>'+
+    '<span class="min-w-0 truncate text-right">'+v3Chip(esc(x.text), R34_TONE[x.status]||'mute')+(x.role?' <span class="text-[10px] text-slate-400">'+esc(x.role)+'</span>':'')+(x.pending?' <span class="text-[10px] text-amber-300">'+esc(x.pending)+' asked</span>':'')+'</span></div>';
+}
+function r34RosterHtml(d){
+  const t = d.today || {}, today = t.date;
+  let html = '';
+  if (d.lead) {
+    const L = d.lead, bits = [];
+    if (L.isLead && !L.nextWeekDone) bits.push('<button type="button" onclick="navigate(\'rosterweekly\')" class="w-full text-left text-xs text-amber-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Next week\'s roster ('+esc(L.nextWeekLabel)+') is not uploaded yet — upload by Saturday 6pm</button>');
+    if (L.unmatched) bits.push('<button type="button" onclick="navigate(\'rosterunmatched\')" class="w-full text-left text-xs text-sky-200"><i class="fa-solid fa-user-tag mr-1"></i>'+L.unmatched+' roster name'+(L.unmatched===1?'':'s')+' to link</button>');
+    if (bits.length) html += v3Card(bits.join(''), 'sch-lead');
+  }
+  html += v3Card(v3Title('fa-sun','Today · '+esc(t.label||''), v3Chip(esc(t.status==='work'?'Working':t.status==='leave'?'Leave':t.status==='off'?'Off':'—'), R34_TONE[t.status]||'mute'))+
+    '<p class="text-2xl font-semibold text-slate-100" id="sch-today">'+esc(t.text||'')+'</p>'+r34Countdown(d)+
+    (!d.hasRoster ? '<p class="text-xs text-slate-400">No roster uploaded for you yet. Your HOD uploads the weekly roster before each week; admins upload the monthly resort roster.</p>' : '')+
+    (d.pattern ? '<p class="text-[11px] text-slate-400">Roster pattern: <span class="text-slate-200" id="sch-pattern">'+esc(d.pattern)+'</span></p>' : ''), 'sch-today-card');
+  const wk = d.week || { days: [] };
+  html += v3Card(v3Title('fa-calendar-week','This week', '<span class="text-[10px] text-slate-400">'+esc(r34Short(wk.start||today))+' – '+esc(r34Short(wk.end||today))+'</span>')+
+    wk.days.map(function(x){ return r34DayRow(x, today); }).join(''), 'sch-week');
+  const mv = state._schMonthView === 'list' ? 'list' : 'cal', m = d.month || { days: [] };
+  let body;
+  if (mv === 'list') body = m.days.map(function(x){ return r34DayRow(x, today); }).join('');
+  else {
+    const first = m.days.length ? r34D(m.days[0].date).getUTCDay() : 0, lead = (first + 6) % 7; // Monday first
+    body = '<div class="r34-cal">'+['Mo','Tu','We','Th','Fr','Sa','Su'].map(function(w){ return '<div class="text-[10px] text-slate-500 text-center">'+w+'</div>'; }).join('')+
+      new Array(lead).fill('<div></div>').join('')+m.days.map(function(x){
+        const n = +x.date.slice(8,10), cls = x.status === 'work' ? 'r34-work' : x.status === 'off' ? 'r34-off' : x.status === 'leave' ? 'r34-leave' : '';
+        const sm = x.status === 'work' ? (x.start ? x.start.replace(/^0/,'') : esc(x.text)) : x.status === 'leave' ? esc(x.code || (x.leaveType||'Leave').split(' ')[0]) : x.status === 'off' ? 'OFF' : '';
+        return '<div class="r34-cell '+cls+(x.date===today?' r34-today':'')+'" title="'+esc(x.label+': '+x.text)+'"><span class="block text-slate-200 font-semibold">'+n+'</span><span class="block text-slate-300 truncate">'+sm+'</span></div>';
+      }).join('')+'</div><div class="flex gap-3 text-[10px] text-slate-400 pt-1"><span><i class="inline-block w-2 h-2 rounded-sm r34-work mr-1"></i>Work</span><span><i class="inline-block w-2 h-2 rounded-sm r34-off mr-1"></i>Off</span><span><i class="inline-block w-2 h-2 rounded-sm r34-leave mr-1"></i>Leave</span></div>';
+  }
+  html += v3Card(v3Title('fa-calendar-days', esc(m.label||'This month'), '<span class="flex gap-1">'+['cal','list'].map(function(k){ return '<button type="button" class="sch-mv rounded-lg px-2 py-1 text-[11px] '+(k===mv?'bg-teal-600 text-white':'border border-slate-600 text-slate-300')+'" data-t="'+k+'">'+(k==='cal'?'Calendar':'List')+'</button>'; }).join('')+'</span>')+body, 'sch-month');
+  html += '<p class="text-[10px] text-slate-500 text-center">Fiji: '+esc(d.fijiNow||'')+'</p>';
+  return html;
+}
+function r34LeaveHtml(d){
+  const bal = d.balances || [];
+  const anyAllow = bal.some(function(b){ return b.allowance !== null && b.allowance !== undefined; });
+  let html = v3Card(v3Title('fa-scale-balanced','Leave balance '+esc(d.year||''))+
+    '<div class="space-y-2" id="sch-balances">'+bal.map(function(b){
+      const has = b.allowance !== null && b.allowance !== undefined;
+      const pct = has && b.allowance ? Math.min(100, Math.round((b.used + b.booked) / b.allowance * 100)) : 0;
+      return '<div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-2 min-w-0" data-type="'+esc(b.type)+'"><div class="v3-row text-xs"><span class="text-slate-100 font-semibold truncate">'+esc(b.type)+'</span>'+
+        (has ? '<span class="text-teal-200 font-semibold">'+b.remaining+' left</span>' : '<span class="text-slate-400">'+b.used+' used</span>')+'</div>'+
+        '<p class="text-[11px] text-slate-400">Used '+b.used+(b.booked ? ' · booked '+b.booked : '')+(has ? ' · of '+b.allowance+' a year' : '')+(b.fromRoster ? ' · '+b.fromRoster+' from rosters' : '')+'</p>'+
+        (has ? '<div class="r34-bar mt-1"><i style="width:'+pct+'%"></i></div>' : '')+'</div>';
+    }).join('')+'</div>'+
+    '<p class="text-[10px] text-slate-500">Used = approved leave in the app + leave codes on uploaded rosters (each date counted once).'+(anyAllow ? '' : ' Allowances are not set yet (waiting for GM confirmation), so only days used are shown.')+'</p>', 'sch-bal');
+  html += '<button type="button" id="sch-lv-new" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white"><i class="fa-solid fa-plus mr-1"></i>New leave request</button>';
+  const rows = d.leave || [];
+  html += '<div id="sch-lv-list" class="space-y-2">'+(rows.length ? rows.map(function(l){ return v3LeaveCard(l, 'mine'); }).join('') : v3Empty('You have no leave requests yet.'))+'</div>';
+  return html;
+}
+
+/* ---------- reading roster files (SheetJS; real date cells, raw serials, d/m vs m/d decided by the period) ---------- */
+function r34Hdr(s){ return String(s==null?'':s).toLowerCase().replace(/[^a-z]/g,''); }
+const R34_COLS = { name:/^(name|staffname|employee|employeename|staff|fullname)$/, department:/^(department|dept|section|team)$/, date:/^(date|day|shiftdate)$/,
+  start:/^(start|starttime|from|timein|in|begin)$/, end:/^(end|endtime|to|timeout|out|finish)$/, dayOff:/^(dayoff|off|rdo|isdayoff)$/, code:/^(code|shift|status|type|leave|leavecode)$/, role:/^(role|position|notes|note|remarks)$/ };
+function r34Ser(n){ // Excel serial → ISO date (1900 system)
+  if (typeof XLSX !== 'undefined' && XLSX.SSF && XLSX.SSF.parse_date_code) { const c = XLSX.SSF.parse_date_code(n); if (c && c.y) return c.y+'-'+String(c.m).padStart(2,'0')+'-'+String(c.d).padStart(2,'0'); }
+  const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000); return r34Iso(d);
+}
+function r34FracTime(f){ const mins = Math.round((f % 1) * 1440); return String(Math.floor(mins/60)%24).padStart(2,'0')+':'+String(mins%60).padStart(2,'0'); }
+/** a header / date cell → ISO date, using the selected period for day-only headers and for d/m vs m/d. */
+function r34DateOf(raw, txt, per){
+  if (raw instanceof Date && !isNaN(raw)) return r34Iso(new Date(Date.UTC(raw.getFullYear(), raw.getMonth(), raw.getDate())));
+  if (typeof raw === 'number' && raw > 20000 && raw < 80000) return r34Ser(raw);
+  let s = String(txt != null && txt !== '' ? txt : (raw==null?'':raw)).trim().toLowerCase().replace(/(\d)(st|nd|rd|th)\b/g,'$1').replace(/,/g,' ').replace(/\s+/g,' ');
+  if (!s) return '';
+  let m = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+  if (m) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+  const inPer = function(iso){ return iso >= per.start && iso <= per.end; };
+  const ok = function(y, mo, d){ if (mo < 1 || mo > 12 || d < 1 || d > 31) return ''; const iso = y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'); return r34Iso(r34D(iso)) === iso ? iso : ''; };
+  m = s.match(/^(?:[a-z]+ )?(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/);
+  if (m) {
+    let y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : +per.start.slice(0,4);
+    const a = +m[1], b = +m[2];
+    const dm = ok(y, b, a), md = ok(y, a, b);
+    if (a > 12) return dm; if (b > 12) return md;
+    if (dm && inPer(dm)) return dm; if (md && inPer(md)) return md;
+    return dm || md; // Fiji default d/m
+  }
+  m = s.match(/^(?:[a-z]+ )?(\d{1,2})[ \-]([a-z]{3,})\.?(?:[ \-](\d{2,4}))?$/) || null;
+  if (m) { const mi = R34_MONTHS.findIndex(function(x){ return x.indexOf(m[2].slice(0,3)) === 0; }); if (mi >= 0) return ok(m[3] ? (m[3].length===2?2000+ +m[3]:+m[3]) : +per.start.slice(0,4), mi+1, +m[1]); }
+  m = s.match(/^(?:[a-z]+ )?([a-z]{3,})\.? (\d{1,2})(?: (\d{4}))?$/);
+  if (m) { const mi = R34_MONTHS.findIndex(function(x){ return x.indexOf(m[1].slice(0,3)) === 0; }); if (mi >= 0) return ok(m[3] ? +m[3] : +per.start.slice(0,4), mi+1, +m[2]); }
+  m = s.match(/^(?:([a-z]{3})[a-z]* ?)?(\d{1,2})$/); // "5", "Mon 5" → that day number inside the period
+  if (m) { for (let d = per.start; d <= per.end; d = r34Add(d,1)) if (+d.slice(8,10) === +m[2]) return d; return ''; }
+  m = s.match(/^(mon|tue|wed|thu|fri|sat|sun)[a-z]*$/); // weekly grids with weekday headers only
+  if (m && per.weekly) { const i = ['mon','tue','wed','thu','fri','sat','sun'].indexOf(m[1]); return r34Add(per.start, i); }
+  return '';
+}
+function r34CellText(raw, txt){
+  if (typeof raw === 'number' && raw > 0 && raw < 1) return r34FracTime(raw);
+  return String(txt != null && txt !== '' ? txt : (raw==null?'':raw)).trim();
+}
+async function r34ReadFile(file){
+  await ensureSheetJS();
+  const lower = String(file.name||'').toLowerCase();
+  let wb;
+  if (/\.csv$/.test(lower) || /csv/.test(file.type||'')) wb = XLSX.read(await file.text(), { type:'string', raw:true }); // CSV: no guessing of dates by the browser
+  else wb = XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:false, cellNF:true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:'' }), txt = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'' });
+  return { raw: raw, txt: txt, sheet: wb.SheetNames[0] };
+}
+/** → { layout, rows:[{rawName, department, date, cell|start/end/dayOff/code, row}], warnings[] } */
+function r34ParseTable(t, per, opts){
+  const raw = t.raw, txt = t.txt, warnings = [], rows = [];
+  const depts = (opts.departments||[]).map(function(x){ return { name:x, k:r34Hdr(x) }; });
+  const deptOf = function(s){ const k = r34Hdr(s); if (!k) return ''; const hit = depts.find(function(d){ return d.k === k || (k.length >= 3 && (d.k.indexOf(k) >= 0 || k.indexOf(d.k) >= 0)); }); return hit ? hit.name : ''; };
+  let hi = -1, layout = '', cols = {};
+  for (let i = 0; i < Math.min(raw.length, 25) && hi < 0; i++) {
+    const h = (txt[i]||[]).map(r34Hdr), c = {};
+    h.forEach(function(x, j){ Object.keys(R34_COLS).forEach(function(k){ if (c[k] === undefined && R34_COLS[k].test(x)) c[k] = j; }); });
+    if (c.name !== undefined && c.date !== undefined) { hi = i; layout = 'rows'; cols = c; break; }
+    if (c.name !== undefined || (raw[i]||[]).length > 3) {
+      const dc = {}; (raw[i]||[]).forEach(function(v, j){ if (j === c.name || j === c.department) return; const iso = r34DateOf(v, (txt[i]||[])[j], per); if (iso) dc[j] = iso; });
+      if (Object.keys(dc).length >= 3) { hi = i; layout = 'grid'; cols = c; cols.dates = dc; if (cols.name === undefined) cols.name = 0; }
+    }
+  }
+  if (hi < 0) return { layout:'', rows: [], warnings: ['Could not find the header row. Use the template: Name, Department, Date, Start, End, Day off, Code — or names down the side and dates across the top.'] };
+  let section = '';
+  for (let i = hi + 1; i < raw.length; i++) {
+    const R = raw[i]||[], X = txt[i]||[];
+    const filled = X.map(function(v){ return String(v).trim(); }).filter(Boolean);
+    if (!filled.length) continue;
+    const name = String(X[cols.name]||'').trim();
+    if (filled.length === 1 && name && cols.department === undefined) { section = deptOf(name) || name; continue; } // department heading row
+    if (!name || /^(name|total|totals)$/i.test(name)) continue;
+    const dep = opts.weekly ? opts.department : (cols.department !== undefined ? (deptOf(X[cols.department]) || String(X[cols.department]||'').trim()) : section);
+    if (layout === 'rows') {
+      const date = r34DateOf(R[cols.date], X[cols.date], per);
+      const o = { rawName: name, department: dep, date: date || String(X[cols.date]||''), row: i + 1 };
+      if (cols.start !== undefined) o.start = r34CellText(R[cols.start], X[cols.start]);
+      if (cols.end !== undefined) o.end = r34CellText(R[cols.end], X[cols.end]);
+      if (cols.dayOff !== undefined) o.dayOff = String(X[cols.dayOff]||'').trim();
+      if (cols.code !== undefined) { const c = String(X[cols.code]||'').trim(); if (/\d.*[-–].*\d/.test(c) && !o.start) o.cell = c; else o.code = c; }
+      if (cols.role !== undefined) o.roleLabel = String(X[cols.role]||'').trim().slice(0, 40);
+      if (!o.start && !o.end && !o.code && !o.cell && !o.dayOff) continue;
+      rows.push(o);
+    } else {
+      Object.keys(cols.dates).forEach(function(j){
+        const v = r34CellText(R[j], X[j]); if (!v) return;
+        rows.push({ rawName: name, department: dep, date: cols.dates[j], cell: v, row: i + 1 });
+      });
+    }
+  }
+  if (!opts.weekly && opts.allDept && !rows.some(function(r){ return r.department; })) warnings.push('No department column or department heading rows found — names are matched across all departments (exact full names only).');
+  return { layout: layout, rows: rows, warnings: warnings };
+}
+
+/* ---------- templates (client-made; CSV + XLSX) ---------- */
+function r34TemplateRows(kind, key, dept){
+  const per = r34PeriodOf(kind, key), days = [];
+  for (let d = per.start; d <= per.end; d = r34Add(d,1)) days.push(d);
+  if (kind === 'weekly') {
+    const ex = [['Example Person', ['07:00','15:00','',''], 1], ['Another Person', ['14:00','22:00','',''], 3]];
+    const out = [['Name','Department','Date','Start','End','Day off','Code','Notes']];
+    ex.forEach(function(e){ days.forEach(function(d, i){ const off = (i % 7) === e[2] || (i % 7) === e[2] + 1; out.push([e[0], dept || 'Your department', d, off ? '' : e[1][0], off ? '' : e[1][1], off ? 'yes' : '', i === 4 && e[2] === 3 ? 'AL' : '', '']); }); });
+    return { aoa: out, dates: [] };
+  }
+  const head = ['Name','Department'].concat(days);
+  const ex = [['Example Person','Housekeeping','7-3',[5,6]], ['Another Person','Kitchen','06:00-14:00',[0,1]], ['Third Person','Front Office','2pm-10pm',[2]]];
+  const out = [head].concat(ex.map(function(e){ return [e[0], e[1]].concat(days.map(function(d, i){ const wd = (r34D(d).getUTCDay()+6)%7; return e[3].indexOf(wd) >= 0 ? 'OFF' : (i === 9 && e[0] === 'Third Person' ? 'AL' : e[2]); })); }));
+  return { aoa: out, dates: days };
+}
+function r34PeriodOf(kind, key){ return kind === 'weekly' ? { start: key, end: r34Add(key, 6), weekly: true } : { start: key+'-01', end: r34MonthEnd(key) }; }
+async function r34Template(kind, key, dept, fmt){
+  const t = r34TemplateRows(kind, key, dept), name = 'pcr-'+(kind==='weekly'?'weekly-roster-'+key:(kind==='archive'?'archive-roster-':'monthly-roster-')+key)+'.'+fmt;
+  if (fmt === 'csv') { downloadText(name, t.aoa.map(function(r){ return r.map(csvEscape).join(','); }).join('\n')); return; }
+  await ensureSheetJS();
+  const ws = XLSX.utils.aoa_to_sheet(t.aoa);
+  if (t.dates.length) t.dates.forEach(function(d, i){ const ref = XLSX.utils.encode_cell({ r:0, c:i+2 }); ws[ref] = { t:'d', v: new Date(d+'T00:00:00Z'), z:'ddd d mmm' }; }); // real date cells
+  ws['!cols'] = t.aoa[0].map(function(h, i){ return { wch: i < 2 ? 18 : (kind === 'weekly' ? 11 : 9) }; });
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Roster');
+  const codes = (state._r34Codes ? Object.keys(state._r34Codes).map(function(k){ return [k, state._r34Codes[k]]; }) : [['OFF','Day off'],['AL','Annual leave'],['SL','Sick leave'],['FL','Family / Bereavement'],['PH','Public holiday']]);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Code','Meaning']].concat(codes).concat([[],['Shift','07:00-15:00, 7-3, 0700-1500, 2pm-10pm']])), 'Codes');
+  const out = XLSX.write(wb, { bookType:'xlsx', type:'array', cellDates:true });
+  downloadBlob(name, new Blob([out], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+}
+
+/* ---------- upload pages (monthly: admin · weekly: HOD / assistant HOD · archive: superadmin) ---------- */
+const R34_KIND = { monthly:{ title:'Monthly roster', icon:'fa-calendar-days', tab:'rostermonthly', who:'Admins upload the resort roster (all departments) before the 1st of each month.' },
+  weekly:{ title:'Weekly roster', icon:'fa-calendar-week', tab:'rosterweekly', who:'HODs and assistant HODs upload Monday–Sunday for their department before the week starts (by Saturday 6pm). It replaces the monthly roster for the people on it, for that week.' },
+  archive:{ title:'Roster archive', icon:'fa-box-archive', tab:'rosterarchive', who:'Past monthly rosters (January 2026 onwards), kept for the record. Never shown as a current schedule; used for leave used and the department patterns below. Upload again to replace a month.' } };
+function r34BackFor(kind){ return kind === 'weekly' ? (v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('dept')) : (v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('admin')); }
+async function r34RenderUpload(kind){
+  const K = R34_KIND[kind];
+  state._roleMode = kind === 'weekly' ? 'dept' : 'admin';
+  $('#main-content').innerHTML = v3Page(r34BackFor(kind) + '<p class="text-xs text-slate-400 px-1">'+esc(K.who)+'</p><div id="r34-up-body">'+v3Card(v3Loading())+'</div>', 'roster-'+kind+'-root');
+  if (state.demo) { $('#r34-up-body').innerHTML = v3Card('<p class="text-xs text-slate-300">Roster uploads need the real server (not in the demo).</p>'); return; }
+  const dsel = kind === 'weekly' ? (state._r34Dept || '') : '';
+  const d = await v3Call('getRosterAdmin', { kind: kind, department: dsel });
+  if (state.tab !== K.tab || !d) return;
+  state._r34Codes = d.codes; state._r34Admin = d;
+  if (kind === 'weekly') state._r34Dept = d.department;
+  const sel = state._r34Period && d.periods.some(function(p){ return p.key === state._r34Period && state._r34PeriodKind === kind; }) ? state._r34Period :
+    ((d.periods.find(function(p){ return p.next && !p.uploads.length; }) || d.periods.find(function(p){ return !p.uploads.length; }) || d.periods.find(function(p){ return p.current; }) || d.periods[0] || {}).key);
+  state._r34Period = sel; state._r34PeriodKind = kind;
+  let html = '';
+  if (kind === 'weekly' && v3IsAdmin()) html += v3Card('<label class="text-[11px] text-slate-400">Department</label><select id="r34-dept" class="ui-input w-full">'+(d.departments||[]).map(function(x){ return '<option'+(x===d.department?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select>');
+  else if (kind === 'weekly') html += '<p class="text-xs text-slate-300 px-1">Department: <strong>'+esc(d.department||'—')+'</strong></p>';
+  html += v3Card(v3Title(K.icon, kind === 'archive' ? 'Months' : 'Periods')+'<div class="space-y-1.5" id="r34-periods">'+d.periods.map(function(p){
+    const u = p.uploads[0];
+    const st = u ? v3Chip('Uploaded', 'ok') : (p.late ? v3Chip('Late','bad') : (p.current || p.next ? v3Chip('Not uploaded','warn') : v3Chip('—','mute')));
+    return '<button type="button" class="r34-per w-full text-left rounded-xl border p-2 min-w-0 '+(p.key===sel?'border-teal-400 bg-teal-500/10':'border-slate-700/60 bg-slate-900/40')+'" data-k="'+esc(p.key)+'"><div class="v3-row text-xs"><span class="text-slate-100 font-semibold">'+esc(p.label)+(p.current?' · now':p.next?' · next':'')+'</span>'+st+'</div>'+
+      (u ? '<p class="text-[10px] text-slate-400">'+u.shifts+' shifts · '+u.people+' people'+(u.unmatched?' · <span class="text-amber-300">'+u.unmatched+' unmatched</span>':'')+' · '+esc(String(u.uploadedBy).split('@')[0])+' '+esc(v3Ts(u.uploadedAt))+(p.uploads.length>1?' · '+p.uploads.length+' files':'')+'</p>' : (p.due ? '<p class="text-[10px] text-slate-500">Due '+esc(p.due)+'</p>' : ''))+'</button>';
+  }).join('')+'</div>');
+  const lab = (d.periods.find(function(p){ return p.key === sel; })||{}).label || sel;
+  html += v3Card(v3Title('fa-file-arrow-up','Upload · '+esc(lab))+
+    '<div class="grid grid-cols-2 gap-2"><button type="button" class="r34-tpl rounded-lg py-2 text-xs border border-slate-600 text-slate-200" data-f="xlsx"><i class="fa-solid fa-file-excel mr-1"></i>Template XLSX</button><button type="button" class="r34-tpl rounded-lg py-2 text-xs border border-slate-600 text-slate-200" data-f="csv"><i class="fa-solid fa-file-csv mr-1"></i>Template CSV</button></div>'+
+    '<p class="text-[10px] text-slate-500">'+(kind === 'weekly' ? 'Rows: Name, Department, Date, Start, End, Day off, Code — or a grid (names down the side, dates across the top).' : 'Grid: names down the side, dates across the top, a Department column (or department heading rows) — or rows: Name, Department, Date, Start, End, Day off, Code.')+
+    ' Cells: 07:00-15:00, 7-3, OFF, AL, SL, PH… Real Excel date cells are read as dates; written dates like 5/10 are read as day/month unless only month/day fits the period.</p>'+
+    '<input id="r34-file" type="file" accept=".xlsx,.xls,.csv" class="w-full text-xs text-slate-200"/><div id="r34-preview"></div>', 'r34-upcard');
+  if (featureOn('feature_my_schedule') || kind === 'archive') html += v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names', kind === 'archive' ? 'Archive names: superadmin' : 'Link roster names to staff', d.unmatched||0);
+  if (kind === 'monthly' && v3IsAdmin()) html += v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & roster codes','');
+  if (kind === 'archive') html += v3Card(v3Title('fa-chart-simple','Department patterns (archive + past months)')+'<div id="r34-patterns">'+((d.patterns||[]).length ? d.patterns.map(function(p){
+    return '<div class="py-1.5 border-b border-slate-700/40 last:border-0 min-w-0"><p class="text-xs text-slate-100 font-semibold">'+esc(p.department)+'</p><p class="text-[11px] text-slate-300">'+esc(p.summary)+'</p><p class="text-[10px] text-slate-500">'+esc((p.months||[]).map(r34MonthName).join(', '))+'</p></div>'; }).join('') : v3Empty('Upload past months to see patterns.'))+'</div>', 'r34-pat');
+  html += v3Card(v3Title('fa-clock-rotate-left','Recent uploads')+((d.recent||[]).length ? d.recent.map(function(u){
+    return '<div class="v3-row py-1.5 border-b border-slate-700/40 last:border-0 text-xs min-w-0"><div class="min-w-0"><p class="text-slate-100 truncate">'+esc(u.label)+(u.department && u.department!=='ALL'?' · '+esc(u.department):'')+'</p><p class="text-[10px] text-slate-400 truncate">'+esc(u.fileName||'')+' · '+u.shifts+' shifts · '+esc(String(u.uploadedBy).split('@')[0])+' '+esc(v3Ts(u.uploadedAt))+'</p></div>'+v3Chip(esc(u.status), u.status==='active'?'ok':'mute')+'</div>'; }).join('') : v3Empty('Nothing uploaded yet.')));
+  $('#r34-up-body').innerHTML = html;
+  const ds = $('#r34-dept'); if (ds) ds.onchange = function(){ state._r34Dept = this.value; r34RenderUpload(kind); };
+  $$('.r34-per').forEach(function(b){ b.onclick = function(){ state._r34Period = b.dataset.k; r34RenderUpload(kind); }; });
+  $$('.r34-tpl').forEach(function(b){ b.onclick = function(){ r34Template(kind, sel, d.department, b.dataset.f).catch(function(e){ toast(e.message||'Template failed','error'); }); }; });
+  $('#r34-file').onchange = function(){ const f = this.files && this.files[0]; if (f) r34Preview(kind, sel, d, f); };
+}
+async function r34Preview(kind, key, d, file){
+  const box = $('#r34-preview'); box.innerHTML = v3Loading();
+  let t, parsed;
+  const per = r34PeriodOf(kind, key);
+  try { t = await r34ReadFile(file); parsed = r34ParseTable(t, per, { weekly: kind === 'weekly', department: d.department, allDept: kind !== 'weekly', departments: d.departments }); }
+  catch (e) { box.innerHTML = '<p class="text-xs text-rose-200">'+esc(e.message||'Could not read the file')+'</p>'; return; }
+  const rows = parsed.rows, names = {}, outside = rows.filter(function(r){ return !/^\d{4}-\d\d-\d\d$/.test(r.date) || r.date < per.start || r.date > per.end; }).length;
+  rows.forEach(function(r){ names[r.rawName+'|'+r.department] = 1; });
+  const codes = {}; rows.forEach(function(r){ const c = String(r.cell||r.code||'').trim().toUpperCase(); if (c && !/\d/.test(c)) codes[c] = (codes[c]||0)+1; });
+  const unknown = Object.keys(codes).filter(function(c){ return d.codes && d.codes[c] === undefined; });
+  state._r34Parsed = { kind: kind, key: key, rows: rows, file: file.name, layout: parsed.layout, department: kind === 'weekly' ? d.department : 'ALL' };
+  box.innerHTML = '<div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-1 text-xs" id="r34-prev">'+
+    '<p class="text-slate-100 font-semibold">'+esc(file.name)+' · '+(parsed.layout==='grid'?'grid (names × dates)':parsed.layout==='rows'?'rows':'?')+'</p>'+
+    '<p class="text-slate-300">'+rows.length+' entries · '+Object.keys(names).length+' names'+(outside?' · <span class="text-amber-300">'+outside+' outside '+esc(r34Short(per.start))+' – '+esc(r34Short(per.end))+' (skipped)</span>':'')+'</p>'+
+    (Object.keys(codes).length ? '<p class="text-slate-400">Codes: '+Object.keys(codes).map(function(c){ return esc(c)+' ×'+codes[c]+(d.codes && d.codes[c] ? ' = '+esc(d.codes[c]) : ' <span class="text-amber-300">(unknown)</span>'); }).join(', ')+'</p>' : '')+
+    parsed.warnings.map(function(w){ return '<p class="text-amber-200">'+esc(w)+'</p>'; }).join('')+
+    (unknown.length ? '<p class="text-amber-200">Unknown codes are stored as text (not leave). Add them in Leave allowances & codes to count them.</p>' : '')+
+    '</div>'+(rows.length ? '<button type="button" id="r34-send" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white mt-2"><i class="fa-solid fa-cloud-arrow-up mr-1"></i>Upload '+rows.length+' entries</button>' : '')+'<div id="r34-prog"></div>';
+  const sb = $('#r34-send'); if (sb) sb.onclick = function(){ sb.disabled = true; r34Send(kind).finally(function(){ sb.disabled = false; }); };
+}
+async function r34Send(kind){
+  const P = state._r34Parsed; if (!P || P.kind !== kind) return;
+  const prog = $('#r34-prog');
+  const bar = function(pct, txt){ if (prog) prog.innerHTML = '<div class="r34-bar mt-2"><i style="width:'+pct+'%"></i></div><p class="text-[11px] text-slate-400 mt-1">'+esc(txt)+'</p>'; };
+  bar(2, 'Starting…');
+  const st = await v3Call('rosterUploadStart', { kind: kind, periodKey: P.key, department: P.department, fileName: P.file, fileType: (P.file.split('.').pop()||'').toLowerCase(), layout: P.layout, totalRows: P.rows.length, logArea: kind === 'weekly' ? 'dept' : 'admin' });
+  if (!st) { bar(0, 'Not uploaded'); return; }
+  const CH = 500, parts = Math.ceil(P.rows.length / CH);
+  let skipped = [], skippedN = 0, unknown = {};
+  for (let i = 0; i < parts; i++) {
+    bar(Math.round(5 + 85 * i / parts), 'Saving part '+(i+1)+' of '+parts+'…');
+    let r = null;
+    for (let a = 0; a < 3 && !(r && r.success); a++) { try { r = await api('rosterUploadChunk', { uploadId: st.uploadId, chunkIndex: i, shifts: P.rows.slice(i*CH, (i+1)*CH) }); } catch (e) { r = { success:false, error: e.message }; } if (!(r && r.success) && !(r && /network|reach/i.test(r.error||''))) break; }
+    if (!r || !r.success) { toast((r && r.error) || 'Upload failed','error'); bar(0, 'Stopped — nothing was replaced. Try again.'); return; }
+    skipped = skipped.concat(r.data.skipped||[]); skippedN += r.data.skippedCount||0; Object.keys(r.data.unknownCodes||{}).forEach(function(k){ unknown[k] = 1; });
+  }
+  bar(93, 'Finishing…');
+  const f = await v3Call('rosterUploadFinish', { uploadId: st.uploadId, logArea: kind === 'weekly' ? 'dept' : 'admin' });
+  if (!f) { bar(0, 'Not finished'); return; }
+  bar(100, 'Done');
+  cacheInvalidate(['r34my']);
+  const box = $('#r34-preview');
+  box.innerHTML = '<div class="rounded-xl bg-teal-500/10 border border-teal-400/30 p-3 space-y-1 text-xs" id="r34-result"><p class="text-teal-100 font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>'+esc(f.label)+' saved</p>'+
+    '<p class="text-slate-200">'+f.shifts+' shifts for '+f.people+' people'+(f.replacedRows?' · replaced '+f.replacedRows+' old entries':'')+'</p>'+
+    (kind !== 'archive' ? '<p class="text-slate-300">'+f.changed+' people notified (only those whose shifts changed)</p>' : '')+
+    (f.unmatched && f.unmatched.length ? '<p class="text-amber-200">'+f.unmatched.length+' names not matched: '+esc(f.unmatched.slice(0,6).map(function(u){ return u.rawName; }).join(', '))+(f.unmatched.length>6?'…':'')+'</p><button type="button" onclick="navigate(\'rosterunmatched\')" class="w-full rounded-lg py-2 text-xs border border-amber-400/40 text-amber-100 mt-1"><i class="fa-solid fa-user-tag mr-1"></i>Link names now</button>' : '<p class="text-slate-300">Every name matched.</p>')+
+    (skippedN ? '<details class="text-slate-400"><summary>'+skippedN+' lines skipped</summary>'+skipped.slice(0,30).map(function(s){ return '<p>Row '+esc(s.row)+(s.name?' · '+esc(s.name):'')+': '+esc(s.why)+'</p>'; }).join('')+'</details>' : '')+
+    (Object.keys(unknown).length ? '<p class="text-amber-200">Unknown codes kept as text: '+esc(Object.keys(unknown).join(', '))+'</p>' : '')+'</div>';
+  state._r34Parsed = null;
+  setTimeout(function(){ if (state.tab === R34_KIND[kind].tab) { const keep = $('#r34-preview').innerHTML; r34RenderUpload(kind).then(function(){ const b = $('#r34-preview'); if (b) b.innerHTML = keep; }); } }, 600);
+}
+
+/* ---------- unmatched names ---------- */
+async function r34RenderUnmatched(){
+  state._roleMode = v3IsAdmin() ? 'admin' : 'dept';
+  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3IsAdmin() ? v3RoleBack('admin') : v3RoleBack('dept')) + '<p class="text-xs text-slate-400 px-1">Roster names that did not match exactly one person (by name AND department). A link is saved and used for every future upload.</p><div id="r34-un">'+v3Card(v3Loading())+'</div>', 'rosterunmatched-root');
+  const d = await v3Call('getRosterUnmatched', {});
+  if (state.tab !== 'rosterunmatched' || !d) return;
+  state._r34Unm = d.unmatched.length;
+  const people = d.people || [];
+  const opts = function(dept){ const own = people.filter(function(p){ return !dept || p.department.toLowerCase() === String(dept).toLowerCase(); }), other = people.filter(function(p){ return own.indexOf(p) < 0; });
+    return '<option value="">Pick a person…</option>'+own.map(function(p){ return '<option value="'+esc(p.email)+'">'+esc(p.name)+' · '+esc(p.department)+'</option>'; }).join('')+(other.length ? '<optgroup label="Other departments">'+other.map(function(p){ return '<option value="'+esc(p.email)+'">'+esc(p.name)+' · '+esc(p.department)+'</option>'; }).join('')+'</optgroup>' : ''); };
+  let html = v3Card(v3Title('fa-user-tag','To link', v3Chip(String(d.unmatched.length), d.unmatched.length?'warn':'ok'))+(d.unmatched.length ? d.unmatched.map(function(u){
+    return '<div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-2 min-w-0 r34-unm" data-id="'+esc(u.id)+'"><div class="min-w-0"><p class="text-sm text-slate-100 font-semibold truncate">“'+esc(u.rawName)+'”</p>'+
+      '<p class="text-[11px] text-slate-400">'+esc(u.department||'no department')+' · '+esc(u.label)+' · '+u.shifts+' entries</p><p class="text-[11px] text-amber-200">'+esc(u.reason)+'</p></div>'+
+      (u.suggestions.length ? '<div class="flex flex-wrap gap-1">'+u.suggestions.map(function(s){ return '<button type="button" class="r34-sug rounded-lg px-2 py-1 text-[11px] border border-teal-500/40 text-teal-100" data-id="'+esc(u.id)+'" data-e="'+esc(s.email)+'" title="'+esc(s.why)+'">'+esc(s.name)+' <span class="text-slate-400">· '+esc(s.why)+'</span></button>'; }).join('')+'</div>' : '')+
+      '<div class="flex gap-2"><select class="ui-input flex-1 min-w-0 r34-pick" data-id="'+esc(u.id)+'">'+opts(u.department)+'</select><button type="button" class="r34-link btn-primary rounded-lg px-3 text-xs text-white" data-id="'+esc(u.id)+'">Link</button></div>'+
+      '<button type="button" class="r34-ign text-[11px] text-slate-400" data-id="'+esc(u.id)+'">Not staff / ignore</button></div>'; }).join('') : v3Empty('Every roster name is linked.')), 'r34-unm-card');
+  html += v3Card(v3Title('fa-link','Saved links', v3Chip(String((d.links||[]).length),'mute'))+((d.links||[]).length ? d.links.map(function(m){
+    return '<div class="v3-row py-1.5 border-b border-slate-700/40 last:border-0 text-xs min-w-0"><div class="min-w-0"><p class="text-slate-100 truncate">“'+esc(m.rosterName)+'” → '+esc(m.userEmail)+'</p><p class="text-[10px] text-slate-500 truncate">'+esc(m.department||'')+' · by '+esc(String(m.createdBy).split('@')[0])+' '+esc(v3Ts(m.createdAt))+'</p></div><button type="button" class="r34-unl text-[11px] text-rose-200 shrink-0" data-id="'+esc(m.id)+'">Unlink</button></div>'; }).join('') : v3Empty('No saved links yet.')), 'r34-links');
+  $('#r34-un').innerHTML = html;
+  const link = async function(id, email){
+    if (!email) { toast('Pick a person first','error'); return; }
+    const r = await v3Call('linkRosterName', { id: id, linkEmail: email }, null);
+    if (r) { toast('Linked “'+r.rosterName+'” → '+r.userName+(r.shiftsAdded ? ' · '+r.shiftsAdded+' entries added' : ''), 'ok'); cacheInvalidate(['r34my']); r34RenderUnmatched(); }
+  };
+  $$('.r34-sug').forEach(function(b){ b.onclick = function(){ link(b.dataset.id, b.dataset.e); }; });
+  $$('.r34-link').forEach(function(b){ b.onclick = function(){ const s = document.querySelector('.r34-pick[data-id="'+b.dataset.id+'"]'); link(b.dataset.id, s && s.value); }; });
+  $$('.r34-ign').forEach(function(b){ b.onclick = async function(){ if (!confirm('Ignore this name? Its entries are not added to anyone.')) return; if (await v3Call('ignoreRosterName', { id: b.dataset.id }, 'Ignored')) r34RenderUnmatched(); }; });
+  $$('.r34-unl').forEach(function(b){ b.onclick = async function(){ if (!confirm('Remove this saved link? Future uploads will list the name again. Shifts already added stay.')) return; if (await v3Call('unlinkRosterName', { id: b.dataset.id }, 'Link removed')) r34RenderUnmatched(); }; });
+}
+
+/* ---------- leave allowances, leave types, roster codes, reminders (admin) ---------- */
+async function r34RenderAllowances(){
+  state._roleMode = 'admin';
+  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('admin')) + '<div id="r34-al">'+v3Card(v3Loading())+'</div>', 'leaveallow-root');
+  const [a, s] = await Promise.all([v3Call('getLeaveAllowances', {}), v3Call('getRosterSettings', {})]);
+  if (state.tab !== 'leaveallow' || !a || !s) return;
+  const types = a.types || [];
+  let html = v3Card(v3Title('fa-scale-balanced','Leave allowances (days per year)')+
+    '<p class="text-[11px] text-slate-400">Waiting for GM confirmation — set a resort default (All departments), a department default, or one person. The staff balance card shows “remaining” only when an allowance is set.</p>'+
+    ((a.allowances||[]).length ? a.allowances.map(function(x){ return '<div class="v3-row py-1.5 border-b border-slate-700/40 last:border-0 text-xs min-w-0"><div class="min-w-0"><p class="text-slate-100 truncate">'+esc(x.leaveType)+' · <strong>'+esc(x.daysPerYear)+'</strong> days</p><p class="text-[10px] text-slate-400 truncate">'+esc(x.email || (x.department === 'ALL' ? 'All departments (default)' : x.department+' (department default)'))+'</p></div><button type="button" class="r34-ald text-[11px] text-rose-200 shrink-0" data-id="'+esc(x.id)+'">Remove</button></div>'; }).join('') : v3Empty('No allowances set yet.'))+
+    '<div class="grid grid-cols-2 gap-2 pt-1"><select id="r34-al-who" class="ui-input col-span-2"><option value="dept:ALL">All departments (default)</option>'+(a.departments||[]).map(function(x){ return '<option value="dept:'+esc(x)+'">Department: '+esc(x)+'</option>'; }).join('')+(a.people||[]).map(function(p){ return '<option value="email:'+esc(p.email)+'">'+esc(p.name)+' · '+esc(p.department)+'</option>'; }).join('')+'</select>'+
+    '<select id="r34-al-type" class="ui-input">'+types.map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('')+'</select><input id="r34-al-days" type="number" min="0" max="366" step="0.5" class="ui-input" placeholder="Days / year"/>'+
+    '<button type="button" id="r34-al-save" class="btn-primary col-span-2 rounded-xl py-2.5 text-sm font-semibold text-white">Save allowance</button></div>', 'r34-allow');
+  html += v3Card(v3Title('fa-tags','Leave types')+'<p class="text-[11px] text-slate-400">Shown in the leave request form and on the balance card. “Day off” is a normal day off, not leave.</p><div id="r34-types" class="space-y-1.5">'+(s.leaveTypes||[]).map(function(t, i){
+    return '<div class="grid gap-1 r34-type" style="grid-template-columns:1fr 1fr auto" data-i="'+i+'"><input class="ui-input r34-tn" value="'+esc(t.name)+'" maxlength="40"/><input class="ui-input r34-ta" value="'+esc((t.aliases||[]).join(', '))+'" placeholder="other names"/><label class="text-[10px] text-slate-300 flex items-center gap-1"><input type="checkbox" class="r34-tb"'+(t.balance?' checked':'')+(t.dayOff?' disabled':'')+'/>balance</label><input type="hidden" class="r34-td" value="'+(t.dayOff?'1':'')+'"/></div>'; }).join('')+'</div>'+
+    '<div class="flex gap-2"><button type="button" id="r34-type-add" class="flex-1 rounded-lg py-2 text-xs border border-slate-600 text-slate-200">+ Add type</button><button type="button" id="r34-type-save" class="flex-1 btn-primary rounded-lg py-2 text-xs text-white font-semibold">Save types</button></div>', 'r34-typecard');
+  const codes = s.codes || {}, tnames = (s.leaveTypes||[]).map(function(t){ return t.name; });
+  const codeRow = function(c, v){ return '<div class="grid gap-1 r34-code" style="grid-template-columns:5.5rem 1fr auto"><input class="ui-input r34-cc" value="'+esc(c)+'" maxlength="12"/><select class="ui-input r34-cv">'+tnames.map(function(n){ return '<option'+(n===v?' selected':'')+'>'+esc(n)+'</option>'; }).join('')+'</select><button type="button" class="r34-cx text-rose-200 text-xs px-2" aria-label="Remove">✕</button></div>'; };
+  html += v3Card(v3Title('fa-hashtag','Roster leave codes')+'<p class="text-[11px] text-slate-400">What a code in a roster cell means. Leave codes count as leave used; day-off codes do not.</p><div id="r34-codes" class="space-y-1.5">'+Object.keys(codes).map(function(c){ return codeRow(c, codes[c]); }).join('')+'</div>'+
+    '<div class="flex gap-2"><button type="button" id="r34-code-add" class="flex-1 rounded-lg py-2 text-xs border border-slate-600 text-slate-200">+ Add code</button><button type="button" id="r34-code-save" class="flex-1 btn-primary rounded-lg py-2 text-xs text-white font-semibold">Save codes</button></div>', 'r34-codecard');
+  html += v3Card(v3Title('fa-bell','Roster reminders')+'<label class="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" id="r34-hu"'+(s.dayOffHeadsUp?' checked':'')+'/> Heads-up the evening before a day off</label>'+
+    '<div class="flex items-center gap-2 text-xs text-slate-300"><span>Send “back at work tomorrow” from</span><input id="r34-bt" type="time" class="ui-input w-28" value="'+esc(s.backTime||'18:00')+'"/></div>'+
+    '<p class="text-[10px] text-slate-500">HODs are reminded from Saturday 6pm if next week\'s roster is missing; admins from the 28th if next month\'s is missing. Each reminder is sent once (app + phone).</p><button type="button" id="r34-rem-save" class="w-full btn-primary rounded-lg py-2 text-xs text-white font-semibold">Save reminders</button>', 'r34-remcard');
+  $('#r34-al').innerHTML = html;
+  $('#r34-al-save').onclick = async function(){
+    const who = $('#r34-al-who').value, p = { leaveType: $('#r34-al-type').value, daysPerYear: $('#r34-al-days').value };
+    if (who.indexOf('email:') === 0) p.allowEmail = who.slice(6); else p.department = who.slice(5);
+    if (await v3Call('saveLeaveAllowance', p, 'Allowance saved')) { cacheInvalidate(['r34my']); r34RenderAllowances(); }
+  };
+  $$('.r34-ald').forEach(function(b){ b.onclick = async function(){ if (confirm('Remove this allowance?') && await v3Call('deleteLeaveAllowance', { id: b.dataset.id }, 'Removed')) r34RenderAllowances(); }; });
+  $('#r34-type-add').onclick = function(){ const w = document.createElement('div'); w.className = 'grid gap-1 r34-type'; w.style.gridTemplateColumns = '1fr 1fr auto'; w.innerHTML = '<input class="ui-input r34-tn" maxlength="40" placeholder="New type"/><input class="ui-input r34-ta" placeholder="other names"/><label class="text-[10px] text-slate-300 flex items-center gap-1"><input type="checkbox" class="r34-tb" checked/>balance</label><input type="hidden" class="r34-td" value=""/>'; $('#r34-types').appendChild(w); };
+  $('#r34-type-save').onclick = async function(){
+    const list = $$('.r34-type').map(function(r){ return { name: r.querySelector('.r34-tn').value.trim(), aliases: r.querySelector('.r34-ta').value, balance: r.querySelector('.r34-tb').checked, dayOff: !!r.querySelector('.r34-td').value }; }).filter(function(t){ return t.name; });
+    if (await v3Call('saveRosterSettings', { leaveTypes: JSON.stringify(list) }, 'Leave types saved')) r34RenderAllowances();
+  };
+  const bindX = function(){ $$('.r34-cx').forEach(function(b){ b.onclick = function(){ b.parentNode.remove(); }; }); };
+  bindX();
+  $('#r34-code-add').onclick = function(){ const w = document.createElement('div'); w.innerHTML = codeRow('', tnames[0]); $('#r34-codes').appendChild(w.firstChild); bindX(); };
+  $('#r34-code-save').onclick = async function(){
+    const m = {}; $$('.r34-code').forEach(function(r){ const c = r.querySelector('.r34-cc').value.trim().toUpperCase(); if (c) m[c] = r.querySelector('.r34-cv').value; });
+    if (await v3Call('saveRosterSettings', { codes: JSON.stringify(m) }, 'Codes saved')) r34RenderAllowances();
+  };
+  $('#r34-rem-save').onclick = async function(){ if (await v3Call('saveRosterSettings', { dayOffHeadsUp: $('#r34-hu').checked, backTime: $('#r34-bt').value }, 'Reminders saved')) r34RenderAllowances(); };
+}
+
 /* ============ N. start ============ */
 boot();

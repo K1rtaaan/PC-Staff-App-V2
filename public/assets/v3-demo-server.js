@@ -441,17 +441,19 @@ function submitLeave(p) {
   var s = v3Date(p.startDate), e = v3Date(p.endDate || p.startDate);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e)) return { success: false, error: 'Pick a start and end date' };
   if (e < s) return { success: false, error: 'End date is before start date' };
-  var type = V3_LEAVE_TYPES.indexOf(String(p.leaveType)) >= 0 ? String(p.leaveType) : 'Other';
-  var earliest = fijiDateString(addFijiDays(getFijiNow(), type === 'Sick sheet' ? -14 : -1));
-  if (s < earliest) return { success: false, error: type === 'Sick sheet' ? 'Sick sheets can be back-dated up to 14 days' : 'Start date is in the past' };
+  var type = V3_LEAVE_TYPES.indexOf(String(p.leaveType)) >= 0 ? String(p.leaveType)
+    : ((typeof r34CanonLeaveType === 'function' && r34CanonLeaveType(p.leaveType, false)) || 'Other'); // 3.4.0: configurable leave types
+  var sick = /sick/i.test(type);
+  var earliest = fijiDateString(addFijiDays(getFijiNow(), sick ? -14 : -1));
+  if (s < earliest) return { success: false, error: sick ? 'Sick leave can be back-dated up to 14 days' : 'Start date is in the past' };
   var reason = v3Clean(p.reason, 500);
   if (!reason) return { success: false, error: 'Please give a reason' };
   var open = sheetToObjects('Leave Requests').filter(function (l) {
     var st = String(l.status);
-    return String(l.userEmail).toLowerCase() === String(u.email).toLowerCase() && (st === 'pending' || st === 'pending_hod' || st === 'pending_manager') &&
+    return String(l.userEmail).toLowerCase() === String(u.email).toLowerCase() && (st === 'pending' || st === 'pending_hod' || st === 'pending_manager' || st === 'approved') &&
       !(v3Date(l.endDate) < s || v3Date(l.startDate) > e);
   });
-  if (open.length) return { success: false, error: 'You already have a pending request for those dates' };
+  if (open.length) return { success: false, error: open.some(function (l) { return String(l.status) === 'approved'; }) ? 'You already have approved leave on those dates' : 'You already have a pending request for those dates' };
   // HODs (and admins) go straight to management — nobody approves their own leave.
   var lead = v3HasHod(u) || isAdminPerm(u);
   var row = {
@@ -1682,7 +1684,7 @@ var A31_MAX_ROWS = 300, A31_MAX_JSON = 45000;
 
 /* ---------- 1) superadmin: no staff features (server-side) ---------- */
 /** true = always blocked for a superadmin; 'own' = blocked when the record is the superadmin's own. */
-var A31_STAFF_ACTIONS = { placeDinnerOrder: true, placeLunchOrder: true, placeBreakfastOrder: true, bookBoat: true, requestLeave: true, submitLeave: true,
+var A31_STAFF_ACTIONS = { getMyRoster: true, placeDinnerOrder: true, placeLunchOrder: true, placeBreakfastOrder: true, bookBoat: true, requestLeave: true, submitLeave: true,
   requestLateMeal: true, requestEmergencyTravel: true, requestResortBoat: true, getMySchedule: true, sendChefFeedback: true, voteMenuItem: true,
   cancelMealOrder: 'own', cancelBoatBooking: 'own', cancelLeave: 'own', placeMealOnBehalf: 'own' };
 
@@ -1709,6 +1711,13 @@ var A31_MEAL_SHEETS = { breakfast: 'Breakfast Orders', lunch: 'Lunch Orders', di
 function a31MealSheets(p) { var m = a31Lower(p.meal); return A31_MEAL_SHEETS[m] ? [A31_MEAL_SHEETS[m]] : ['Breakfast Orders', 'Lunch Orders', 'Dinner Orders']; }
 /** action → [default area, sheets to compare (array or fn(p)), what cannot be undone ('' = revertable)] */
 var A31_LOGGED = {
+  // 3.4.0 rosters + leave allowances (big roster tabs are not snapshotted: upload again to change)
+  rosterUploadFinish: ['admin', [], 'Upload the roster again to change it.'],
+  linkRosterName: ['dept', ['Roster Name Map'], 'Use Unlink on the Unmatched names page.'],
+  unlinkRosterName: ['dept', ['Roster Name Map'], ''],
+  saveLeaveAllowance: ['admin', ['Leave Allowances'], ''],
+  deleteLeaveAllowance: ['admin', ['Leave Allowances'], ''],
+  saveRosterSettings: ['admin', ['App Settings'], ''],
   // Kitchen Admin
   setMealTimes: ['kitchen', ['App Settings'], ''],
   saveDinnerMenuItem: ['kitchen', ['Dinner Menus'], ''],
@@ -1916,6 +1925,7 @@ function a31NoSheetSummary(action, p, res) {
   if (action === 'adminNotifyUser') return 'Sent a notification to ' + (p.targetEmail || '') + (p.title ? ': ' + String(p.title).substring(0, 80) : '');
   if (action === 'sendTestEmail') return 'Sent a test email to ' + (p.to || 'self');
   if (action === 'archiveOldRows') return 'Archived old rows' + (res && res.data && res.data.moved ? ' ' + a31Json(res.data.moved) : '');
+  if (action === 'rosterUploadFinish' && res && res.data) return 'Uploaded the ' + (res.data.kind || '') + ' roster for the ' + (res.data.label || '') + (res.data.department && res.data.department !== 'ALL' ? ' (' + res.data.department + ')' : '') + ': ' + (res.data.shifts || 0) + ' shifts, ' + (res.data.people || 0) + ' people, ' + ((res.data.unmatched || []).length) + ' unmatched';
   if (action === 'saveDinnerSummary') return 'Saved the dinner summary for ' + (p.serviceDate || 'tomorrow');
   return action;
 }
