@@ -39,6 +39,7 @@ python3 tools/test-env/make-test-backend.py /workspace/pcr-test-backend    # fol
 python3 tools/test-env/make-test-site.py /workspace/pcr-test-site TEST_SCRIPT_URL   # then commit + push that repo
 tools/test-env/run-e2e.sh [shotDir]                                          # emulator (TEST backend code, in-memory sheet, captured mail)
 node tools/test-env/smoke-test-env.js https://k1rtaaan.github.io/PC-Staff-App-V2-Test/ [shotDir]   # real TEST deployment
+node tools/test-env/r330-test-env.js https://k1rtaaan.github.io/PC-Staff-App-V2-Test/ [shotDir]   # 3.3.0: meals sub-tabs, chef feedback, resort boat (PCE) request → HOD → confirm → manifest (also works on the emulator site)
 ```
 
 TEST build differences: SHEET_ID from Script Property TEST_SHEET_ID (refuses the live id), version `x.y.z-test`, Brevo disabled,

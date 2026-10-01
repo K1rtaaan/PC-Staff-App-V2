@@ -20,7 +20,7 @@ var V3_LEAVE_HEADERS = ['id', 'userEmail', 'userName', 'department', 'startDate'
   'leaveType', 'hodStatus', 'hodBy', 'hodAt', 'mgmtStatus', 'mgmtBy', 'mgmtAt', 'cancelledAt', 'escalatedAt'];
 var V3_SHEETS = {
   'Menu Votes': ['id', 'dishKey', 'dish', 'userEmail', 'vote', 'updatedAt'],
-  'Chef Feedback': ['id', 'userEmail', 'userName', 'department', 'kind', 'message', 'status', 'chefNote', 'createdAt', 'handledBy', 'handledAt'],
+  'Chef Feedback': ['id', 'userEmail', 'userName', 'department', 'kind', 'message', 'status', 'chefNote', 'createdAt', 'handledBy', 'handledAt', 'meal', 'mealDate'],
   'Dept Updates': ['id', 'department', 'authorEmail', 'authorName', 'title', 'body', 'active', 'createdAt'],
   'Dept Update Activity': ['id', 'updateId', 'userEmail', 'userName', 'kind', 'text', 'createdAt'],
   'Role Changes': ['id', 'at', 'by', 'userEmail', 'before', 'after']
@@ -771,9 +771,15 @@ function sendChefFeedback(p) {
   var msg = v3Clean(p.message, 800);
   if (msg.length < 3) return { success: false, error: 'Write a short message' };
   var kind = ['issue', 'request', 'compliment'].indexOf(String(p.kind)) >= 0 ? String(p.kind) : 'issue';
-  var row = { id: uid('cf'), userEmail: String(u.email).toLowerCase(), userName: v3Name(u), department: u.department || '', kind: kind, message: msg, status: 'new', chefNote: '', createdAt: nowIso(), handledBy: '', handledAt: '' };
+  // 3.3.0: optional meal + date (My meals → Feedback to chef); columns are added to the tab on first use
+  var meal = ['breakfast', 'lunch', 'dinner'].indexOf(String(p.meal || '').toLowerCase()) >= 0 ? String(p.meal).toLowerCase() : '';
+  var mealDate = /^\d{4}-\d{2}-\d{2}$/.test(v3Date(p.mealDate)) ? v3Date(p.mealDate) : '';
+  var row = { id: uid('cf'), userEmail: String(u.email).toLowerCase(), userName: v3Name(u), department: u.department || '', kind: kind, message: msg, status: 'new', chefNote: '', createdAt: nowIso(), handledBy: '', handledAt: '',
+    meal: meal, mealDate: mealDate ? "'" + mealDate : '' };
   v3Append('Chef Feedback', row, V3_SHEETS['Chef Feedback']);
-  chefUsers().forEach(function (c) { v3Notify(c.email, 'Food feedback (' + kind + ')', msg.slice(0, 120), 'chef_feedback', row.id); });
+  var about = (meal ? meal.charAt(0).toUpperCase() + meal.slice(1) : '') + (mealDate ? ' ' + mealDate : '');
+  chefUsers().forEach(function (c) { v3Notify(c.email, 'Food feedback (' + kind + ')' + (about ? ' · ' + about : ''), msg.slice(0, 120), 'chef_feedback', row.id); });
+  row.mealDate = mealDate;
   return { success: true, data: { feedback: row } };
 }
 function getChefFeedback(p) {
@@ -781,7 +787,7 @@ function getChefFeedback(p) {
   if (!(isChefPerm(u))) return { success: false, error: 'Chef station (or superadmin) only' };
   var rows = sheetToObjects('Chef Feedback');
   rows.sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
-  rows.forEach(function (r) { delete r._row; });
+  rows.forEach(function (r) { delete r._row; r.mealDate = v3Date(r.mealDate); });
   return { success: true, data: { feedback: rows.slice(0, 300), newCount: rows.filter(function (r) { return String(r.status) === 'new'; }).length } };
 }
 function markChefFeedback(p) {
@@ -1080,6 +1086,7 @@ function getV3Home(u) {
   out.roleButtons = roleButtons(out.roles);
   out.mealTimes = mealTimesOut();
   out.cutoffReminders = v3CutoffReminders(u, myMeals);
+  if (typeof r33Counts === 'function') { try { out.resortBoat = r33Counts(u); } catch (eR) {} } // 3.3.0 resort boat badges
   return out;
 }
 

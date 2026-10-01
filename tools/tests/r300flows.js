@@ -42,7 +42,10 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   check('staff nav = Home Meals Boat More', JSON.stringify(await navLabels()) === JSON.stringify(['Home','Meals','Boat','More']), await navLabels());
   await shot('staff-home'); check('home: no overflow', !(await overflow()));
   await nav('meals'); await page.waitForTimeout(800); await shot('staff-meals');
-  check('meals: dashboard + 3 cards', await page.evaluate(() => !!document.querySelector('#meal-dash') && ['dinner','lunch','breakfast'].every(m => document.querySelector('#meal-card-'+m))));
+  // 3.3.0: Meals = 4 sub-tabs (My meals · Dinner · Lunch · Breakfast); each meal card lives on its own tab
+  check('meals: 4 sub-tabs + My meals', await page.evaluate(() => document.querySelectorAll('#meal-tabs .r33-tab').length === 4 && !!document.querySelector('#my-meals-days')));
+  await page.evaluate(() => r33PickMealTab('dinner')); await page.waitForTimeout(600);
+  check('meals: dinner tab shows the dinner card', await page.evaluate(() => !!document.querySelector('#meal-card-dinner')));
   const opts = await page.evaluate(() => Array.from(document.querySelectorAll('#dinner-choice option')).map(o => o.textContent));
   check('dinner dropdown = Tuesday menu only (no Sunday dish)', opts.length > 0 && !opts.some(o => /Lamb Neck Curry|Roasted Chicken \/ Potato/i.test(o)), opts);
   check('cutoff text 11:55pm', /11:55pm/.test(await txt('#meal-card-dinner')));
@@ -55,7 +58,8 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
     await shot('staff-overlay');
     await page.evaluate(() => { const o = document.getElementById('v3-order-overlay'); if (o) o.remove(); });
   } else check('order dinner button present', false);
-  // feedback
+  // feedback (3.3.0: on the My meals tab)
+  await page.evaluate(() => r33PickMealTab('mine')); await page.waitForTimeout(600);
   await page.fill('#fb-msg', 'Rice was a bit cold today'); await page.click('#btn-feedback'); await page.waitForTimeout(800);
   check('feedback sent (textarea cleared)', (await page.inputValue('#fb-msg')) === '');
   await nav('more'); await shot('staff-more');
@@ -129,7 +133,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   cur = 'late';
   await page.clock.setSystemTime(new Date('2026-09-28T11:58:00Z'));
   await login('ana.tui@paradisecoveresortfiji.com', 'staff123');
-  await nav('meals'); await page.waitForTimeout(1000); await shot('staff-meals-late');
+  await nav('meals'); await page.evaluate(() => r33PickMealTab('dinner')); await page.waitForTimeout(1000); await shot('staff-meals-late');
   const dtxt = await txt('#meal-card-dinner');
   check('after 11:55pm dinner shows Orders closed', /Orders closed/.test(dtxt), dtxt.slice(0, 300));
 

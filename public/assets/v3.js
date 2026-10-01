@@ -221,7 +221,7 @@ function v3Form(title, fields, submitLabel, onSubmit, intro){
 const V3_SHEET_KEYS = { 'Users':'users', 'Breakfast Orders':'breakfastOrders', 'Lunch Orders':'lunchOrders', 'Dinner Orders':'dinnerOrders', 'Leave Requests':'leaveRequests',
   'Menu Votes':'menuVotes', 'Chef Feedback':'chefFeedback', 'Dept Updates':'deptUpdates', 'Dept Update Activity':'deptActivity', 'Boat Runs':'boatRuns',
   'Boat Bookings':'boatBookings', 'Suggestions':'suggestions', 'Reminders':'reminders', 'Notifications':'notifications', 'Dinner Menus':'dinnerMenus',
-  'Emergency Travel':'emergencyTravel', 'Role Changes':'roleChanges', 'Dinner Prep Snapshots':'dinnerSummaries', 'Reports':'reports', 'Admin Log':'adminLog' };
+  'Emergency Travel':'emergencyTravel', 'Role Changes':'roleChanges', 'Dinner Prep Snapshots':'dinnerSummaries', 'Reports':'reports', 'Admin Log':'adminLog', 'Resort Boat Bookings':'resortBoat' };
 /* demo crypto: synchronous SHA-256 / HMAC-SHA256 (same results as Apps Script Utilities) so demo session tokens match the server */
 const V3Crypto = (function(){
   const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
@@ -433,7 +433,7 @@ demoApiCore = async function(action, p){
   Object.keys(p).forEach(function(k){ if (k.charAt(0) === '_') delete p[k]; }); // never trust client "_" fields (same as the server)
   delete p.actorName;
   if (me && action !== 'login') await v3DemoRun(function(srv){ try { srv.mealTick(false); } catch (e) {} }); // same lazy tick as the server (cutoff approve + late auto-approve)
-  const v3 = await v3DemoRun(function(srv){ const q = Object.assign({}, p, { requesterEmail: me || p.requesterEmail }); return srv.routeV3(action, q) || srv.routeRelease3(action, q); });
+  const v3 = await v3DemoRun(function(srv){ const q = Object.assign({}, p, { requesterEmail: me || p.requesterEmail }); return srv.routeV3(action, q) || srv.routeRelease3(action, q) || srv.routeResort33(action, q); });
   if (v3 !== null && v3 !== undefined) return v3;
   const db = loadDemo();
   const meU = db.users.find(function(u){ return u.email === me; });
@@ -693,7 +693,7 @@ navItems = function(){
 /* role pages (opened from More) and the tab they belong to */
 const V3_ROLE_TABS = {
   kitchenadmin:'kitchen', kitchen:'kitchen', chefreq:'kitchen', chefmenu:'kitchen', chefcomments:'kitchen', mealtimes:'kitchen', mealstats:'kitchen', special:'kitchen', offmenu:'kitchen',
-  boatadmin:'boat', boatruns:'boat', emergency:'boat',
+  boatadmin:'boat', boatruns:'boat', emergency:'boat', resortboat:'boat',
   deptadmin:'dept', approvals:'dept', deptstaff:'dept', deptupdatespost:'dept', leavecal:'dept', leavesummary:'dept', mealbehalf:'dept',
   adminhub:'admin', usersv3:'admin', users:'admin', reminders:'admin', suggestions:'admin', adminstatus:'admin', settings:'admin', admin:'admin', manage:'admin', migrate:'admin',
   adminoverview:'admin', admintools:'admin', aboutimage:'admin' // 3.2.0
@@ -743,7 +743,7 @@ const V3_TITLES = { home:'Home', meals:'Meals', boat:'Boat', more:'More', bookin
   leavecal:'Leave calendar', users:'Staff directory', settings:'App settings', admin:'Classic admin tools', suggestions:'Suggestions', approvals:'Approvals', special:'Special meal order', schedule:'My schedule',
   kitchenadmin:'Kitchen Admin', boatadmin:'Boat Admin', deptadmin:'Department Admin', adminhub:'Admin Settings', mealtimes:'Meal times', mealstats:'Meal statistics', offmenu:'Orders not on the menu',
   boatruns:'Boat runs (admin)', emergency:'Emergency travel', leavesummary:'Leave summary', mealbehalf:'Meal on behalf', migrate:'Role migration', deptupdatespost:'Department updates',
-  adminlog:'Activity log', superlog:'Superadmin log', reports:'Reports', myreports:'My reports', pushsettings:'Phone notifications', adminoverview:'Overview', admintools:'System tools', aboutimage:'About image' };
+  adminlog:'Activity log', superlog:'Superadmin log', reports:'Reports', myreports:'My reports', pushsettings:'Phone notifications', adminoverview:'Overview', admintools:'System tools', aboutimage:'About image', resortboat:'Resort boat (PCE)' };
 navigate = function(tab){
   if (tab === 'myorders') tab = 'history';
   if (tab === 'breakfast' || tab === 'lunch' || tab === 'dinner') { state.mealFocus = tab; tab = 'meals'; }
@@ -769,7 +769,7 @@ navigate = function(tab){
     kitchenadmin: v3RenderKitchenAdmin, boatadmin: v3RenderBoatAdmin, deptadmin: v3RenderDeptAdmin, adminhub: v3RenderAdminHub, mealtimes: v3RenderMealTimes,
     mealstats: v3RenderMealStats, offmenu: v3RenderOffMenu, boatruns: v3RenderBoatRuns, emergency: v3RenderEmergency, leavesummary: v3RenderLeaveSummary, mealbehalf: v3RenderMealBehalf, migrate: v3RenderMigrate,
     adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports, pushsettings: a33RenderSettings,
-    adminoverview: a34RenderOverview, admintools: a34RenderTools, aboutimage: a34RenderAboutImage
+    adminoverview: a34RenderOverview, admintools: a34RenderTools, aboutimage: a34RenderAboutImage, resortboat: r33RenderResortAdmin
   };
   if (['home','meals','boat','kitchen'].includes(tab)) paintSkeleton({ cards: 3 });
   try { history.replaceState(null, '', location.pathname + location.search + (tab === 'home' ? '' : '#'+tab)); } catch (e) {}
@@ -1225,7 +1225,7 @@ async function v3RenderLeaveCalendar(){
   $$('.lc-day').forEach(function(b){ b.onclick = function(){ $('#lc-list').innerHTML = listHtml(on(b.dataset.ds), v3DateLabel(b.dataset.ds)) + '<button type="button" id="lc-all" class="text-xs text-teal-300">Show the whole month</button>'; $('#lc-all').onclick = function(){ $('#lc-list').innerHTML = listHtml(rows, 'This month'); }; }; });
 }
 
-/* ============ G. Meals (one page: my status, dinner, lunch, breakfast, feedback) ============ */
+/* ============ G. Meals (3.3.0: sub-tabs My meals · Dinner · Lunch · Breakfast — see section O) ============ */
 const V3_ORDER_ACTION = { breakfast:'placeBreakfastOrder', lunch:'placeLunchOrder', dinner:'placeDinnerOrder' };
 const V3_GET_ACTION = { breakfast:'getBreakfastOrders', lunch:'getLunchOrders', dinner:'getDinnerOrders' };
 function v3Info(meal){ return meal === 'breakfast' ? breakfastCutoffInfo() : (meal === 'lunch' ? lunchCutoffInfo() : dinnerCutoffInfo()); }
@@ -1383,6 +1383,21 @@ function v3OrderOverlay(status, line){
   el.querySelector('button').onclick = close; el.onclick = function(e){ if (e.target === el) close(); };
   setTimeout(close, 4500);
 }
+/** Cancel (or withdraw a late request for) the active order for the meal's service date — same flow on the meal tab and in My meals (3.3.0). */
+function v3CancelFlow(meal){
+  const info = v3Info(meal), label = V3_MEAL_LABEL[meal]+' ('+info.serviceDate+')';
+  const cur = v3CurOrder(meal, info.serviceDate);
+  if (!cur) { toast('No active order to cancel','error'); return; }
+  v3AskCancelReason(meal, async function(reason){
+    const r = await sendOrQueue('cancelMealOrder', { meal: meal, reason: reason, cancelReason: reason, serviceDate: info.serviceDate }, { label: 'Cancel '+label, serviceDate: info.serviceDate });
+    if (!r.success) { toast(r.error || 'Could not cancel','error'); return false; }
+    if (r.queued) { toast('No connection — cancel saved, will send automatically','info'); return true; }
+    const used = r.data && r.data.cancelsUsed;
+    toast(V3_MEAL_LABEL[meal]+' cancelled'+(meal !== 'dinner' && used ? ' ('+used+' of 3 cancels used)' : ''), 'ok');
+    v3AfterMealChange(meal);
+    return true;
+  });
+}
 function v3BindMealCards(){
   V3_MEALS.forEach(function(meal){
     const info = v3Info(meal);
@@ -1409,19 +1424,7 @@ function v3BindMealCards(){
     };
     const b = $('#btn-'+meal); if (b) b.onclick = place;
     const c = $('#btn-'+meal+'-cancel');
-    if (c) c.onclick = function(){
-      const cur = v3CurOrder(meal, info.serviceDate);
-      if (!cur) { toast('No active order to cancel','error'); return; }
-      v3AskCancelReason(meal, async function(reason){
-        const r = await sendOrQueue('cancelMealOrder', { meal: meal, reason: reason, cancelReason: reason, serviceDate: info.serviceDate }, { label: 'Cancel '+label, serviceDate: info.serviceDate });
-        if (!r.success) { toast(r.error || 'Could not cancel','error'); return false; }
-        if (r.queued) { toast('No connection — cancel saved, will send automatically','info'); return true; }
-        const used = r.data && r.data.cancelsUsed;
-        toast(V3_MEAL_LABEL[meal]+' cancelled'+(meal !== 'dinner' && used ? ' ('+used+' of 3 cancels used)' : ''), 'ok');
-        v3AfterMealChange(meal);
-        return true;
-      });
-    };
+    if (c) c.onclick = function(){ v3CancelFlow(meal); };
   });
   $$('.v3-late-open').forEach(function(b){ b.onclick = function(){ state._lateOpen = b.dataset.meal; v3PaintMeals(); const f = document.querySelector('[data-late^="'+b.dataset.meal+'-"] input'); if (f) f.focus(); }; });
   $$('.v3-late-send').forEach(function(b){ b.onclick = async function(){
@@ -1438,8 +1441,10 @@ function v3BindMealCards(){
 }
 function v3FeedbackCard(){
   return '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="chef-feedback">'+v3Title('fa-comment-dots','Feedback to the chef')+
-    '<p class="text-[11px] text-slate-400">Issues or requests about the food go straight to the chef.</p>'+
-    '<select id="fb-kind" class="ui-input w-full"><option value="issue">Issue with food</option><option value="request">Request / idea</option><option value="compliment">Compliment</option></select>'+
+    '<p class="text-[11px] text-slate-400">Issues or requests about the food go straight to the chef (Kitchen Admin → Food feedback).</p>'+
+    '<div class="grid grid-cols-2 gap-2"><div class="min-w-0"><label class="text-[10px] text-slate-400" for="fb-meal">Meal</label><select id="fb-meal" class="ui-input w-full"><option value="">General</option><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option></select></div>'+
+    '<div class="min-w-0"><label class="text-[10px] text-slate-400" for="fb-date">Date</label><input id="fb-date" type="date" class="ui-input w-full" max="'+v3Tom()+'" value="'+v3Today()+'"/></div></div>'+
+    '<select id="fb-kind" class="ui-input w-full" aria-label="Type of feedback"><option value="issue">Issue with food</option><option value="request">Request / idea</option><option value="compliment">Compliment</option></select>'+
     '<textarea id="fb-msg" rows="3" maxlength="800" class="ui-input w-full" placeholder="e.g. rice was cold at the second lunch sitting"></textarea>'+
     '<button type="button" id="btn-feedback" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white">Send to chef</button></section>';
 }
@@ -1449,19 +1454,22 @@ function v3BindFeedback(){
     const msg = ($('#fb-msg').value||'').trim();
     if (msg.length < 3) { toast('Write a short message first','error'); return; }
     b.disabled = true;
-    const d = await v3Call('sendChefFeedback', { kind: $('#fb-kind').value, message: msg, clientRequestId: newRequestId() }, 'Sent to the chef — thank you');
+    const d = await v3Call('sendChefFeedback', { kind: $('#fb-kind').value, message: msg, meal: ($('#fb-meal') && $('#fb-meal').value) || '', mealDate: ($('#fb-date') && $('#fb-date').value) || '', clientRequestId: newRequestId() }, 'Sent to the chef — thank you');
     b.disabled = false;
     if (d) $('#fb-msg').value = '';
   };
 }
+/* 3.3.0: four sub-tabs — My meals (3-day summary, cancel / change, feedback to chef) · Dinner · Lunch · Breakfast. Last tab remembered. */
 function v3PaintMeals(){
   const focus = state.mealFocus; state.mealFocus = null;
+  if (focus && V3_MEAL_LABEL[focus]) { state._mealTab = focus; r33Put('pcr_meals_tab', focus); }
+  const tab = r33MealTab();
   const keep = {}; $$('#meals-root input, #meals-root textarea, #meals-root select').forEach(function(el){ if (el.id) keep[el.id] = el.value; });
-  $('#main-content').innerHTML = v3Page(v3CutoffBanner() + queueHostHtml('breakfast,lunch,dinner') + v3MealDash() +
-    v3MealCard('dinner') + v3MealCard('lunch') + v3MealCard('breakfast') + v3FeedbackCard(), 'meals-root');
+  const body = tab === 'mine' ? r33MyMealsCard() + v3FeedbackCard() : v3MealCard(tab);
+  $('#main-content').innerHTML = v3Page(v3CutoffBanner() + queueHostHtml('breakfast,lunch,dinner') + r33Tabs('meal-tabs', R33_MEAL_TABS, tab, 'r33PickMealTab') +
+    '<div role="tabpanel" id="meal-panel" data-tab="'+tab+'" aria-labelledby="meal-tabs-'+tab+'" class="space-y-4 min-w-0">'+body+'</div>', 'meals-root');
   Object.keys(keep).forEach(function(k){ const el = document.getElementById(k); if (el && keep[k] && el.tagName !== 'SELECT') el.value = keep[k]; });
-  bindQueueButtons(); v3BindMealCards(); v3BindFeedback(); v3StartTicker();
-  if (focus) { const el = $('#meal-card-'+focus); if (el) setTimeout(function(){ el.scrollIntoView({ block:'start' }); }, 30); }
+  bindQueueButtons(); v3BindMealCards(); v3BindFeedback(); r33BindMyMeals(); v3StartTicker();
 }
 async function renderMeals(){
   state.mealPill = 'meals';
@@ -1581,10 +1589,11 @@ async function v3RenderApprovals(){
     if (v3CanChef()) html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-special">'+v3Title('fa-star','Special meal requests', v3Chip(String(sp.length), sp.length?'warn':'mute'))+
       (sp.length ? sp.map(function(x){ return v3RequestCard(x, true); }).join('') : v3Empty('No special requests waiting.'))+'</section>';
   }
+  if (wantLeave) { html += await r33ApprovalsSection(); if (state.tab !== 'approvals') return; } // 3.3.0 resort boat HOD step
   $('#ap-body').innerHTML = html || v3Empty('Nothing needs your approval.');
   const root = $('#ap-body');
   const again = function(){ cacheInvalidate(['v3home']); v3RefreshHome().then(function(){ renderNav('#bottom-nav'); }); v3RenderApprovals(); };
-  v3BindLeaveCards(root, again); v3BindRequestCards(root, again);
+  v3BindLeaveCards(root, again); v3BindRequestCards(root, again); r33BindDecide(root, again);
   root.querySelectorAll('.v3-ap-all').forEach(function(b){ b.onclick = async function(){
     const what = { leave:'leave requests (HOD step)', final:'leave requests (final approval)', late:'late meal requests' }[b.dataset.k];
     if (!confirm('Approve all '+b.dataset.n+' '+what+'?')) return;
@@ -1684,7 +1693,7 @@ function renderMore(){
   // role buttons (3.0.0): only what the account holds
   const btns = v3IsSuper() ? [] : v3Buttons(u);
   if (btns.length) {
-    const badge = { admin: 0, kitchen: h.chef ? (h.chef.pending.late + h.chef.pending.special + (h.chef.feedbackNew||0)) : 0, boat: (h.boat && h.boat.emergencyPending) || 0, dept: (hb.leave||0)+(hb.late||0)+(hb.leaveMgmt||0) };
+    const badge = { admin: 0, kitchen: h.chef ? (h.chef.pending.late + h.chef.pending.special + (h.chef.feedbackNew||0)) : 0, boat: ((h.boat && h.boat.emergencyPending) || 0) + ((h.resortBoat||{}).admin||0), dept: (hb.leave||0)+(hb.late||0)+(hb.leaveMgmt||0)+((h.resortBoat||{}).hod||0) };
     html += '<section class="space-y-1.5 min-w-0" id="more-rolebtns"><h3 class="v3-section-title px-1">My role pages</h3><div class="grid grid-cols-2 gap-2">'+btns.map(function(k){
       const b = V3_BUTTONS[k];
       return '<button type="button" onclick="navigate(\''+b.tab+'\')" class="glass rounded-2xl p-3 text-left min-w-0 relative border border-teal-500/30" data-rolebtn="'+k+'">'+
@@ -1704,8 +1713,7 @@ function renderMore(){
       (featureOn('feature_my_schedule') ? v3Row(v3Nav('schedule'),'fa-calendar-check','My schedule','') : '')) +
       group('Help', v3Row('a32OpenReport()','fa-flag','Report a problem','Error, change request or idea') + v3Row(v3Nav('myreports'),'fa-inbox','My reports','Status and replies'));
   }
-  html += '<section class="glass rounded-2xl overflow-hidden">'+v3Row('doLogout()','fa-right-from-bracket','Sign out','')+'</section>'+
-    '<p class="text-center text-[10px] text-slate-500">PCR Staff App '+esc(APP_VERSION)+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>';
+  html += '<section class="glass rounded-2xl overflow-hidden">'+v3Row('doLogout()','fa-right-from-bracket','Sign out','')+'</section>'; // 3.3.0: the version line is shown once, in the footer under the page
   $('#main-content').innerHTML = v3Page(html, 'more-root');
   if (!state._v3UnreadAt || Date.now() - state._v3UnreadAt > 60000) {
     state._v3UnreadAt = Date.now();
@@ -1717,12 +1725,12 @@ async function v3RenderNotifications(){
   $('#nt-all').onclick = async function(){ const d = await v3Call('markNotificationRead', { markAll:true }, 'All marked read'); if (d) { state._v3Unread = 0; v3RenderNotifications(); } };
   const d = await v3Call('getMyNotifications', {});
   if (state.tab !== 'notifications' || !d) return;
-  const go = { leave: v3CanDept() ? 'approvals' : 'leave', late_meal: v3CanChef() ? 'chefreq' : (v3CanDept() ? 'approvals' : 'meals'), special_meal:'chefreq', meal_request:'meals', meal_cancelled:'meals', order_cancelled:'meals', admin_message:'notifications', chef_feedback: v3CanChef() ? 'chefcomments' : 'history', dept_update:'deptupdates', role:'more' };
+  const go = { leave: v3CanDept() ? 'approvals' : 'leave', late_meal: v3CanChef() ? 'chefreq' : (v3CanDept() ? 'approvals' : 'meals'), special_meal:'chefreq', meal_request:'meals', meal_cancelled:'meals', order_cancelled:'meals', admin_message:'notifications', chef_feedback: v3CanChef() ? 'chefcomments' : 'history', dept_update:'deptupdates', role:'more', resort_boat:'boat', resort_boat_hod: v3CanDept() ? 'approvals' : 'boat', resort_boat_admin: v3IsBoatManager() ? 'resortboat' : 'boat' };
   $('#nt-list').innerHTML = (d.notifications||[]).length ? d.notifications.map(function(n){
     return '<button type="button" class="v3-nt w-full text-left rounded-xl border p-3 min-w-0 '+(n.read?'border-slate-700/60 bg-slate-900/40':'border-teal-500/40 bg-teal-500/10')+'" data-id="'+esc(n.id)+'" data-go="'+esc(go[n.kind]||'')+'">'+
       '<p class="text-sm text-slate-100 break-words">'+(n.read?'':'<span class="inline-block w-2 h-2 rounded-full bg-teal-400 mr-1.5"></span>')+esc(n.title)+'</p><p class="text-[11px] text-slate-300 break-words">'+esc(n.body)+'</p><p class="text-[10px] text-slate-500">'+esc(v3Ts(n.createdAt))+'</p></button>';
   }).join('') : v3Card(v3Empty('No notifications.'));
-  $$('.v3-nt').forEach(function(b){ b.onclick = async function(){ await api('markNotificationRead', { id: b.dataset.id }).catch(function(){}); state._v3UnreadAt = 0; if (b.dataset.go && canPrivilegedTab(b.dataset.go)) navigate(b.dataset.go); else v3RenderNotifications(); }; });
+  $$('.v3-nt').forEach(function(b){ b.onclick = async function(){ await api('markNotificationRead', { id: b.dataset.id }).catch(function(){}); state._v3UnreadAt = 0; if (b.dataset.go === 'boat') { state._boatTab = 'resort'; r33Put('pcr_boat_tab', 'resort'); } if (b.dataset.go && canPrivilegedTab(b.dataset.go)) navigate(b.dataset.go); else v3RenderNotifications(); }; });
 }
 async function v3RenderHistory(){
   const from = state.histFrom || fijiDateString(addFijiDays(getFijiNow(), -30)), to = state.histTo || fijiDateString(addFijiDays(getFijiNow(), 7));
@@ -1863,7 +1871,7 @@ async function v3RenderChefComments(){
   if (state.tab !== 'chefcomments' || !d) return;
   $('#cc-list').innerHTML = (d.feedback||[]).length ? d.feedback.map(function(f){
     return '<article class="glass rounded-2xl p-3 space-y-1.5 min-w-0"><div class="v3-row"><p class="text-sm text-slate-100 truncate min-w-0">'+esc(f.userName)+' <span class="text-[10px] text-slate-400">· '+esc(f.department)+'</span></p>'+
-      v3Chip(esc(f.status), f.status==='new'?'warn':(f.status==='done'?'ok':'info'))+'</div><p class="text-[11px]">'+v3Chip(esc(f.kind), f.kind==='issue'?'bad':(f.kind==='compliment'?'ok':'info'))+' <span class="text-slate-500">'+esc(v3Ts(f.createdAt))+'</span></p>'+
+      v3Chip(esc(f.status), f.status==='new'?'warn':(f.status==='done'?'ok':'info'))+'</div><p class="text-[11px]">'+v3Chip(esc(f.kind), f.kind==='issue'?'bad':(f.kind==='compliment'?'ok':'info'))+(f.meal||f.mealDate ? ' '+v3Chip(esc([f.meal ? V3_MEAL_LABEL[f.meal]||f.meal : '', f.mealDate ? v3DayDate(f.mealDate) : ''].filter(Boolean).join(' · ')), 'mute') : '')+' <span class="text-slate-500">'+esc(v3Ts(f.createdAt))+'</span></p>'+
       '<p class="text-xs text-slate-200 break-words">'+esc(f.message)+'</p>'+(f.chefNote?'<p class="text-[11px] text-teal-200 break-words">Chef: '+esc(f.chefNote)+'</p>':'')+
       '<div class="flex gap-2"><button type="button" class="v3-cf flex-1 rounded-lg py-1.5 text-xs border border-slate-600 text-slate-200" data-id="'+esc(f.id)+'" data-s="seen">Seen</button><button type="button" class="v3-cf flex-1 rounded-lg py-1.5 text-xs border border-teal-500/40 text-teal-200" data-id="'+esc(f.id)+'" data-s="done">Reply & close</button></div></article>';
   }).join('') : v3Card(v3Empty('No food comments yet.'));
@@ -2091,6 +2099,7 @@ function v3ManageGroups(){
   html += g('People', v3Row(v3Nav('usersv3'),'fa-users-gear','Users & roles','Edit, delete, roles (more than one allowed), departments') +
     v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view · approved and waiting') +
     v3Row(v3Nav('users'),'fa-address-book','Staff directory (classic)','2.x list · add user, import CSV'));
+  html += g('Resort boat (PCE)', v3Row(v3Nav('resortboat'),'fa-anchor','Resort boat requests','Confirm HOD-approved requests · manifest · print', (h.resortBoat||{}).admin||0)); // 3.3.0
   html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
   html += g('Reports & system', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Reports & downloads','Download all app data') +
     (v3IsSuper() ? v3Row(v3Nav('settings'),'fa-gear','App settings','Email (Brevo), test email, features, alert emails, revert owner') + v3Row(v3Nav('migrate'),'fa-right-left','Role migration','Preview / apply the 3.0.0 roles list') + v3Row(v3Nav('aboutimage'),'fa-image','About image','The picture behind the footer “About” button') : ''));
@@ -2110,6 +2119,7 @@ function v3RenderAdminHub(){
     v3Row(v3Nav('users'),'fa-address-book','Staff directory (classic)','Add user, import CSV'));
   html += g('Leave', v3Row("state.leaveTabForce='final';navigate('leave')",'fa-stamp','Leave — final approval','After the HOD step', hb.leaveMgmt||0) +
     v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','All departments') + v3Row(v3Nav('leavesummary'),'fa-table','Leave summary','Per department'));
+  html += g('Resort boat (PCE)', v3Row(v3Nav('resortboat'),'fa-anchor','Resort boat requests','Confirm HOD-approved requests · manifest · print', (h.resortBoat||{}).admin||0)); // 3.3.0
   html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
   html += g('Overview & system', v3Row(v3Nav('adminoverview'),'fa-chart-line','Overview','Meals, approvals, boat load, people') +
     v3Row(v3Nav('admintools'),'fa-screwdriver-wrench','System tools','Alert emails, archive old records, kitchen summaries')); // 3.2.0
@@ -2124,7 +2134,7 @@ function v3RenderDeptAdmin(){
     '<p class="text-xs text-slate-400 px-1">'+(v3IsAdmin() ? 'All departments (admin)' : esc(state.user.department||''))+'</p>'+
     v3HodBar()+
     '<div class="grid grid-cols-2 gap-2" id="dept-tiles">'+
-      v3Tile(v3Nav('approvals'),'fa-inbox','Approvals','Leave & late meals', (hb.leave||0)+(hb.late||0)+(v3IsAdmin()?(hb.leaveMgmt||0):0))+
+      v3Tile(v3Nav('approvals'),'fa-inbox','Approvals','Leave, late meals, resort boat', (hb.leave||0)+(hb.late||0)+(v3IsAdmin()?(hb.leaveMgmt||0):0)+((v3Home().resortBoat||{}).hod||0))+
       v3Tile(v3Nav('deptstaff'),'fa-users','Department staff','Edit · remove')+
       v3Tile(v3Nav('deptupdatespost'),'fa-bullhorn','Department updates','Post, comments, likes')+
       v3Tile(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view')+
@@ -2520,6 +2530,7 @@ async function v3RenderBoatAdmin(){
     '<button type="button" id="stb-dedupe" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-clone mr-1"></i>Remove duplicate runs</button>' : '')+
     '<button type="button" id="stb-copy" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-copy mr-1"></i>Copy today\u2019s pax</button>'+
     '<button type="button" onclick="navigate(\'boatruns\')" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-ship mr-1"></i>Runs & timetable (admin)</button>'+
+    '<button type="button" onclick="navigate(\'resortboat\')" id="stb-resort" class="col-span-2 rounded-xl py-2 text-xs border border-sky-500/40 text-sky-200"><i class="fa-solid fa-anchor mr-1"></i>Resort boat (PCE) — confirm requests & manifest'+(((v3Home().resortBoat||{}).admin) ? ' ('+v3Home().resortBoat.admin+')' : '')+'</button>'+
     '<button type="button" onclick="navigate(\'emergency\')" class="col-span-2 rounded-xl py-2 text-xs border border-amber-500/40 text-amber-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Emergency travel requests</button>'+
     '<button type="button" onclick="'+a31LogNav('boat')+'" id="stb-log" class="col-span-2 rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-clock-rotate-left mr-1"></i>Activity log — who changed what</button></div></section>'+
     '<div id="stb-list" class="space-y-3">'+v3Loading()+'</div><div id="stb-emerg"></div>', 'boat-station');
@@ -2574,6 +2585,7 @@ async function v3RenderEmergency(){
 }
 const _v2RenderBoat = renderBoat;
 renderBoat = async function(){
+  if (state.tab === 'boat' && state._roleMode !== 'boat' && r33BoatTab() === 'resort') return r33RenderResort(); // 3.3.0 Resort boat sub-tab
   const out = await _v2RenderBoat.apply(this, arguments);
   if (state.tab === 'boat' && state._roleMode === 'boat' && $('#boat-root') && !$('#boat-role-back')) {
     const bar = document.createElement('div'); bar.id = 'boat-role-back'; bar.className = 'space-y-2';
@@ -2610,7 +2622,8 @@ const A31_ACTION_LABEL = { setMealTimes:'Meal times changed', saveDinnerMenuItem
   updateUser:'User edited', addUser:'User added', importUsersCSV:'Users imported', approveUser:'User approved', deleteUser:'User deleted', addReminder:'Reminder added',
   updateReminder:'Reminder edited', completeReminder:'Reminder done', deleteReminder:'Reminder removed', approveSuggestion:'Suggestion approved', rejectSuggestion:'Suggestion rejected',
   setAppSetting:'App setting changed', saveAlertEmails:'Alert emails changed', migrateRoles:'Role migration applied', adminNotifyUser:'Notification sent', sendTestEmail:'Test email sent',
-  archiveOldRows:'Old rows archived', uploadRosterParsed:'Roster uploaded', backfillDinnerSummaries:'Summaries back-filled', runMealTick:'Meal tick run', revert:'Reverted' };
+  archiveOldRows:'Old rows archived', uploadRosterParsed:'Roster uploaded', backfillDinnerSummaries:'Summaries back-filled', runMealTick:'Meal tick run', revert:'Reverted',
+  hodDecideResortBoat:'Resort boat — HOD decision', confirmResortBoat:'Resort boat — confirmed / rejected' };
 function a31CanArea(a){
   if (a === 'kitchen') return v3CanChef();
   if (a === 'boat') return v3HasBoat();
@@ -3059,5 +3072,305 @@ demoApiCore = async function(action, p){
   if (c && c.log && res && res.success !== false) await v3DemoRun(function(srv){ srv.a31Post(c, JSON.parse(JSON.stringify(res))); return null; });
   return res;
 };
+/* ============ O. 3.3.0: Meals sub-tabs (My meals · Dinner · Lunch · Breakfast), Boat sub-tabs (Village · Resort boat / PCE) ============ */
+(function(){
+  if (document.getElementById('r33-style')) return;
+  const st = document.createElement('style'); st.id = 'r33-style';
+  st.textContent = '.r33-tabs{display:grid;gap:4px;padding:4px;border-radius:14px;background:rgba(15,23,42,.6);border:1px solid rgba(51,65,85,.7);min-width:0}'+
+    '.r33-tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:46px;padding:4px 2px;border-radius:10px;font-size:11px;line-height:1.15;color:#94a3b8;border:1px solid transparent;min-width:0;text-align:center;word-break:break-word}'+
+    '.r33-tab i{font-size:14px}.r33-tab[aria-selected="true"]{background:rgba(13,148,136,.28);border-color:rgba(45,212,191,.55);color:#ccfbf1;font-weight:600}'+
+    '.r33-tab:focus-visible{outline:2px solid #2dd4bf;outline-offset:1px}.r33-tab .r33-n{font-size:9px;min-width:16px;padding:0 4px;border-radius:9999px;background:#f59e0b;color:#111;font-weight:700}'+
+    '@media (max-width:340px){.r33-tab{font-size:10px}.r33-tab i{font-size:13px}}'+
+    '.r33-seg{display:grid;grid-template-columns:1fr 1fr;gap:6px}.r33-seg label{display:flex;align-items:center;justify-content:center;gap:6px;min-height:42px;border-radius:12px;border:1px solid rgba(71,85,105,.8);background:rgba(15,23,42,.5);font-size:12px;color:#cbd5e1;padding:4px 6px;text-align:center}'+
+    '.r33-seg input{accent-color:#14b8a6}.r33-seg label.on{border-color:rgba(45,212,191,.7);background:rgba(13,148,136,.22);color:#ccfbf1}'+
+    '.r33-time{display:grid;grid-template-columns:3.2rem 1fr;gap:6px;align-items:start}.r33-kv{font-size:11px;color:#cbd5e1}';
+  document.head.appendChild(st);
+})();
+/** Sub-tab bar. tabs: [[key, label, icon, count?]] · onPick: name of a global function taking the key. */
+function r33Tabs(id, tabs, cur, onPick){
+  return '<div class="r33-tabs" role="tablist" id="'+id+'" style="grid-template-columns:repeat('+tabs.length+',minmax(0,1fr))">'+tabs.map(function(t){
+    return '<button type="button" role="tab" class="r33-tab" id="'+id+'-'+t[0]+'" data-sub="'+t[0]+'" aria-selected="'+(t[0]===cur?'true':'false')+'" onclick="'+onPick+'(\''+t[0]+'\')">'+
+      '<i class="fa-solid '+t[2]+'"></i><span>'+esc(t[1])+(t[3]?' <span class="r33-n">'+t[3]+'</span>':'')+'</span></button>';
+  }).join('')+'</div>';
+}
+function r33Get(k, fb){ try { return localStorage.getItem(k) || fb; } catch (e) { return fb; } }
+function r33Put(k, v){ try { localStorage.setItem(k, v); } catch (e) {} }
+
+/* ---- Meals ---- */
+const R33_MEAL_TABS = [['mine','My meals','fa-receipt'],['dinner','Dinner','fa-moon'],['lunch','Lunch','fa-bowl-food'],['breakfast','Breakfast','fa-mug-saucer']];
+function r33MealTab(){ const t = state._mealTab || r33Get('pcr_meals_tab', 'mine'); return R33_MEAL_TABS.some(function(x){ return x[0] === t; }) ? t : 'mine'; }
+function r33PickMealTab(t){ state._mealTab = t; r33Put('pcr_meals_tab', t); state._lateOpen = null; v3PaintMeals(); try { window.scrollTo(0, 0); } catch (e) {} const b = document.getElementById('meal-tabs-'+t); if (b) b.focus(); }
+const R33_DAYS = [['yesterday','Yesterday'],['today','Today'],['tomorrow','Tomorrow']];
+function r33DayDate(k){ return fijiDateString(addFijiDays(getFijiNow(), k === 'yesterday' ? -1 : (k === 'today' ? 0 : 1))); }
+function r33PickDay(k){ state._myMealsDay = k; v3PaintMeals(); }
+/** What the staff member may still do for this meal on this date (same rules as the meal tabs). */
+function r33MealActions(meal, date, o){
+  const sd = v3Info(meal).serviceDate, ph = v3PhaseOf(meal, date), out = [];
+  const tab = function(label, cls){ out.push('<button type="button" class="r33-go text-[11px] px-2.5 py-1.5 rounded-lg border '+cls+' min-h-[36px]" data-meal="'+meal+'">'+label+'</button>'); };
+  if (date === sd) {
+    if (ph === 'open') {
+      if (o) { tab(meal === 'dinner' ? 'Change' : 'Edit note', 'border-slate-600 text-slate-200'); out.push('<button type="button" class="r33-cancel text-[11px] px-2.5 py-1.5 rounded-lg border border-amber-500/40 text-amber-300 min-h-[36px]" data-meal="'+meal+'" id="my-'+meal+'-cancel">Cancel</button>'); }
+      else tab('Order', 'border-teal-500/60 text-teal-200 bg-teal-600/20');
+    } else if (o && o.status === 'late_pending') out.push('<button type="button" class="r33-cancel text-[11px] px-2.5 py-1.5 rounded-lg border border-amber-500/40 text-amber-300 min-h-[36px]" data-meal="'+meal+'" id="my-'+meal+'-cancel">Withdraw late request</button>');
+    else if (!o && ph === 'late') tab('Late request', 'border-orange-500/40 text-orange-200');
+  } else if (meal === 'dinner' && date === v3Today() && !o && ph === 'late') tab('Late request', 'border-orange-500/40 text-orange-200');
+  return out.join('');
+}
+function r33MyMealsCard(){
+  const day = state._myMealsDay || (dinnerCutoffInfo().open ? 'tomorrow' : 'today');
+  const date = r33DayDate(day), n = getFijiNow();
+  const rows = V3_MEALS.map(function(meal){
+    const o = v3CurOrder(meal, date) || (v3MealRowsFor(meal, date).slice(-1)[0] || null);
+    const active = o && !isInactiveMealStatus(o.status) ? o : null;
+    const cd = date === v3Info(meal).serviceDate ? v3CutoffTarget(meal) : null;
+    return '<div class="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3 space-y-1.5 min-w-0" data-mymeal="'+meal+'">'+
+      '<div class="v3-row text-sm"><span class="text-slate-100 font-medium"><i class="fa-solid '+V3_MEAL_ICON[meal]+' text-teal-400 mr-1.5"></i>'+V3_MEAL_LABEL[meal]+'</span>'+(o ? v3Status(o.status) : '<span class="text-[11px] text-slate-400">Not ordered</span>')+'</div>'+
+      (o && meal === 'dinner' && o.mealChoice ? '<p class="text-xs '+(active?'text-slate-200':'text-slate-500 line-through')+' break-words">'+esc(o.mealChoice)+'</p>' : '')+
+      (o ? myNoteLine(o) : '')+
+      (o && o.cancelReason && o.status === 'cancelled' ? '<p class="text-[10px] text-slate-500 break-words">Cancelled: '+esc(o.cancelReason)+'</p>' : '')+
+      (cd ? '<p class="text-[10px] '+(cd.late?'text-orange-300':'text-teal-300')+'"><span data-cd="'+cd.t.getTime()+'" class="v3-countdown">'+v3Countdown(cd.t.getTime()-n.getTime())+'</span> · '+esc(cd.label)+'</p>' : '')+
+      '<div class="flex flex-wrap gap-2 justify-end">'+(day === 'yesterday' ? '' : r33MealActions(meal, date, active))+'</div></div>';
+  }).join('');
+  const menu = v3MenuItems(null, v3Tom());
+  return '<section class="glass rounded-2xl p-4 space-y-3 min-w-0" id="my-meals">'+v3Title('fa-receipt','My meals')+
+    '<div class="r33-seg" style="grid-template-columns:repeat(3,minmax(0,1fr))" id="my-meals-days">'+R33_DAYS.map(function(d){
+      return '<button type="button" class="r33-tab" data-day="'+d[0]+'" aria-pressed="'+(d[0]===day?'true':'false')+'" aria-selected="'+(d[0]===day?'true':'false')+'" onclick="r33PickDay(\''+d[0]+'\')"><span>'+d[1]+'</span><span class="text-[10px] opacity-80">'+esc(v3DayDate(r33DayDate(d[0])))+'</span></button>';
+    }).join('')+'</div>'+
+    '<p class="text-[11px] text-slate-400">'+(day === 'yesterday' ? 'Read-only.' : 'Change or cancel while a meal is open; after the cutoff use a Late Meal Request.')+'</p>'+rows+
+    '<p class="text-[11px] text-slate-400"><span class="text-slate-500">Tomorrow\'s dinner menu:</span> <span class="text-slate-200">'+(menu.length ? menu.map(esc).join(' · ') : '—')+'</span></p></section>';
+}
+function r33BindMyMeals(){
+  $$('#my-meals .r33-go').forEach(function(b){ b.onclick = function(){ r33PickMealTab(b.dataset.meal); }; });
+  $$('#my-meals .r33-cancel').forEach(function(b){ b.onclick = function(){ v3CancelFlow(b.dataset.meal); }; });
+}
+
+/* ---- Boat ---- */
+function r33BoatTab(){ const t = state._boatTab || r33Get('pcr_boat_tab', 'village'); return t === 'resort' ? 'resort' : 'village'; }
+function r33PickBoatTab(t){ state._boatTab = t; r33Put('pcr_boat_tab', t); renderBoat(); try { window.scrollTo(0, 0); } catch (e) {} }
+/** called from the 2.x Boat screen (index.html paintBoat) — nothing in Boat Admin mode */
+function r33BoatTabsHtml(){
+  if (state._roleMode === 'boat' || state.tab !== 'boat') return '';
+  return r33Tabs('boat-tabs', [['village','Village boat','fa-ship'],['resort','Resort boat','fa-anchor']], r33BoatTab(), 'r33PickBoatTab');
+}
+const R33_DIR = { to_naisoso:'Resort → Naisoso', to_resort:'Naisoso → Resort' };
+const R33_TIMES = [
+  { run:'AM', direction:'to_resort', departs:'9:00am', reportBy:'At Naisoso Marina before 8:15am', arrives:'Arrives at the resort around 10:00am' },
+  { run:'AM', direction:'to_naisoso', departs:'10:20–10:30am', reportBy:'Departs the resort around 10:20–10:30am', arrives:'Arrives at Naisoso about 1 hour after departure' },
+  { run:'PM', direction:'to_resort', departs:'2:00pm', reportBy:'At Naisoso Marina before 1:00pm', arrives:'Arrives at the resort by 3:00pm' },
+  { run:'PM', direction:'to_naisoso', departs:'3:30pm', reportBy:'At the Dive Shop by 2:30pm', arrives:'Departs the resort around 3:30pm' }];
+function r33Time(run, dir){ return R33_TIMES.find(function(t){ return t.run === run && t.direction === dir; }) || {}; }
+Object.assign(V3_STATUS_TEXT, { pending_admin:'Waiting for boat confirm', confirmed:'Confirmed' });
+function r33TimetableCard(){
+  const block = function(run){
+    const a = r33Time(run, 'to_resort'), b = r33Time(run, 'to_naisoso');
+    return '<div class="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3 space-y-1.5" data-pce-run="'+run+'"><p class="text-xs font-semibold text-teal-200">'+run+' run</p>'+
+      '<div class="r33-time"><span class="font-mono text-teal-200 text-xs">'+(run==='AM'?'9:00':'2:00')+'</span><div class="r33-kv"><strong class="text-slate-100">Naisoso Marina → resort</strong> · departs '+esc(a.departs)+'<br><span class="text-amber-200"><i class="fa-solid fa-clock mr-1"></i>'+esc(a.reportBy)+'</span><br><span class="text-slate-400">'+esc(a.arrives)+'</span></div></div>'+
+      '<div class="r33-time"><span class="font-mono text-teal-200 text-xs">'+(run==='AM'?'10:20':'3:30')+'</span><div class="r33-kv"><strong class="text-slate-100">Resort → Naisoso Marina</strong> · departs '+esc(b.departs)+(run==='PM'?'<br><span class="text-amber-200"><i class="fa-solid fa-clock mr-1"></i>'+esc(b.reportBy)+'</span>':'')+'<br><span class="text-slate-400">'+esc(run==='AM' ? b.arrives : 'About 1 hour to Naisoso')+'</span></div></div></div>';
+  };
+  return '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="pce-times">'+v3Title('fa-water','Paradise Cove Express (PCE)')+
+    '<p class="text-[11px] text-slate-400">Naisoso Marina ↔ the resort, twice a day. Request a seat below — your HOD approves, then admin / boat manager confirms and adds you to the manifest.</p>'+block('AM')+block('PM')+'</section>';
+}
+function r33Steps(x){
+  const st = x.status;
+  const step = function(on, done, bad, label){ return '<span class="'+(bad?'text-rose-300':(done?'text-teal-300':(on?'text-amber-200':'text-slate-500')))+'"><i class="fa-solid '+(bad?'fa-xmark':(done?'fa-check':'fa-clock'))+' mr-0.5"></i>'+label+'</span>'; };
+  const hodDone = x.hodStatus === 'approved' || x.hodStatus === 'skipped', hodBad = x.hodStatus === 'declined';
+  return '<p class="text-[10px] flex flex-wrap gap-x-3 gap-y-0.5">'+step(true, true, false, 'Requested')+step(st === 'pending_hod', hodDone, hodBad, x.hodStatus === 'skipped' ? 'HOD (not needed)' : 'HOD')+
+    step(st === 'pending_admin', st === 'confirmed', x.adminStatus === 'declined', 'Boat confirm')+'</p>';
+}
+function r33Card(x, mode, linked){
+  const t = r33Time(x.run, x.direction);
+  const note = [x.hodNote ? 'HOD: '+x.hodNote : '', x.adminNote ? 'Admin: '+x.adminNote : ''].filter(Boolean).join(' · ');
+  const legTxt = x.leg === 'outbound' ? 'Day off · trip' : (x.leg === 'return' ? 'Day off · return' : x.purposeLabel);
+  let actions = '';
+  if (mode === 'mine' && (x.status === 'pending_hod' || x.status === 'pending_admin')) actions = '<button type="button" class="rb-cancel w-full rounded-xl py-2 text-xs text-amber-300 border border-amber-500/30" data-id="'+esc(x.id)+'" data-linked="'+(linked && (linked.status === 'pending_hod' || linked.status === 'pending_admin') ? '1' : '')+'">Cancel request'+(linked && (linked.status === 'pending_hod' || linked.status === 'pending_admin') ? ' (and the linked '+(x.leg === 'return' ? 'trip' : 'return')+')' : '')+'</button>';
+  if ((mode === 'hod' || mode === 'admin') && x.canDecide) {
+    const yes = mode === 'hod' ? 'Approve' : 'Confirm';
+    const both = linked && linked.status === x.status && linked.canDecide;
+    actions = '<div class="grid grid-cols-2 gap-2"><button type="button" class="rb-yes btn-primary rounded-xl py-2 text-xs font-semibold text-white" data-id="'+esc(x.id)+'" data-mode="'+mode+'">'+yes+'</button>'+
+      '<button type="button" class="rb-no rounded-xl py-2 text-xs border border-rose-500/40 text-rose-200" data-id="'+esc(x.id)+'" data-mode="'+mode+'">Reject</button>'+
+      (both ? '<button type="button" class="rb-yes col-span-2 rounded-xl py-2 text-xs border border-emerald-500/50 text-emerald-200 bg-emerald-500/10" data-id="'+esc(x.id)+'" data-mode="'+mode+'" data-both="1"><i class="fa-solid fa-check-double mr-1"></i>'+yes+' both legs (trip + return)</button>' : '')+'</div>';
+  }
+  return '<article class="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3 space-y-1.5 min-w-0" data-rb="'+esc(x.id)+'" data-status="'+esc(x.status)+'">'+
+    '<div class="v3-row text-sm"><span class="text-slate-100 font-medium min-w-0 truncate">'+(mode === 'mine' ? esc(x.directionLabel) : esc(x.userName)+' <span class="text-[10px] text-slate-400">· '+esc(x.department)+'</span>')+'</span>'+v3Status(x.status)+'</div>'+
+    (mode !== 'mine' ? '<p class="text-xs text-slate-200">'+esc(x.directionLabel)+'</p>' : '')+
+    '<p class="text-xs text-slate-300">'+esc(v3DateLabel(x.date))+' · '+esc(x.date)+' · <strong>'+esc(x.run)+'</strong> run · '+esc(x.pax)+' pax</p>'+
+    '<p class="text-[11px] text-amber-200/90"><i class="fa-solid fa-clock mr-1"></i>'+esc(t.reportBy || '')+'</p>'+
+    '<p class="text-[11px] text-slate-400 break-words">'+esc(legTxt)+(x.purpose === 'other' ? ': '+esc(x.reason) : '')+(linked ? ' · linked '+(x.leg === 'return' ? 'trip' : 'return')+': '+esc(linked.date)+' '+esc(linked.run)+' ('+esc(V3_STATUS_TEXT[linked.status] || linked.status)+')' : '')+'</p>'+
+    r33Steps(x)+(note ? '<p class="text-[11px] text-slate-300 break-words">'+esc(note)+'</p>' : '')+actions+'</article>';
+}
+function r33Group(list, mode){
+  const by = {}; list.forEach(function(x){ by[x.id] = x; });
+  return list.map(function(x){ return r33Card(x, mode, x.linkedId ? by[x.linkedId] : null); }).join('');
+}
+function r33FormHtml(){
+  const today = v3Today(), max = fijiDateString(addFijiDays(getFijiNow(), 90));
+  const seg = function(name, opts, val){ return '<div class="r33-seg" role="radiogroup">'+opts.map(function(o){ return '<label class="'+(o[0]===val?'on':'')+'"><input type="radio" name="'+name+'" value="'+o[0]+'"'+(o[0]===val?' checked':'')+'/> '+o[1]+'</label>'; }).join('')+'</div>'; };
+  return '<section class="glass rounded-2xl p-4 space-y-3 min-w-0" id="rb-form">'+v3Title('fa-ticket','Request a seat')+
+    '<div class="space-y-1"><p class="text-[11px] text-slate-400">Direction *</p>'+seg('rb-direction', [['to_naisoso','Resort → Naisoso'],['to_resort','Naisoso → Resort']], 'to_naisoso')+'</div>'+
+    '<div class="grid grid-cols-2 gap-2"><div class="space-y-1 min-w-0"><label class="text-[11px] text-slate-400" for="rb-date">Date of travel *</label><input id="rb-date" type="date" class="ui-input w-full" min="'+today+'" max="'+max+'" value="'+v3Tom()+'"/></div>'+
+    '<div class="space-y-1 min-w-0"><label class="text-[11px] text-slate-400" for="rb-pax">Number of pax *</label><input id="rb-pax" type="number" min="1" max="20" class="ui-input w-full" value="1"/></div></div>'+
+    '<div class="space-y-1"><p class="text-[11px] text-slate-400">Run *</p>'+seg('rb-run', [['AM','AM run'],['PM','PM run']], 'AM')+'<p class="text-[11px] text-amber-200" id="rb-hint"></p></div>'+
+    '<div class="space-y-1"><label class="text-[11px] text-slate-400" for="rb-purpose">Travel purpose *</label><select id="rb-purpose" class="ui-input w-full"><option value="">Choose…</option><option value="day_off">Day off</option><option value="other">Other reason</option></select></div>'+
+    '<div id="rb-dayoff" class="hidden space-y-2 rounded-xl border border-teal-500/30 bg-teal-500/5 p-3"><p class="text-[11px] text-teal-200"><i class="fa-solid fa-right-left mr-1"></i>A linked return request in the opposite direction (<span id="rb-return-dir"></span>) is created automatically.</p>'+
+      '<div class="space-y-1"><label class="text-[11px] text-slate-400" for="rb-return-date">Return date *</label><input id="rb-return-date" type="date" class="ui-input w-full" min="'+today+'" max="'+max+'"/></div>'+
+      '<div class="space-y-1"><p class="text-[11px] text-slate-400">Return run *</p>'+seg('rb-return-run', [['AM','AM run'],['PM','PM run']], 'PM')+'<p class="text-[11px] text-amber-200" id="rb-return-hint"></p></div></div>'+
+    '<div id="rb-other" class="hidden space-y-1"><label class="text-[11px] text-slate-400" for="rb-reason">Reason *</label><textarea id="rb-reason" rows="2" maxlength="300" class="ui-input w-full" placeholder="e.g. clinic appointment in Nadi"></textarea></div>'+
+    '<button type="button" id="rb-submit" class="btn-primary w-full rounded-xl py-3 text-base font-semibold text-white min-h-[48px]">Submit request</button></section>';
+}
+function r33Val(name){ const el = document.querySelector('input[name="'+name+'"]:checked'); return el ? el.value : ''; }
+function r33BindForm(after){
+  const root = $('#rb-form'); if (!root) return;
+  const sync = function(){
+    root.querySelectorAll('.r33-seg label').forEach(function(l){ const i = l.querySelector('input'); l.classList.toggle('on', !!(i && i.checked)); });
+    const dir = r33Val('rb-direction'), run = r33Val('rb-run'), back = dir === 'to_naisoso' ? 'to_resort' : 'to_naisoso';
+    const t = r33Time(run, dir), tb = r33Time(r33Val('rb-return-run'), back);
+    $('#rb-hint').textContent = t.reportBy ? t.reportBy + ' · departs ' + t.departs : '';
+    $('#rb-return-dir').textContent = R33_DIR[back];
+    $('#rb-return-hint').textContent = tb.reportBy ? tb.reportBy + ' · departs ' + tb.departs : '';
+    const pur = $('#rb-purpose').value;
+    $('#rb-dayoff').classList.toggle('hidden', pur !== 'day_off');
+    $('#rb-other').classList.toggle('hidden', pur !== 'other');
+    if (pur === 'day_off' && !$('#rb-return-date').value) $('#rb-return-date').value = $('#rb-date').value;
+    $('#rb-return-date').min = $('#rb-date').value || v3Today();
+  };
+  root.querySelectorAll('input,select').forEach(function(el){ el.addEventListener('change', sync); });
+  sync();
+  $('#rb-submit').onclick = async function(){
+    const p = { direction: r33Val('rb-direction'), date: $('#rb-date').value, run: r33Val('rb-run'), pax: Number($('#rb-pax').value || 0), purpose: $('#rb-purpose').value, clientRequestId: newRequestId() };
+    if (!p.date) { toast('Pick the date of travel','error'); $('#rb-date').focus(); return; }
+    if (!(p.pax >= 1 && p.pax <= 20)) { toast('Number of pax must be 1 to 20','error'); $('#rb-pax').focus(); return; }
+    if (!p.purpose) { toast('Pick the travel purpose','error'); $('#rb-purpose').focus(); return; }
+    if (p.purpose === 'day_off') {
+      p.returnDate = $('#rb-return-date').value; p.returnRun = r33Val('rb-return-run');
+      if (!p.returnDate) { toast('Pick the return date','error'); $('#rb-return-date').focus(); return; }
+    } else {
+      p.reason = ($('#rb-reason').value || '').trim();
+      if (p.reason.length < 3) { toast('Please write the reason for travel','error'); $('#rb-reason').focus(); return; }
+    }
+    this.disabled = true;
+    const d = await v3Call('requestResortBoat', p);
+    this.disabled = false;
+    if (!d) return;
+    v3OrderOverlay('pending', (d.requests || []).map(function(x){ return x.directionLabel+' '+v3DateLabel(x.date)+' '+x.run; }).join(' + ')+' — waiting for '+((d.requests && d.requests[0] && d.requests[0].status === 'pending_admin') ? 'admin / boat manager' : 'your HOD'));
+    cacheInvalidate(['resortMine', 'v3home']);
+    if (after) after();
+  };
+}
+async function r33RenderResort(){
+  const head = r33Tabs('boat-tabs', [['village','Village boat','fa-ship'],['resort','Resort boat','fa-anchor']], 'resort', 'r33PickBoatTab');
+  const paint = function(list, counts){
+    const h = v3Home().resortBoat || counts || {};
+    const links = (v3CanDept() && (h.hod || 0) ? '<button type="button" onclick="navigate(\'approvals\')" class="w-full text-left rounded-xl border border-amber-400/50 bg-amber-500/10 p-3 text-xs text-amber-100" id="rb-hod-link"><i class="fa-solid fa-inbox mr-1"></i>'+h.hod+' resort boat request'+(h.hod===1?'':'s')+' to approve (HOD) →</button>' : '')+
+      (v3IsBoatManager() ? '<button type="button" onclick="navigate(\'resortboat\')" class="w-full text-left rounded-xl border border-sky-400/40 bg-sky-500/10 p-3 text-xs text-sky-100" id="rb-admin-link"><i class="fa-solid fa-clipboard-list mr-1"></i>'+(h.admin ? h.admin+' to confirm · ' : '')+'Confirm requests & manifest →</button>' : '');
+    const mine = list === null ? v3Loading() : (list.length ? r33Group(list, 'mine') : v3Empty('No resort boat requests yet.'));
+    $('#main-content').innerHTML = v3Page(head + links + r33TimetableCard() + r33FormHtml() +
+      '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="rb-mine">'+v3Title('fa-list-check','My resort boat requests')+mine+'</section>', 'boat-root');
+    r33BindForm(load);
+    $$('#rb-mine .rb-cancel').forEach(function(b){ b.onclick = async function(){
+      if (!confirm(b.dataset.linked ? 'Cancel this request and its linked day-off leg?' : 'Cancel this request?')) return;
+      b.disabled = true;
+      const d = await v3Call('cancelResortBoat', { id: b.dataset.id, both: !!b.dataset.linked }, 'Request cancelled');
+      b.disabled = false;
+      if (d) load();
+    }; });
+  };
+  const load = async function(){
+    const r = await v3Call('getResortBoat', { scope:'mine' });
+    if (state.tab !== 'boat' || r33BoatTab() !== 'resort' || state._roleMode === 'boat') return;
+    const keep = {}; $$('#rb-form input[type=date], #rb-form input[type=number], #rb-form select, #rb-form textarea').forEach(function(el){ keep[el.id] = el.value; });
+    const radios = {}; $$('#rb-form input[type=radio]:checked').forEach(function(el){ radios[el.name] = el.value; });
+    if (r) cacheSet('resortMine', r.requests || []);
+    paint(r ? (r.requests || []) : (cachePeek('resortMine') || []), r && r.counts);
+    Object.keys(keep).forEach(function(k){ const el = document.getElementById(k); if (el && keep[k]) el.value = keep[k]; });
+    Object.keys(radios).forEach(function(n){ const el = document.querySelector('input[name="'+n+'"][value="'+radios[n]+'"]'); if (el) el.checked = true; });
+    const f = $('#rb-purpose'); if (f) f.dispatchEvent(new Event('change'));
+  };
+  paint(cachePeek('resortMine') || null);
+  await bootWait();
+  if (state.tab !== 'boat') return;
+  await load();
+}
+/* HOD / admin decision buttons (Approvals page and Resort boat admin page) */
+function r33BindDecide(root, after){
+  root.querySelectorAll('.rb-yes, .rb-no').forEach(function(b){ b.onclick = function(){
+    const yes = b.classList.contains('rb-yes'), mode = b.dataset.mode;
+    const action = mode === 'hod' ? 'hodDecideResortBoat' : 'confirmResortBoat';
+    const decision = yes ? (mode === 'hod' ? 'approve' : 'confirm') : 'reject';
+    const go = async function(note){
+      b.disabled = true;
+      const d = await v3Call(action, { id: b.dataset.id, decision: decision, note: note || '', both: !!b.dataset.both }, yes ? (mode === 'hod' ? 'Approved — sent to admin / boat manager' : 'Confirmed — added to the manifest') : 'Rejected');
+      b.disabled = false;
+      if (d) after();
+      return !!d;
+    };
+    if (yes) go(''); else v3Form('Reject resort boat request', [{ id:'note', label:'Reason (optional, the staff member sees it)', type:'textarea', max:300 }], 'Reject', function(v){ return go(v.note); });
+  }; });
+}
+async function r33ApprovalsSection(){
+  const r = await api('getResortBoat', { scope:'hod' }).catch(function(){ return null; });
+  const list = ((r && r.success && r.data && r.data.requests) || []).filter(function(x){ return x.status === 'pending_hod' && x.canDecide; });
+  const conf = (r && r.data && r.data.counts && r.data.counts.admin) || 0;
+  return '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-resort">'+v3Title('fa-anchor','Resort boat — HOD step', v3Chip(String(list.length), list.length?'warn':'mute'))+
+    '<p class="text-[10px] text-slate-400">Approved requests go to admin / boat manager to confirm and add to the PCE manifest.</p>'+
+    (list.length ? r33Group(list, 'hod') : v3Empty('No resort boat requests waiting for you.'))+
+    (v3IsBoatManager() ? '<button type="button" onclick="navigate(\'resortboat\')" class="w-full rounded-xl py-2 text-xs border border-sky-500/40 text-sky-200" id="ap-resort-admin">'+(conf ? conf+' waiting for boat confirm · ' : '')+'Resort boat confirm & manifest →</button>' : '')+'</section>';
+}
+/* Resort boat admin page (admin / boat manager confirm; captains see the manifest) */
+async function r33RenderResortAdmin(){
+  const back = v3IsBoatManager() && !v3Has('boat_manager') && !v3Has('boat_captain') ? v3Back('adminhub','Admin Settings') : v3RoleBack('boat');
+  const date = state._rbManDate || v3Tom();
+  $('#main-content').innerHTML = v3Page(back + r33TimetableMini() +
+    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="rba-pending">'+v3Title('fa-clipboard-check','To confirm (HOD approved)')+v3Loading()+'</section>'+
+    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="rba-manifest">'+v3Title('fa-list-check','Manifest', '<button type="button" id="rba-print" class="text-xs text-teal-300"><i class="fa-solid fa-print mr-1"></i>Print</button>')+
+    '<div class="grid grid-cols-2 gap-2"><div class="min-w-0"><label class="text-[10px] text-slate-400" for="rba-date">Date</label><input id="rba-date" type="date" class="ui-input w-full" value="'+date+'"/></div>'+
+    '<div class="min-w-0"><label class="text-[10px] text-slate-400" for="rba-filter">Run · direction</label><select id="rba-filter" class="ui-input w-full"><option value="">All 4 trips</option><option value="AM|to_resort">AM · Naisoso → Resort</option><option value="AM|to_naisoso">AM · Resort → Naisoso</option><option value="PM|to_resort">PM · Naisoso → Resort</option><option value="PM|to_naisoso">PM · Resort → Naisoso</option></select></div></div>'+
+    '<div id="rba-man-body">'+v3Loading()+'</div></section>'+
+    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="rba-recent"><details><summary class="text-xs text-slate-300 cursor-pointer">Recently decided</summary><div id="rba-recent-body" class="space-y-2 pt-2"></div></details></section>', 'resortboat-root');
+  $('#rba-filter').value = state._rbManFilter || '';
+  const loadList = async function(){
+    const r = await api('getResortBoat', { scope:'admin' }).catch(function(){ return null; });
+    if (state.tab !== 'resortboat') return;
+    if (!r || !r.success) { $('#rba-pending').innerHTML = v3Title('fa-clipboard-check','To confirm (HOD approved)') + v3Empty(esc((r && r.error) || 'Could not load')); return; }
+    const all = r.data.requests || [];
+    const pend = all.filter(function(x){ return x.status === 'pending_admin'; });
+    $('#rba-pending').innerHTML = v3Title('fa-clipboard-check','To confirm (HOD approved)', v3Chip(String(pend.length), pend.length?'warn':'mute'))+(pend.length ? r33Group(pend, 'admin') : v3Empty('Nothing waiting for confirmation.'));
+    const rec = all.filter(function(x){ return x.status !== 'pending_admin'; }).slice(-30).reverse();
+    $('#rba-recent-body').innerHTML = rec.length ? r33Group(rec, 'view') : v3Empty('Nothing decided in the last 14 days.');
+    r33BindDecide($('#rba-pending'), function(){ cacheInvalidate(['v3home']); loadList(); loadMan(); });
+  };
+  let man = null;
+  const loadMan = async function(){
+    const d = $('#rba-date').value || v3Tom(); state._rbManDate = d;
+    $('#rba-man-body').innerHTML = v3Loading();
+    const r = await api('getResortBoatManifest', { date: d }).catch(function(){ return null; });
+    if (state.tab !== 'resortboat') return;
+    if (!r || !r.success) { $('#rba-man-body').innerHTML = v3Empty(esc((r && r.error) || 'Could not load the manifest')); return; }
+    man = r.data; paintMan();
+  };
+  const runsShown = function(){ const f = $('#rba-filter').value; return (man ? man.runs : []).filter(function(x){ return !f || (x.run+'|'+x.direction) === f; }); };
+  const paintMan = function(){
+    $('#rba-man-body').innerHTML = runsShown().map(function(x){
+      return '<div class="rounded-xl border border-slate-700/60 bg-slate-900/40 p-3 space-y-1.5 min-w-0" data-manifest="'+x.run+'|'+x.direction+'">'+
+        '<div class="v3-row text-sm"><span class="text-slate-100 font-medium min-w-0 truncate">'+x.run+' · '+esc(x.directionLabel)+'</span><span class="text-xs text-teal-200 shrink-0" data-pax>'+x.pax+' pax</span></div>'+
+        '<p class="text-[11px] text-amber-200/90">Departs '+esc(x.departs)+' · '+esc(x.reportBy)+'</p>'+
+        (x.passengers.length ? x.passengers.map(function(p){ return '<div class="v3-row text-xs py-1 border-t border-slate-700/40 min-w-0"><span class="truncate min-w-0 text-slate-100">'+esc(p.userName)+' <span class="text-slate-400">· '+esc(p.department)+'</span></span><span class="shrink-0 text-slate-300">'+esc(p.pax)+' pax</span></div>'; }).join('') : v3Empty('No confirmed staff.'))+
+        (x.waiting ? '<p class="text-[10px] text-slate-400">'+x.waiting+' request'+(x.waiting===1?'':'s')+' still waiting (HOD / confirm)</p>' : '')+'</div>';
+    }).join('');
+  };
+  $('#rba-date').onchange = loadMan;
+  $('#rba-filter').onchange = function(){ state._rbManFilter = this.value; paintMan(); };
+  $('#rba-print').onclick = function(){
+    if (!man) return;
+    const html = runsShown().map(function(x){
+      return '<h2 style="font-size:15px;margin:14px 0 4px">'+esc(x.run)+' run · '+esc(x.directionLabel)+' — '+x.pax+' pax</h2><p class="m">Departs '+esc(x.departs)+' · '+esc(x.reportBy)+'</p>'+
+        v3Table(['#','Name','Department','Pax','Purpose','Approved by HOD','Confirmed by'], x.passengers.map(function(p, i){ return [i+1, p.userName, p.department, p.pax, p.purpose === 'day_off' ? 'Day off' : p.reason, p.hodBy || (p.hodStatus === 'skipped' ? '(HOD request)' : ''), p.adminBy]; }), ['', 'Total', '', x.pax, '', '', '']);
+    }).join('');
+    v3Print('Paradise Cove Express manifest — '+man.date, html);
+  };
+  await Promise.all([loadList(), loadMan()]);
+}
+function r33TimetableMini(){
+  return '<p class="text-[11px] text-slate-400 px-1"><i class="fa-solid fa-water mr-1 text-teal-400"></i>PCE: AM 9:00am Naisoso → resort (marina by 8:15am), back ~10:20–10:30am · PM 2:00pm Naisoso → resort (marina by 1:00pm), back ~3:30pm (Dive Shop by 2:30pm).</p>';
+}
 /* ============ N. start ============ */
 boot();

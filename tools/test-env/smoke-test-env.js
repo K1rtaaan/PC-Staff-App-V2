@@ -25,7 +25,8 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
   page.on('pageerror', e => errors.push(cur + ' [pageerror] ' + e.message));
   page.on('dialog', d => d.accept(d.type() === 'prompt' ? (/seat/i.test(d.message()) ? '1' : 'TEST smoke reason') : undefined));
   const txt = s => page.evaluate(s => { const e = document.querySelector(s); return e ? e.innerText : ''; }, s);
-  const nav = async t => { await page.evaluate(t => navigate(t), t); await page.waitForTimeout(2500); };
+  // 3.3.0: Meals and Boat have sub-tabs — this smoke pass uses the Dinner tab and the Village boat tab
+  const nav = async t => { await page.evaluate(t => { if (t === 'meals' && typeof r33PickMealTab === 'function') { state._mealTab = 'dinner'; try { localStorage.setItem('pcrtest_meals_tab', 'dinner'); } catch (e) {} } if (t === 'boat') { try { localStorage.setItem('pcrtest_boat_tab', 'village'); state._boatTab = 'village'; } catch (e) {} } navigate(t); }, t); await page.waitForTimeout(2500); };
   const shot = n => page.screenshot({ path: S + n + '.png', fullPage: true });
   const api = (a, p) => page.evaluate(([a, p]) => api(a, p || {}), [a, p]);
   const roleBtns = () => page.evaluate(() => Array.from(document.querySelectorAll('[data-rolebtn]')).map(e => e.dataset.rolebtn));

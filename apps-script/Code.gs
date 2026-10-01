@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.2.0';
+var APP_VERSION = '3.3.0';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -271,6 +271,8 @@ function routeAction(action, p) {
       if (r3res) return r3res;
       var a31res = routeAdmin31(action, p); // 3.1.0 admin log, revert, superadmin notice (Admin31.gs)
       if (a31res) return a31res;
+      var r33res = typeof routeResort33 === 'function' ? routeResort33(action, p) : null; // 3.3.0 resort boat (Resort33.gs)
+      if (r33res) return r33res;
       return { success: false, error: 'Unknown action: ' + action };
     }
   }

@@ -1,7 +1,23 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.2.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.3.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
+
+## 3.3.0 — Meals sub-tabs, Resort boat (PCE) requests, chef feedback with meal / date (2026-10-01)
+
+| ID | Change |
+|---|---|
+| C151 | **Meals → 4 sub-tabs** (bar at the top of Meals): **My meals** · **Dinner** · **Lunch** · **Breakfast**. Each meal tab is the existing ordering card with every rule unchanged (cutoffs, late dinner requests, weekday menus, limits). The last tab is remembered on the phone (`pcr_meals_tab`); works at 320px. Notifications / Home meal tiles still open Meals. |
+| C152 | **My meals** tab: the staff member's own orders for Yesterday / Today / Tomorrow with status, dinner choice and kitchen note, and Change / Order / Late request (opens that meal tab) and Cancel / Withdraw late request where the existing rules allow. |
+| C153 | **Feedback to the chef** moved to My meals (it already existed: “Chef Feedback” sheet, Kitchen Admin → Staff feedback, chef in-app + phone notification). New optional **Meal** and **Date** fields (columns `meal`, `mealDate` added to the sheet automatically) shown in the chef's list and the notification title. |
+| C154 | **Boat → 2 sub-tabs**: **Village boat** (all existing booking, unchanged) and **Resort boat** (Paradise Cove Express, Naisoso Marina ↔ resort). Remembered (`pcr_boat_tab`). The PCE timetable and report-by times are shown: AM 9:00am from Naisoso (marina before 8:15am, arrives ~10:00am), back ~10:20–10:30am (~1 hour); PM 2:00pm from Naisoso (marina before 1:00pm, at PC by 3:00pm), back ~3:30pm (Dive Shop by 2:30pm). |
+| C155 | **Resort boat request form**: direction, date, AM/PM run, pax (1–20), purpose **Day off** (return date + run; a linked return request in the opposite direction is created automatically) or **Other reason** (required text). Server checks: no past dates, ≤ 90 days ahead, same-day request closes at the report-by time, return not before the outbound, same-day return = AM out / PM back, no duplicate request for the same date / run / direction. |
+| C156 | **Workflow**: pending HOD → HOD approved (sent to admin / boat manager) → confirmed (on the manifest), or rejected at either step with an optional reason. HOD step uses the leave rule (HOD or assistant HOD of the staff member's department; admin only if the department has no other lead; HOD / admin requests skip to the confirm step). Confirm = admin or boat manager. Nobody decides their own request. Each leg is decided on its own; “Approve / confirm both legs” does trip + return together. Staff can cancel while pending (a day off cancels both pending legs). |
+| C157 | **Approvals page**: new “Resort boat — HOD step” section. **Resort boat (PCE)** admin page (Admin Settings, superadmin Manage, Boat Admin button): HOD-approved requests to confirm / reject, **manifest** per date with the 4 trips (run · direction), confirmed staff and pax, filter and **Print**; recently decided list. Boat captains can open the manifest (read only). Badges on Department Admin / More. |
+| C158 | **Notifications**: in-app + phone push on every change — staff (submitted / approved / confirmed / rejected), HODs (new request), admins + boat managers (HOD-approved, cancelled). Tapping opens Boat → Resort boat, Approvals or the Resort boat page. **Logs**: HOD decisions in the department log, confirmations / rejections in the boat log (existing activity logs). |
+| C159 | **Server**: new `Resort33.gs`; sheet tab **Resort Boat Bookings** created on first use (idempotent, no manual setup on live). Actions `requestResortBoat`, `cancelResortBoat`, `getResortBoat`, `hodDecideResortBoat`, `confirmResortBoat`, `getResortBoatManifest`; home counts `resortBoat`. Version 3.3.0 (TEST server 3.3.0-test). |
+| C160 | **More page**: the version line was shown twice; now only once (in the footer above About). |
+| C161 | Tests: new `tools/test-env/r330-test-env.js` (meals sub-tabs, remembered tab, 320px, My meals, chef feedback meal/date → chef page, full resort flow incl. HOD / admin reject and cancel, manifest, notifications, logs) for the TEST site + TEST server; `r300flows.js`, `smoke-test-env.js` use the meal / boat sub-tabs; version checks 3.3.0 in the server suites, `r320flows.js` (version line once), `swupdate3.js`. |
 
 ## 3.2.1 — Footer: About button only (2026-09-28)
 
