@@ -3840,6 +3840,8 @@ async function r34RenderUpload(kind){
     '<p class="text-[10px] text-slate-500">'+(kind === 'weekly' ? 'Rows: Name, Department, Date, Start, End, Day off, Code — or a grid (names down the side, dates across the top).' : 'Grid: names down the side, dates across the top, a Department column (or department heading rows) — or rows: Name, Department, Date, Start, End, Day off, Code.')+
     ' Cells: 07:00-15:00, 7-3, OFF, AL, SL, PH… Real Excel date cells are read as dates; written dates like 5/10 are read as day/month unless only month/day fits the period.</p>'+
     '<input id="r34-file" type="file" accept=".xlsx,.xlsm,.xls,.csv"'+(kind !== 'weekly' ? ' multiple' : '')+' class="w-full text-xs text-slate-200"/><div id="r34-preview"></div>', 'r34-upcard');
+  if (kind === 'monthly' && d.weeks) html += r34WeeksCard(d);
+  if ((d.released||[]).length) html += r34ReleasedCard(d.released);
   if (featureOn('feature_my_schedule') || kind === 'archive') html += v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names', kind === 'archive' ? 'Archive names: superadmin' : 'Link roster names to staff', d.unmatched||0);
   if (kind === 'monthly' && v3IsAdmin()) html += v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & roster codes','');
   if (kind === 'archive') html += v3Card(v3Title('fa-chart-simple','Department patterns (archive + past months)')+'<div id="r34-patterns">'+((d.patterns||[]).length ? d.patterns.map(function(p){
@@ -3941,6 +3943,7 @@ function r34ResultHtml(kind, res, extra){
   return '<div class="rounded-xl bg-teal-500/10 border border-teal-400/30 p-3 space-y-1 text-xs r34-result" id="r34-result"><p class="text-teal-100 font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>'+esc(f.label)+(f.department && f.department !== 'ALL' && kind !== 'weekly' ? '' : f.department === 'ALL' && kind === 'weekly' ? ' · all departments' : '')+' saved</p>'+(extra||'')+
     '<p class="text-slate-200">'+f.shifts+' shifts for '+f.people+' people'+(f.replacedRows?' · replaced '+f.replacedRows+' old entries':'')+'</p>'+
     ((f.possibleDuplicateOf||[]).length ? '<p class="text-amber-200 r34-dup"><i class="fa-solid fa-clone mr-1"></i>Possible duplicate: the shifts are the same as the '+esc(f.possibleDuplicateOf.map(function(x){ return x.label; }).join(', '))+'. Check the right file was uploaded.</p>' : '')+
+    ((f.released||[]).length ? '<p class="text-rose-200 r34-rel"><i class="fa-solid fa-user-slash mr-1"></i>'+f.released.length+' marked RELEASED (possibly left): '+esc(f.released.slice(0,5).map(function(x){ return (x.name||x.email)+' from '+x.label; }).join(', '))+(f.released.length>5?'…':'')+'. Accounts unchanged; check Users.</p>' : '')+
     (kind !== 'archive' ? '<p class="text-slate-300">'+f.changed+' people notified (only those whose shifts changed)</p>' : '')+
     (f.unmatched && f.unmatched.length ? '<p class="text-amber-200">'+f.unmatched.length+' names not matched: '+esc(f.unmatched.slice(0,6).map(function(u){ return u.rawName; }).join(', '))+(f.unmatched.length>6?'…':'')+'</p><button type="button" onclick="navigate(\'rosterunmatched\')" class="w-full rounded-lg py-2 text-xs border border-amber-400/40 text-amber-100 mt-1"><i class="fa-solid fa-user-tag mr-1"></i>Link names now</button>' : '<p class="text-slate-300">Every name matched.</p>')+
     (res.skippedN ? '<details class="text-slate-400"><summary>'+res.skippedN+' lines skipped</summary>'+res.skipped.slice(0,30).map(function(s){ return '<p>Row '+esc(s.row)+(s.name?' · '+esc(s.name):'')+': '+esc(s.why)+'</p>'; }).join('')+'</details>' : '')+
@@ -3960,6 +3963,20 @@ async function r34Send(kind){
   setTimeout(function(){ if (state.tab === R34_KIND[kind].tab) { const keep = $('#r34-preview').innerHTML; r34RenderUpload(kind).then(function(){ const b = $('#r34-preview'); if (b) b.innerHTML = keep; }); } }, 600);
 }
 
+function r34WeeksCard(d){
+  return v3Card(v3Title('fa-layer-group','Whole-resort weekly workbooks')+
+    '<p class="text-[11px] text-slate-400">Pick one or more “Roster we …” workbooks above. All department sheets are read and the week comes from the file name. Each file becomes that week\'s roster for every department; an HOD upload for their own department replaces just that department.</p>'+
+    '<div class="space-y-1 mt-1" id="r34-weeks">'+d.weeks.map(function(w){
+      const u = w.uploads.find(function(x){ return String(x.department).toUpperCase() === 'ALL'; }) || w.uploads[0];
+      return '<div class="v3-row text-xs min-w-0"><span class="text-slate-200 truncate">'+esc(w.label)+(w.current?' · now':w.next?' · next':'')+'</span>'+(w.all ? v3Chip('All depts','ok') : w.uploads.length ? v3Chip(w.uploads.length+' dept'+(w.uploads.length>1?'s':''),'info') : v3Chip('—','mute'))+'</div>'+
+        (u && /duplicate/.test(u.notes||'') ? '<p class="text-[10px] text-amber-300">'+esc(u.notes)+'</p>' : '');
+    }).join('')+'</div>', 'r34-weeks-card');
+}
+function r34ReleasedCard(list){
+  return v3Card(v3Title('fa-user-slash','Possibly left (RELEASED on a roster)', v3Chip(String(list.length),'warn'))+
+    '<p class="text-[11px] text-slate-400">The roster marks these people RELEASED. Their accounts are unchanged; deactivate them in Users if they have left.</p>'+
+    list.slice(0, 30).map(function(x){ return '<div class="v3-row py-1 border-b border-slate-700/40 last:border-0 text-xs min-w-0"><span class="text-slate-100 truncate">'+esc(x.name||x.email)+' <span class="text-slate-500">· '+esc(x.department||'')+'</span></span><span class="text-rose-200 shrink-0">from '+esc(x.label)+'</span></div>'; }).join(''), 'r34-released');
+}
 /* ---------- several whole-resort workbooks at once (admin "Rosters" page = weekly for all departments; archive = one month) ---------- */
 async function r34PreviewMany(kind, key, d, files){
   const box = $('#r34-preview'); box.innerHTML = v3Loading();
@@ -3973,6 +3990,7 @@ async function r34PreviewMany(kind, key, d, files){
       const per = { start: w.week, end: r34Add(w.week, 6), weekly: true };
       const res = r34ParseWorkbook(t.sheets, per, Object.assign({ remapWeek: true }, opts));
       if (!res.some(function(x){ return x.people > 0; })) { items.push({ file: file.name, error: 'No department sheets with staff found.' }); continue; }
+      if (kind === 'weekly' && d.weekWindow && (w.week < d.weekWindow.from || w.week > d.weekWindow.to)) { items.push({ file: file.name, error: 'The week of '+r34Short(w.week)+(w.week < d.weekWindow.from ? ' is in the past; the superadmin can add it to the Roster archive' : ' is more than 8 weeks ahead')+'.' }); continue; }
       const rows = [].concat.apply([], res.map(function(x){ return x.rows; }));
       items.push({ file: file.name, week: w.week, w: w, sheets: res, rows: rows, sig: r34WeekSig(rows, w.week) });
     }

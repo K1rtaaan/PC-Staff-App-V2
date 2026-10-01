@@ -219,7 +219,13 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
 const APP_VERSION = '3.4.0';
-const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Other'];
+const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Front Office','Stores','Other'];
+/* 3.4.0: the server's department list (App Setting "departments") wins; merged in place (never removes/renames), cached for the sign-up form */
+function pcrMergeDepartments(list){
+  if (!Array.isArray(list)) return;
+  list.forEach(function(d){ d = String(d||'').trim(); if (!d || PCR_DEPARTMENTS.some(function(x){ return x.toLowerCase() === d.toLowerCase(); })) return; const oi = PCR_DEPARTMENTS.indexOf('Other'); if (oi >= 0) PCR_DEPARTMENTS.splice(oi, 0, d); else PCR_DEPARTMENTS.push(d); });
+}
+try { pcrMergeDepartments(JSON.parse(localStorage.getItem('pcr_depts_340') || 'null')); } catch (e) {}
 function deptSelectOptions(selected){
   selected = selected || '';
   return '<option value="">Select department…</option>'+PCR_DEPARTMENTS.map(function(d){

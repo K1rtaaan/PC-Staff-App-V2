@@ -38,6 +38,7 @@ files.sort().forEach(f => {
     s.rows.forEach(r => {
       const k = r.code ? ctx.r34CodeKeyC(r.code) : '';
       if (r.code && ctx.r34IsCode(r.code, codes)) { report.codes[k] = (report.codes[k] || 0) + 1; const lt = gs.r34ParseCell(r.code, codes); const ty = lt.leaveType || (lt.dayOff ? 'Day off' : '?'); report.leaveTypes[ty] = (report.leaveTypes[ty] || 0) + 1; }
+      else if (r.code && gs.r34ParseCell(r.code, codes).released) report.released = (report.released || 0) + 1;
       else if (r.code) report.otherTexts[k] = (report.otherTexts[k] || 0) + 1;
       report.names[s.department + ' | ' + r.rawName] = 1;
     });
@@ -70,7 +71,8 @@ check('we 14 Jun (empty template) has few entries', F(/14 +Jun/).entries < 120, 
 check('DAY OFF is the main non-work label', report.leaveTypes['Day off'] > 8000, JSON.stringify(report.leaveTypes));
 check('Annual / Unpaid / Maternity / Sick / Bereavement / PH all recognised', ['Annual leave', 'Unpaid leave', 'Maternity / Paternity', 'Sick leave', 'Family / Bereavement', 'Public holiday'].every(k => report.leaveTypes[k] > 0), JSON.stringify(report.leaveTypes));
 check('typos counted: MARENITY LEAVE, BREVEAMNET, SICKLEAVE, DAT OFF', ['MARENITY LEAVE', 'BREVEAMNET', 'SICKLEAVE', 'DAT OFF'].every(k => report.codes[k]));
-check('RELEASE / TRAINING / SDD / ON stay as text (not leave)', !['RELEASE', 'TRAINING', 'SDD', 'ON'].some(k => report.codes[k]));
+check('RELEASE / RELEASED / STAFF RELEASE read as separation markers', report.released > 20 && !report.otherTexts['RELEASE'] && !report.otherTexts['STAFF RELEASE'], String(report.released));
+check('RELEASE / TRAINING / SDD / ON are not leave', !['RELEASE', 'TRAINING', 'SDD', 'ON'].some(k => report.codes[k]));
 check('no occupancy / kids counts read as people', !Object.keys(report.names).some(k => /\| (occupancy|arriv|children|infants?|rooms)/i.test(k)));
 const dupHas = (a, b) => report.duplicates.some(p => (a.test(p[0]) && b.test(p[1])) || (a.test(p[1]) && b.test(p[0])));
 check('possible duplicate: we 0326 = we 26 APRIL', dupHas(/0326/, /26 APRIL/));

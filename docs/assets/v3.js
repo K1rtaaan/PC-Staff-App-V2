@@ -3380,6 +3380,11 @@ function r33TimetableMini(){
   return '<p class="text-[11px] text-slate-400 px-1"><i class="fa-solid fa-water mr-1 text-teal-400"></i>PCE: AM 9:00am Naisoso → resort (marina by 8:15am), back ~10:20–10:30am · PM 2:00pm Naisoso → resort (marina by 1:00pm), back ~3:30pm (Dive Shop by 2:30pm).</p>';
 }
 /* ============ P. 3.4.0: Schedule tab (my roster + leave), monthly / weekly roster upload, unmatched names, leave allowances, roster archive ============ */
+/* department list from the server (public action; skipped in the demo) */
+setTimeout(function(){
+  try { if (typeof state === 'undefined' || state.demo || /[?&]demo=1/.test(location.search) || typeof api !== 'function') return; } catch (e) { return; }
+  api('getDepartments', {}).then(function(r){ if (r && r.success && r.data && Array.isArray(r.data.departments)) { try { localStorage.setItem('pcr_depts_340', JSON.stringify(r.data.departments)); } catch (e) {} if (typeof pcrMergeDepartments === 'function') pcrMergeDepartments(r.data.departments); } }).catch(function(){});
+}, 1200);
 function r34On(){ return !!state.user && !v3IsSuper() && featureOn('feature_my_schedule'); }
 (function(){
   const baseNav = navItems;
@@ -3415,6 +3420,7 @@ function r34ManageGroup(g){
   return g('Rosters', v3Row(v3Nav('rosterarchive'),'fa-box-archive','Roster archive','Past monthly rosters (Jan 2026 →) · leave used · patterns') +
     (featureOn('feature_my_schedule') ? v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Monthly roster','Current / next month') + v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','') + v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & codes','') : ''));
 }
+/* r34parse:begin-helpers */
 const R34_WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], R34_MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const R34_MONTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
 function r34D(iso){ const p = String(iso).split('-'); return new Date(Date.UTC(+p[0], +p[1]-1, +(p[2]||1))); }
@@ -3425,10 +3431,11 @@ function r34MonthAdd(k, n){ const d = new Date(Date.UTC(+k.slice(0,4), +k.slice(
 function r34MonthEnd(k){ return k+'-'+String(new Date(Date.UTC(+k.slice(0,4), +k.slice(5,7), 0)).getUTCDate()).padStart(2,'0'); }
 function r34Short(iso){ const d = r34D(iso); return R34_WD[d.getUTCDay()]+' '+d.getUTCDate()+' '+R34_MN[d.getUTCMonth()]; }
 function r34MonthName(k){ return ['January','February','March','April','May','June','July','August','September','October','November','December'][+k.slice(5,7)-1]+' '+k.slice(0,4); }
+/* r34parse:end-helpers */
 function r34Seg(tabs, cur, cls){
   return '<div class="grid gap-1 rounded-xl bg-slate-900/60 p-1" style="grid-template-columns:repeat('+tabs.length+',1fr)">'+tabs.map(function(t){ return '<button type="button" class="'+cls+' rounded-lg py-2 text-xs '+(t.id===cur?'bg-teal-600 text-white font-semibold':'text-slate-300')+'" data-t="'+t.id+'">'+t.label+'</button>'; }).join('')+'</div>';
 }
-const R34_TONE = { work:'ok', off:'warn', leave:'info', unknown:'mute' };
+const R34_TONE = { work:'ok', off:'warn', leave:'info', unknown:'mute', released:'bad' };
 
 /* ---------- Schedule tab ---------- */
 async function r34RenderSchedule(){
@@ -3462,6 +3469,10 @@ function r34PaintSchedule(d, cur){
 }
 function r34Countdown(d){
   const n = d.next || {};
+  if ((d.today||{}).status === 'released' || (n.released && !n.reportBack && !n.nextOff)) {
+    const rl = (d.today||{}).status === 'released' ? (d.today.label || 'today') : n.released.label;
+    return '<div class="rounded-xl bg-rose-500/10 border border-rose-400/30 p-3" id="sch-released"><p class="text-xs text-rose-100"><i class="fa-solid fa-circle-info mr-1"></i>The roster shows you as released from '+esc(rl)+'. If that is wrong, talk to your HOD.</p></div>';
+  }
   if (n.onBreak && n.reportBack) {
     const rb = n.reportBack;
     return '<div class="rounded-xl bg-sky-500/10 border border-sky-400/30 p-3" id="sch-reportback"><p class="text-sm text-sky-100 font-semibold"><i class="fa-solid fa-person-walking-arrow-right mr-1"></i>Report back to work on '+esc(rb.label)+(rb.startText ? ' at '+esc(rb.startText) : '')+'</p>'+
@@ -3488,7 +3499,7 @@ function r34RosterHtml(d){
     if (L.unmatched) bits.push('<button type="button" onclick="navigate(\'rosterunmatched\')" class="w-full text-left text-xs text-sky-200"><i class="fa-solid fa-user-tag mr-1"></i>'+L.unmatched+' roster name'+(L.unmatched===1?'':'s')+' to link</button>');
     if (bits.length) html += v3Card(bits.join(''), 'sch-lead');
   }
-  html += v3Card(v3Title('fa-sun','Today · '+esc(t.label||''), v3Chip(esc(t.status==='work'?'Working':t.status==='leave'?'Leave':t.status==='off'?'Off':'—'), R34_TONE[t.status]||'mute'))+
+  html += v3Card(v3Title('fa-sun','Today · '+esc(t.label||''), v3Chip(esc(t.status==='work'?'Working':t.status==='leave'?'Leave':t.status==='off'?'Off':t.status==='released'?'Released':'—'), R34_TONE[t.status]||'mute'))+
     '<p class="text-2xl font-semibold text-slate-100" id="sch-today">'+esc(t.text||'')+'</p>'+r34Countdown(d)+
     (!d.hasRoster ? '<p class="text-xs text-slate-400">No roster uploaded for you yet. Your HOD uploads the weekly roster before each week; admins upload the monthly resort roster.</p>' : '')+
     (d.pattern ? '<p class="text-[11px] text-slate-400">Roster pattern: <span class="text-slate-200" id="sch-pattern">'+esc(d.pattern)+'</span></p>' : ''), 'sch-today-card');
@@ -3530,6 +3541,7 @@ function r34LeaveHtml(d){
   return html;
 }
 
+/* r34parse:begin */
 /* ---------- reading roster files (SheetJS; real date cells, raw serials, d/m vs m/d decided by the period) ---------- */
 function r34Hdr(s){ return String(s==null?'':s).toLowerCase().replace(/[^a-z]/g,''); }
 const R34_COLS = { name:/^(name|staffname|employee|employeename|staff|fullname)$/, department:/^(department|dept|section|team)$/, date:/^(date|day|shiftdate)$/,
@@ -3578,9 +3590,11 @@ async function r34ReadFile(file){
   let wb;
   if (/\.csv$/.test(lower) || /csv/.test(file.type||'')) wb = XLSX.read(await file.text(), { type:'string', raw:true }); // CSV: no guessing of dates by the browser
   else wb = XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:false, cellNF:true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const raw = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:'' }), txt = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'' });
-  return { raw: raw, txt: txt, sheet: wb.SheetNames[0] };
+  return r34Sheets(wb);
+}
+function r34Sheets(wb){
+  const sheets = wb.SheetNames.map(function(n){ const ws = wb.Sheets[n]; return { name: n, raw: XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:'' }), txt: XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'' }) }; });
+  return { sheets: sheets, raw: sheets[0].raw, txt: sheets[0].txt, sheet: sheets[0].name };
 }
 /** → { layout, rows:[{rawName, department, date, cell|start/end/dayOff/code, row}], warnings[] } */
 function r34ParseTable(t, per, opts){
@@ -3627,6 +3641,141 @@ function r34ParseTable(t, per, opts){
   if (!opts.weekly && opts.allDept && !rows.some(function(r){ return r.department; })) warnings.push('No department column or department heading rows found — names are matched across all departments (exact full names only).');
   return { layout: layout, rows: rows, warnings: warnings };
 }
+
+/* PCR weekly roster workbook (the real files): one sheet per department; row 1–3 = day names + real date cells in every
+ * other column (Mon B, Tue D, …: each day = a Start/End column pair); then per person: a name row (with day labels or
+ * codes such as DAY OFF, RDO, AL, LWOP), 1–4 time rows (split shifts; the pay row "Salary / Hourly / Wage", role rows),
+ * and a "day total" row. Section rows (MAIN KITCHEN TEAM, DONU RESTAURANT - LUNCH, …) and the Summary / Man hrs sheets are skipped. */
+const R34_WB_SKIP = /^(summary|man ?hrs.*|man ?hours.*|floor ?\d*|sheet ?\d+|codes)$/i;
+const R34_PAY = /^(salary|hourly|wages?|wagw)\b|\bdays? ?on\b|^(rooms|laundry)$/i;
+const R34_TOTAL = /^day ?(total|hours)\b/i;
+const R34_SECTION = /\b(team|staff|cooks|restaurant|reservations|shifts|construction|stores|maintenance|joinery|electrical|painting|marine|kids ?club|food ?& ?beverage|front office|housekeeping|security|kitchen|grounds|porters?|diveshop|dive|spa|bar|donu|tepaniyaki|boatman)\b/i;
+const R34_ROLE = /^(supervisor|hostess|waithelp|waiter|shift ?leader|captain|captn|runner|assistant|mechanic|trainee|gro|dm|am|pm|night|bartender|barman|cook|chef|steward|cashier|driver|crew|security|spa|stores)\b/i;
+/** sheet name → app department (known list first; typos like "Houskeeping"; else the sheet name) */
+const R34_SHEET_ALIAS = { houskeeping:'Housekeeping', housekeeping:'Housekeeping', bar:'Bar', bar1:'Bar', maint:'Maintenance', 'newfb':'F&B', fb:'F&B', diveshop:'Diveshop', boatman:'Boatman', frontoffice:'Front Office', brkitchen:'BR Kitchen', donukitchen:'Donu Kitchen', kidsclub:'Kids Club' };
+function r34SheetDept(name, depts){
+  const k = r34Hdr(name);
+  const known = (depts||[]).find(function(d){ return r34Hdr(d) === k; });
+  if (known) return known;
+  if (R34_SHEET_ALIAS[k]) { const a = R34_SHEET_ALIAS[k], hit = (depts||[]).find(function(d){ return r34Hdr(d) === r34Hdr(a); }); return hit || a; }
+  return String(name).trim();
+}
+function r34TimeOf(raw, txt){
+  if (typeof raw === 'number' && raw >= 0 && raw < 3) return r34FracTime(raw); // 1.0+ = 24:00 or later (end of an overnight shift)
+  const s = String(txt != null && txt !== '' ? txt : (raw == null ? '' : raw)).trim().replace(/^(\d{1,2})[;"'>)](\d)/, '$1:$2').replace(/^(\d{1,2}:)[oO]{2}$/, '$100').replace(/^:+/, ''); // 18;00, 12"00, 22>00, 13)00, 23:OO
+  const m = s.match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?\s*(am|pm)?$/i);
+  if (!m) return '';
+  let h = +m[1]; const mi = +m[2], ap = (m[3]||'').toLowerCase();
+  if (ap === 'pm' && h < 12) h += 12; if (ap === 'am' && h === 12) h = 0;
+  return h > 24 || mi > 59 ? '' : String(h % 24).padStart(2,'0')+':'+String(mi).padStart(2,'0');
+}
+function r34CodeKeyC(s){ return String(s == null ? '' : s).toUpperCase().replace(/\s+/g,' ').replace(/\s*\/\s*/g,'/').trim(); }
+/** same as the server's r34FuzzyCode: typos / variants of leave and day-off codes → true */
+function r34IsCode(t, codes){
+  let k = r34CodeKeyC(t).replace(/\s*\(\d+\)$/, '');
+  const rep = k.match(/^(.+?) \1$/); if (rep) k = rep[1];
+  if (codes[k] !== undefined) return true;
+  if (/^(DAY|DAT|BAY|DAYS|D)\s?\/?\s?OFF$/.test(k)) return true;
+  return !/\d/.test(k) && /LEAVE|SICK|MATERN|MARENITY|PATERN|BEREAV|BREVEA|FUNERAL|WITHOUT PAY|LWOP|LOPW/.test(k);
+}
+const R34_STATS = /^(arriv|arrive|arriv rms|depart rms|occ ?%?|pax|children|infants|inf|rooms|dept|ave .*|\d+c(\/.*)?|\d*inf)$/i;
+/** → [{ name, department, dateCols:[{c, date}] , rows:[…], people:n }] for every roster sheet of the workbook */
+function r34ParseWorkbook(sheets, per, opts){
+  const out = [], codes = opts.codes || {};
+  sheets.forEach(function(sh){
+    if (R34_WB_SKIP.test(String(sh.name).trim())) return;
+    const raw = sh.raw, txt = sh.txt;
+    let di = -1, dcols = [];
+    for (let i = 0; i < Math.min(raw.length, 10) && di < 0; i++) {
+      const cs = [];
+      (raw[i]||[]).forEach(function(v, j){ if (j < 1 || j > 30) return; if ((typeof v === 'number' && v > 36500 && v < 80000) || (v instanceof Date && v.getFullYear() >= 2000 && v.getFullYear() < 2100)) cs.push({ c: j, date: r34DateOf(v, (txt[i]||[])[j], per) }); });
+      if (cs.length >= 5) { di = i; dcols = cs; }
+    }
+    if (di < 0) return;
+    const dept = r34SheetDept(sh.name, opts.departments);
+    let remappedFrom = '';
+    if (per.weekly && opts.remapWeek && dcols.length >= 5 && dcols.length <= 7 && dcols.some(function(x, i){ return x.date !== r34Add(per.start, i); })) {
+      // the date row disagrees with the chosen week (a sheet left on an older week, a year/month typo, a week typed from Tue…):
+      // the day columns are Mon…Sun by position (B:C = Mon … N:O = Sun), so read them as the chosen week and say so
+      remappedFrom = dcols[0].date;
+      dcols = dcols.map(function(x, i){ return { c: x.c, date: r34Add(per.start, i) }; });
+    }
+    const inPer = dcols.filter(function(x){ return x.date >= per.start && x.date <= per.end; });
+    const res = { name: sh.name, department: dept, dates: dcols.map(function(x){ return x.date; }), inPeriod: inPer.length, rows: [], people: 0, sections: [], remappedFrom: remappedFrom };
+    out.push(res);
+    if (!inPer.length) return;
+    const A = function(i){ const v = (raw[i]||[])[0]; return typeof v === 'string' ? v.replace(/\s+/g,' ').trim() : ''; };
+    const pairsOf = function(i){ return dcols.map(function(x){ const s = r34TimeOf((raw[i]||[])[x.c], (txt[i]||[])[x.c]), e = r34TimeOf((raw[i]||[])[x.c+1], (txt[i]||[])[x.c+1]); return s && e && s !== e ? [s, e] : null; }); }; // 00:00–00:00 = an empty / total row
+    const textsOf = function(i){ return dcols.map(function(x){ const t = []; [x.c, x.c+1].forEach(function(c){ const r = (raw[i]||[])[c]; if (typeof r !== 'string') return; const v = r.replace(/\s+/g,' ').trim(); if (!v || /^#/.test(v) || /^(start|end)$/i.test(v) || r34TimeOf(r, v)) return; t.push(v); }); return t; }); };
+    const nameLike = function(a){ return a && a.length <= 45 && /[a-z]{3}/i.test(a) && !/\d/.test(a) && !/^#/.test(a) && !R34_PAY.test(a) && !R34_TOTAL.test(a) && !/^(start|end|occupancy|rooms ?- ?.*|total.*|captain)$/i.test(a); };
+    let blk = null;
+    const blocks = [];
+    for (let i = di + 1; i < raw.length; i++) {
+      const a = A(i), pr = pairsOf(i), hasPair = pr.some(Boolean), tx = textsOf(i);
+      if (tx.some(function(t){ return t.some(function(v){ return /^(start|end)$/i.test(v); }); })) continue;
+      if (/^(occupancy|forecast|arriv|depart|pax|children|infants|rooms ?- ?|total rooms)/i.test(a) || tx.filter(function(t){ return t.some(function(v){ return R34_STATS.test(v); }); }).length >= 3) { blk = null; continue; } // occupancy / guest stats rows
+      if (nameLike(a) && !hasPair) {
+        if (blk && !blk.pay && !blk.pairs && (R34_ROLE.test(a) || blk.rows.some(function(r){ return r.tx.some(function(t){ return t.length; }); }) || !tx.some(function(t){ return t.length; }))) { blk.rows.push({ pr: pr, tx: tx }); continue; } // role row under the name (before the pay row); an empty name row followed by a filled one = two people
+        if (R34_SECTION.test(a) && /^[^a-z]*$/.test(a)) { res.sections.push(a); blk = null; continue; } // ALL-CAPS section heading
+        if (R34_ROLE.test(a) && blk) { blk.rows.push({ pr: pr, tx: tx }); continue; }
+        blk = { name: a.replace(/\(\d+\)$/, '').trim(), row: i + 1, rows: [{ pr: pr, tx: tx }], pay: false, pairs: false };
+        blocks.push(blk); continue;
+      }
+      if (!blk) continue;
+      if (R34_PAY.test(a)) blk.pay = true;
+      if (hasPair) blk.pairs = true;
+      blk.rows.push({ pr: pr, tx: tx });
+    }
+    blocks.forEach(function(b){
+      if (!b.pay && !b.pairs && !b.rows.some(function(r){ return r.tx.some(function(t){ return t.length; }); })) return; // a heading with nothing under it
+      res.people++;
+      dcols.forEach(function(x, k){
+        if (x.date < per.start || x.date > per.end) return;
+        const texts = [], pairs = [];
+        b.rows.forEach(function(r){ r.tx[k].forEach(function(t){ if (texts.indexOf(t) < 0) texts.push(t); }); if (r.pr[k]) pairs.push(r.pr[k]); });
+        const code = texts.find(function(t){ return r34IsCode(t, codes); }) || texts.find(function(t){ return /^(staff )?released?$/i.test(String(t).trim()); }); // RELEASED = left / let go (a marker, not leave)
+        const o = { rawName: b.name, department: opts.forceDept || dept, date: x.date, row: b.row, sheet: sh.name };
+        if (code) o.code = code;
+        else if (pairs.length) {
+          o.start = pairs[0][0]; o.end = pairs[pairs.length-1][1];
+          const lab = texts.join(' / ');
+          o.roleLabel = ((lab ? lab + (pairs.length > 1 ? ' · ' : '') : '') + (pairs.length > 1 ? pairs.map(function(p){ return p[0].replace(/^0/,'')+'–'+p[1].replace(/^0/,''); }).join(', ') : '')).slice(0, 80);
+        } else if (texts.length) o.code = texts[0];
+        else return; // blank = nothing rostered that day
+        res.rows.push(o);
+      });
+    });
+  });
+  return out;
+}
+/** "Roster we 05 APRIL 26.xlsx" / "ROSTER WE 02ND AUGUST 2026" → the Monday of that week ('' = no week-ending date in the name) */
+function r34FileWeek(name){
+  const MON = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
+  const m = String(name||'').match(/\bw\/?e\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3})[a-z]*\.?\s*(\d{2,4})?/i);
+  if (!m || !MON[m[2].toLowerCase()]) return '';
+  const y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : new Date().getFullYear();
+  const sun = y+'-'+String(MON[m[2].toLowerCase()]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');
+  if (r34Iso(r34D(sun)) !== sun) return '';
+  return r34Monday(sun); // week ending Sunday → its Monday
+}
+/** the Monday most department sheets agree on ('' = none) */
+function r34SheetsWeek(sheets, opts){
+  const n = {};
+  r34ParseWorkbook(sheets, { start:'1900-01-01', end:'2999-12-31' }, opts || {}).forEach(function(x){ if (x.dates.length >= 5) { const m = r34Monday(x.dates[0]); n[m] = (n[m]||0) + 1; } });
+  const best = Object.keys(n).sort(function(a, b){ return n[b] - n[a]; })[0];
+  return best || '';
+}
+/** the week to use for a whole-resort workbook: the file name wins (dates inside are often stale / typo'd), else the sheets' majority */
+function r34WorkbookWeek(fileName, sheets, opts){
+  const f = r34FileWeek(fileName), d = r34SheetsWeek(sheets, opts);
+  const warn = f && d && f !== d ? 'The file name says the week of '+r34Short(f)+' but most sheets are dated the week of '+r34Short(d)+' — using the file name.' : (!f && d ? '' : (!f && !d ? 'Could not tell the week from the file name or the sheets.' : ''));
+  return { week: f || d, fromName: !!f, sheetsWeek: d, warning: warn };
+}
+/** shifts → a signature that ignores the dates (same people, same weekday, same times / codes) — "possible duplicate" check */
+function r34WeekSig(rows, start){
+  return rows.map(function(r){ return String(r.rawName).toLowerCase().replace(/\s+/g,' ')+'|'+r.department+'|'+Math.round((r34D(r.date) - r34D(start)) / 86400000)+'|'+(r.start||'')+'|'+(r.end||'')+'|'+String(r.code||'').toUpperCase(); }).sort().join('\n');
+}
+/* r34parse:end */
 
 /* ---------- templates (client-made; CSV + XLSX) ---------- */
 function r34TemplateRows(kind, key, dept){
@@ -3677,7 +3826,7 @@ async function r34RenderUpload(kind){
     ((d.periods.find(function(p){ return p.next && !p.uploads.length; }) || d.periods.find(function(p){ return !p.uploads.length; }) || d.periods.find(function(p){ return p.current; }) || d.periods[0] || {}).key);
   state._r34Period = sel; state._r34PeriodKind = kind;
   let html = '';
-  if (kind === 'weekly' && v3IsAdmin()) html += v3Card('<label class="text-[11px] text-slate-400">Department</label><select id="r34-dept" class="ui-input w-full">'+(d.departments||[]).map(function(x){ return '<option'+(x===d.department?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select>');
+  if (kind === 'weekly' && v3IsAdmin()) html += v3Card('<label class="text-[11px] text-slate-400">Department</label><select id="r34-dept" class="ui-input w-full">'+'<option value="ALL"'+(d.department==='ALL'?' selected':'')+'>All departments (whole-resort workbook)</option>'+(d.departments||[]).map(function(x){ return '<option'+(x===d.department?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select>');
   else if (kind === 'weekly') html += '<p class="text-xs text-slate-300 px-1">Department: <strong>'+esc(d.department||'—')+'</strong></p>';
   html += v3Card(v3Title(K.icon, kind === 'archive' ? 'Months' : 'Periods')+'<div class="space-y-1.5" id="r34-periods">'+d.periods.map(function(p){
     const u = p.uploads[0];
@@ -3690,7 +3839,9 @@ async function r34RenderUpload(kind){
     '<div class="grid grid-cols-2 gap-2"><button type="button" class="r34-tpl rounded-lg py-2 text-xs border border-slate-600 text-slate-200" data-f="xlsx"><i class="fa-solid fa-file-excel mr-1"></i>Template XLSX</button><button type="button" class="r34-tpl rounded-lg py-2 text-xs border border-slate-600 text-slate-200" data-f="csv"><i class="fa-solid fa-file-csv mr-1"></i>Template CSV</button></div>'+
     '<p class="text-[10px] text-slate-500">'+(kind === 'weekly' ? 'Rows: Name, Department, Date, Start, End, Day off, Code — or a grid (names down the side, dates across the top).' : 'Grid: names down the side, dates across the top, a Department column (or department heading rows) — or rows: Name, Department, Date, Start, End, Day off, Code.')+
     ' Cells: 07:00-15:00, 7-3, OFF, AL, SL, PH… Real Excel date cells are read as dates; written dates like 5/10 are read as day/month unless only month/day fits the period.</p>'+
-    '<input id="r34-file" type="file" accept=".xlsx,.xls,.csv" class="w-full text-xs text-slate-200"/><div id="r34-preview"></div>', 'r34-upcard');
+    '<input id="r34-file" type="file" accept=".xlsx,.xlsm,.xls,.csv"'+(kind !== 'weekly' ? ' multiple' : '')+' class="w-full text-xs text-slate-200"/><div id="r34-preview"></div>', 'r34-upcard');
+  if (kind === 'monthly' && d.weeks) html += r34WeeksCard(d);
+  if ((d.released||[]).length) html += r34ReleasedCard(d.released);
   if (featureOn('feature_my_schedule') || kind === 'archive') html += v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names', kind === 'archive' ? 'Archive names: superadmin' : 'Link roster names to staff', d.unmatched||0);
   if (kind === 'monthly' && v3IsAdmin()) html += v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & roster codes','');
   if (kind === 'archive') html += v3Card(v3Title('fa-chart-simple','Department patterns (archive + past months)')+'<div id="r34-patterns">'+((d.patterns||[]).length ? d.patterns.map(function(p){
@@ -3701,58 +3852,196 @@ async function r34RenderUpload(kind){
   const ds = $('#r34-dept'); if (ds) ds.onchange = function(){ state._r34Dept = this.value; r34RenderUpload(kind); };
   $$('.r34-per').forEach(function(b){ b.onclick = function(){ state._r34Period = b.dataset.k; r34RenderUpload(kind); }; });
   $$('.r34-tpl').forEach(function(b){ b.onclick = function(){ r34Template(kind, sel, d.department, b.dataset.f).catch(function(e){ toast(e.message||'Template failed','error'); }); }; });
-  $('#r34-file').onchange = function(){ const f = this.files && this.files[0]; if (f) r34Preview(kind, sel, d, f); };
+  $('#r34-file').onchange = function(){ const fs = Array.from(this.files || []); state._r34Sheet = ''; if (!fs.length) return; r34PickFiles(kind, sel, d, fs); };
+}
+/** one file → the single-upload preview (template / grid / one workbook for a department); several files or an admin whole-resort workbook → one upload per week */
+async function r34PickFiles(kind, key, d, files){
+  if (kind !== 'weekly' && (files.length > 1 || /\.xls[xm]?$/i.test(files[0].name))) {
+    if (files.length === 1) { // a single file on the admin / archive page: workbook layout → per-week; anything else → the old grid / rows reader
+      try { const t = await r34ReadFile(files[0]); const w = r34WorkbookWeek(files[0].name, t.sheets, { codes: d.codes || {}, departments: d.departments || [] }); if (!w.week) return r34Preview(kind, key, d, files[0]); } catch (e) { return r34Preview(kind, key, d, files[0]); }
+    }
+    return r34PreviewMany(kind === 'archive' ? 'archive' : 'weekly', key, d, files);
+  }
+  return r34Preview(kind, key, d, files[0]);
 }
 async function r34Preview(kind, key, d, file){
   const box = $('#r34-preview'); box.innerHTML = v3Loading();
   let t, parsed;
   const per = r34PeriodOf(kind, key);
-  try { t = await r34ReadFile(file); parsed = r34ParseTable(t, per, { weekly: kind === 'weekly', department: d.department, allDept: kind !== 'weekly', departments: d.departments }); }
+  let wb = null;
+  try {
+    t = await r34ReadFile(file);
+    wb = r34WorkbookPick(kind, per, d, t);
+    if (wb && kind === 'weekly') { const fw = r34FileWeek(file.name); if (fw && fw !== per.start) wb.parsed.warnings.unshift('The file name says the week of '+r34Short(fw)+', but you are uploading for the week of '+r34Short(per.start)+'. Pick the right week above if that is wrong.'); }
+    parsed = wb ? wb.parsed : r34ParseTable(t, per, { weekly: kind === 'weekly', department: d.department, allDept: kind !== 'weekly' || d.department === 'ALL', departments: d.departments });
+  }
   catch (e) { box.innerHTML = '<p class="text-xs text-rose-200">'+esc(e.message||'Could not read the file')+'</p>'; return; }
   const rows = parsed.rows, names = {}, outside = rows.filter(function(r){ return !/^\d{4}-\d\d-\d\d$/.test(r.date) || r.date < per.start || r.date > per.end; }).length;
   rows.forEach(function(r){ names[r.rawName+'|'+r.department] = 1; });
   const codes = {}; rows.forEach(function(r){ const c = String(r.cell||r.code||'').trim().toUpperCase(); if (c && !/\d/.test(c)) codes[c] = (codes[c]||0)+1; });
-  const unknown = Object.keys(codes).filter(function(c){ return d.codes && d.codes[c] === undefined; });
+  const known = function(c){ return d.codes && (d.codes[c] !== undefined || (wb && r34IsCode(c, d.codes))); };
+  const unknown = Object.keys(codes).filter(function(c){ return !known(c); });
   state._r34Parsed = { kind: kind, key: key, rows: rows, file: file.name, layout: parsed.layout, department: kind === 'weekly' ? d.department : 'ALL' };
   box.innerHTML = '<div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-1 text-xs" id="r34-prev">'+
-    '<p class="text-slate-100 font-semibold">'+esc(file.name)+' · '+(parsed.layout==='grid'?'grid (names × dates)':parsed.layout==='rows'?'rows':'?')+'</p>'+
+    '<p class="text-slate-100 font-semibold">'+esc(file.name)+' · '+(parsed.layout==='workbook'?'PCR roster workbook':parsed.layout==='grid'?'grid (names × dates)':parsed.layout==='rows'?'rows':'?')+'</p>'+
+    (wb ? wb.html : '')+
     '<p class="text-slate-300">'+rows.length+' entries · '+Object.keys(names).length+' names'+(outside?' · <span class="text-amber-300">'+outside+' outside '+esc(r34Short(per.start))+' – '+esc(r34Short(per.end))+' (skipped)</span>':'')+'</p>'+
-    (Object.keys(codes).length ? '<p class="text-slate-400">Codes: '+Object.keys(codes).map(function(c){ return esc(c)+' ×'+codes[c]+(d.codes && d.codes[c] ? ' = '+esc(d.codes[c]) : ' <span class="text-amber-300">(unknown)</span>'); }).join(', ')+'</p>' : '')+
+    (Object.keys(codes).length ? '<p class="text-slate-400">Codes: '+Object.keys(codes).map(function(c){ return esc(c)+' ×'+codes[c]+(d.codes && d.codes[c] ? ' = '+esc(d.codes[c]) : known(c) ? ' = leave/off (spelling variant)' : ' <span class="text-amber-300">(not a leave code)</span>'); }).join(', ')+'</p>' : '')+
     parsed.warnings.map(function(w){ return '<p class="text-amber-200">'+esc(w)+'</p>'; }).join('')+
     (unknown.length ? '<p class="text-amber-200">Unknown codes are stored as text (not leave). Add them in Leave allowances & codes to count them.</p>' : '')+
     '</div>'+(rows.length ? '<button type="button" id="r34-send" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white mt-2"><i class="fa-solid fa-cloud-arrow-up mr-1"></i>Upload '+rows.length+' entries</button>' : '')+'<div id="r34-prog"></div>';
   const sb = $('#r34-send'); if (sb) sb.onclick = function(){ sb.disabled = true; r34Send(kind).finally(function(){ sb.disabled = false; }); };
+  const ss = $('#r34-sheet'); if (ss) ss.onchange = function(){ state._r34Sheet = this.value; r34Preview(kind, key, d, file); };
+}
+/** The real PCR layout (one sheet per department, a Mon–Sun date row, blocks of name / role / pay / time rows).
+ *  An HOD (or an admin uploading for one department) gets the sheet of their department; admin "ALL" or monthly gets every sheet.
+ *  null = not that layout (use the plain rows / grid reader). */
+function r34WorkbookPick(kind, per, d, t){
+  if (!t.sheets || !t.sheets.length) return null;
+  const all = r34ParseWorkbook(t.sheets, per, { codes: d.codes || {}, departments: d.departments || [], remapWeek: kind === 'weekly' });
+  if (!all.length || !all.some(function(x){ return x.people > 0; })) return null;
+  const one = kind === 'weekly' && d.department && d.department !== 'ALL';
+  const low = function(x){ return String(x||'').toLowerCase(); };
+  let pick = all;
+  if (one) {
+    const want = state._r34Sheet && all.some(function(x){ return x.name === state._r34Sheet; }) ? state._r34Sheet : '';
+    pick = want ? all.filter(function(x){ return x.name === want; }) : all.filter(function(x){ return low(x.department) === low(d.department); });
+  } else if (state._r34Sheet && state._r34Sheet !== '*' && all.some(function(x){ return x.name === state._r34Sheet; })) pick = all.filter(function(x){ return x.name === state._r34Sheet; });
+  const rows = [];
+  pick.forEach(function(x){ x.rows.forEach(function(r){ if (one) r.department = d.department; rows.push(r); }); });
+  const warnings = [];
+  if (one && !pick.length) warnings.push('No sheet in this workbook is named for '+d.department+'. Pick your sheet below.');
+  const sel = '<label class="text-[11px] text-slate-400 block mt-1">Sheet</label><select id="r34-sheet" class="ui-input w-full">'+
+    (one ? '<option value="">'+esc(d.department)+' (auto)</option>' : '<option value="*">All department sheets</option>')+
+    all.map(function(x){ return '<option value="'+esc(x.name)+'"'+(pick.length === 1 && pick[0] === x && state._r34Sheet === x.name ? ' selected' : '')+'>'+esc(x.name)+(low(x.name) !== low(x.department) ? ' → '+esc(x.department) : '')+' · '+x.people+' people</option>'; }).join('')+'</select>';
+  const tbl = '<div class="mt-1 space-y-0.5" id="r34-sheets">'+pick.map(function(x){
+    return '<p class="text-[11px] '+(x.inPeriod ? 'text-slate-300' : 'text-amber-200')+'">'+esc(x.name)+(low(x.name) !== low(x.department) ? ' → '+esc(x.department) : '')+': '+x.people+' people · '+x.rows.length+' entries'+
+      (x.remappedFrom ? ' · <span class="text-amber-300">dates on the sheet say week of '+esc(r34Short(x.remappedFrom))+' — read as the chosen week (Mon–Sun)</span>' : '')+
+      (!x.inPeriod ? ' · no days in '+esc(r34Short(per.start))+' – '+esc(r34Short(per.end)) : '')+'</p>'; }).join('')+'</div>';
+  return { parsed: { layout: 'workbook', rows: rows, warnings: warnings }, html: sel + tbl };
+}
+/** send one parsed upload in parts of 500 (retries on network errors) → { f, skipped, skippedN, unknown } or null */
+async function r34Push(P, bar){
+  const st = await v3Call('rosterUploadStart', { kind: P.kind, periodKey: P.key, department: P.department, fileName: P.file, fileType: (P.file.split('.').pop()||'').toLowerCase(), layout: P.layout, totalRows: P.rows.length, logArea: P.kind === 'weekly' && P.department !== 'ALL' ? 'dept' : 'admin' });
+  if (!st) { bar(0, 'Not uploaded'); return null; }
+  const CH = 500, parts = Math.max(1, Math.ceil(P.rows.length / CH));
+  let skipped = [], skippedN = 0, unknown = {};
+  for (let i = 0; i < parts; i++) {
+    bar(Math.round(5 + 85 * i / parts), 'Saving part '+(i+1)+' of '+parts+'…');
+    let r = null;
+    for (let a = 0; a < 3 && !(r && r.success); a++) { try { r = await api('rosterUploadChunk', { uploadId: st.uploadId, chunkIndex: i, shifts: P.rows.slice(i*CH, (i+1)*CH) }); } catch (e) { r = { success:false, error: e.message }; } if (!(r && r.success) && !(r && /network|reach/i.test(r.error||''))) break; }
+    if (!r || !r.success) { toast((r && r.error) || 'Upload failed','error'); bar(0, 'Stopped — nothing was replaced. Try again.'); return null; }
+    skipped = skipped.concat(r.data.skipped||[]); skippedN += r.data.skippedCount||0; Object.keys(r.data.unknownCodes||{}).forEach(function(k){ unknown[k] = 1; });
+  }
+  bar(93, 'Finishing…');
+  const f = await v3Call('rosterUploadFinish', { uploadId: st.uploadId, logArea: P.kind === 'weekly' && P.department !== 'ALL' ? 'dept' : 'admin' });
+  if (!f) { bar(0, 'Not finished'); return null; }
+  return { f: f, skipped: skipped, skippedN: skippedN, unknown: unknown };
+}
+function r34ResultHtml(kind, res, extra){
+  const f = res.f;
+  return '<div class="rounded-xl bg-teal-500/10 border border-teal-400/30 p-3 space-y-1 text-xs r34-result" id="r34-result"><p class="text-teal-100 font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>'+esc(f.label)+(f.department && f.department !== 'ALL' && kind !== 'weekly' ? '' : f.department === 'ALL' && kind === 'weekly' ? ' · all departments' : '')+' saved</p>'+(extra||'')+
+    '<p class="text-slate-200">'+f.shifts+' shifts for '+f.people+' people'+(f.replacedRows?' · replaced '+f.replacedRows+' old entries':'')+'</p>'+
+    ((f.possibleDuplicateOf||[]).length ? '<p class="text-amber-200 r34-dup"><i class="fa-solid fa-clone mr-1"></i>Possible duplicate: the shifts are the same as the '+esc(f.possibleDuplicateOf.map(function(x){ return x.label; }).join(', '))+'. Check the right file was uploaded.</p>' : '')+
+    ((f.released||[]).length ? '<p class="text-rose-200 r34-rel"><i class="fa-solid fa-user-slash mr-1"></i>'+f.released.length+' marked RELEASED (possibly left): '+esc(f.released.slice(0,5).map(function(x){ return (x.name||x.email)+' from '+x.label; }).join(', '))+(f.released.length>5?'…':'')+'. Accounts unchanged; check Users.</p>' : '')+
+    (kind !== 'archive' ? '<p class="text-slate-300">'+f.changed+' people notified (only those whose shifts changed)</p>' : '')+
+    (f.unmatched && f.unmatched.length ? '<p class="text-amber-200">'+f.unmatched.length+' names not matched: '+esc(f.unmatched.slice(0,6).map(function(u){ return u.rawName; }).join(', '))+(f.unmatched.length>6?'…':'')+'</p><button type="button" onclick="navigate(\'rosterunmatched\')" class="w-full rounded-lg py-2 text-xs border border-amber-400/40 text-amber-100 mt-1"><i class="fa-solid fa-user-tag mr-1"></i>Link names now</button>' : '<p class="text-slate-300">Every name matched.</p>')+
+    (res.skippedN ? '<details class="text-slate-400"><summary>'+res.skippedN+' lines skipped</summary>'+res.skipped.slice(0,30).map(function(s){ return '<p>Row '+esc(s.row)+(s.name?' · '+esc(s.name):'')+': '+esc(s.why)+'</p>'; }).join('')+'</details>' : '')+
+    (Object.keys(res.unknown).length ? '<p class="text-amber-200">Other day texts kept as text: '+esc(Object.keys(res.unknown).slice(0,12).join(', '))+'</p>' : '')+'</div>';
 }
 async function r34Send(kind){
   const P = state._r34Parsed; if (!P || P.kind !== kind) return;
   const prog = $('#r34-prog');
   const bar = function(pct, txt){ if (prog) prog.innerHTML = '<div class="r34-bar mt-2"><i style="width:'+pct+'%"></i></div><p class="text-[11px] text-slate-400 mt-1">'+esc(txt)+'</p>'; };
   bar(2, 'Starting…');
-  const st = await v3Call('rosterUploadStart', { kind: kind, periodKey: P.key, department: P.department, fileName: P.file, fileType: (P.file.split('.').pop()||'').toLowerCase(), layout: P.layout, totalRows: P.rows.length, logArea: kind === 'weekly' ? 'dept' : 'admin' });
-  if (!st) { bar(0, 'Not uploaded'); return; }
-  const CH = 500, parts = Math.ceil(P.rows.length / CH);
-  let skipped = [], skippedN = 0, unknown = {};
-  for (let i = 0; i < parts; i++) {
-    bar(Math.round(5 + 85 * i / parts), 'Saving part '+(i+1)+' of '+parts+'…');
-    let r = null;
-    for (let a = 0; a < 3 && !(r && r.success); a++) { try { r = await api('rosterUploadChunk', { uploadId: st.uploadId, chunkIndex: i, shifts: P.rows.slice(i*CH, (i+1)*CH) }); } catch (e) { r = { success:false, error: e.message }; } if (!(r && r.success) && !(r && /network|reach/i.test(r.error||''))) break; }
-    if (!r || !r.success) { toast((r && r.error) || 'Upload failed','error'); bar(0, 'Stopped — nothing was replaced. Try again.'); return; }
-    skipped = skipped.concat(r.data.skipped||[]); skippedN += r.data.skippedCount||0; Object.keys(r.data.unknownCodes||{}).forEach(function(k){ unknown[k] = 1; });
-  }
-  bar(93, 'Finishing…');
-  const f = await v3Call('rosterUploadFinish', { uploadId: st.uploadId, logArea: kind === 'weekly' ? 'dept' : 'admin' });
-  if (!f) { bar(0, 'Not finished'); return; }
+  const res = await r34Push(P, bar);
+  if (!res) return;
   bar(100, 'Done');
   cacheInvalidate(['r34my']);
-  const box = $('#r34-preview');
-  box.innerHTML = '<div class="rounded-xl bg-teal-500/10 border border-teal-400/30 p-3 space-y-1 text-xs" id="r34-result"><p class="text-teal-100 font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>'+esc(f.label)+' saved</p>'+
-    '<p class="text-slate-200">'+f.shifts+' shifts for '+f.people+' people'+(f.replacedRows?' · replaced '+f.replacedRows+' old entries':'')+'</p>'+
-    (kind !== 'archive' ? '<p class="text-slate-300">'+f.changed+' people notified (only those whose shifts changed)</p>' : '')+
-    (f.unmatched && f.unmatched.length ? '<p class="text-amber-200">'+f.unmatched.length+' names not matched: '+esc(f.unmatched.slice(0,6).map(function(u){ return u.rawName; }).join(', '))+(f.unmatched.length>6?'…':'')+'</p><button type="button" onclick="navigate(\'rosterunmatched\')" class="w-full rounded-lg py-2 text-xs border border-amber-400/40 text-amber-100 mt-1"><i class="fa-solid fa-user-tag mr-1"></i>Link names now</button>' : '<p class="text-slate-300">Every name matched.</p>')+
-    (skippedN ? '<details class="text-slate-400"><summary>'+skippedN+' lines skipped</summary>'+skipped.slice(0,30).map(function(s){ return '<p>Row '+esc(s.row)+(s.name?' · '+esc(s.name):'')+': '+esc(s.why)+'</p>'; }).join('')+'</details>' : '')+
-    (Object.keys(unknown).length ? '<p class="text-amber-200">Unknown codes kept as text: '+esc(Object.keys(unknown).join(', '))+'</p>' : '')+'</div>';
+  $('#r34-preview').innerHTML = r34ResultHtml(kind, res);
   state._r34Parsed = null;
   setTimeout(function(){ if (state.tab === R34_KIND[kind].tab) { const keep = $('#r34-preview').innerHTML; r34RenderUpload(kind).then(function(){ const b = $('#r34-preview'); if (b) b.innerHTML = keep; }); } }, 600);
+}
+
+function r34WeeksCard(d){
+  return v3Card(v3Title('fa-layer-group','Whole-resort weekly workbooks')+
+    '<p class="text-[11px] text-slate-400">Pick one or more “Roster we …” workbooks above. All department sheets are read and the week comes from the file name. Each file becomes that week\'s roster for every department; an HOD upload for their own department replaces just that department.</p>'+
+    '<div class="space-y-1 mt-1" id="r34-weeks">'+d.weeks.map(function(w){
+      const u = w.uploads.find(function(x){ return String(x.department).toUpperCase() === 'ALL'; }) || w.uploads[0];
+      return '<div class="v3-row text-xs min-w-0"><span class="text-slate-200 truncate">'+esc(w.label)+(w.current?' · now':w.next?' · next':'')+'</span>'+(w.all ? v3Chip('All depts','ok') : w.uploads.length ? v3Chip(w.uploads.length+' dept'+(w.uploads.length>1?'s':''),'info') : v3Chip('—','mute'))+'</div>'+
+        (u && /duplicate/.test(u.notes||'') ? '<p class="text-[10px] text-amber-300">'+esc(u.notes)+'</p>' : '');
+    }).join('')+'</div>', 'r34-weeks-card');
+}
+function r34ReleasedCard(list){
+  return v3Card(v3Title('fa-user-slash','Possibly left (RELEASED on a roster)', v3Chip(String(list.length),'warn'))+
+    '<p class="text-[11px] text-slate-400">The roster marks these people RELEASED. Their accounts are unchanged; deactivate them in Users if they have left.</p>'+
+    list.slice(0, 30).map(function(x){ return '<div class="v3-row py-1 border-b border-slate-700/40 last:border-0 text-xs min-w-0"><span class="text-slate-100 truncate">'+esc(x.name||x.email)+' <span class="text-slate-500">· '+esc(x.department||'')+'</span></span><span class="text-rose-200 shrink-0">from '+esc(x.label)+'</span></div>'; }).join(''), 'r34-released');
+}
+/* ---------- several whole-resort workbooks at once (admin "Rosters" page = weekly for all departments; archive = one month) ---------- */
+async function r34PreviewMany(kind, key, d, files){
+  const box = $('#r34-preview'); box.innerHTML = v3Loading();
+  const items = [];
+  try {
+    for (const file of files) {
+      const t = await r34ReadFile(file);
+      const opts = { codes: d.codes || {}, departments: d.departments || [] };
+      const w = r34WorkbookWeek(file.name, t.sheets, opts);
+      if (!w.week) { items.push({ file: file.name, error: 'Not a weekly roster workbook (no Mon–Sun date row found).' }); continue; }
+      const per = { start: w.week, end: r34Add(w.week, 6), weekly: true };
+      const res = r34ParseWorkbook(t.sheets, per, Object.assign({ remapWeek: true }, opts));
+      if (!res.some(function(x){ return x.people > 0; })) { items.push({ file: file.name, error: 'No department sheets with staff found.' }); continue; }
+      if (kind === 'weekly' && d.weekWindow && (w.week < d.weekWindow.from || w.week > d.weekWindow.to)) { items.push({ file: file.name, error: 'The week of '+r34Short(w.week)+(w.week < d.weekWindow.from ? ' is in the past; the superadmin can add it to the Roster archive' : ' is more than 8 weeks ahead')+'.' }); continue; }
+      const rows = [].concat.apply([], res.map(function(x){ return x.rows; }));
+      items.push({ file: file.name, week: w.week, w: w, sheets: res, rows: rows, sig: r34WeekSig(rows, w.week) });
+    }
+  } catch (e) { box.innerHTML = '<p class="text-xs text-rose-200">'+esc(e.message||'Could not read the file')+'</p>'; return; }
+  const ok = items.filter(function(x){ return !x.error; });
+  ok.forEach(function(x, i){ // same shifts as another file in this selection / same week twice
+    const twin = ok.slice(0, i).find(function(y){ return y.rows.length > 20 && y.sig === x.sig; });
+    if (twin) x.dupOf = twin.file;
+    const same = ok.slice(0, i).find(function(y){ return y.week === x.week; });
+    if (same) x.sameWeek = same.file;
+  });
+  let monthNote = '';
+  if (kind === 'archive') {
+    const per = r34PeriodOf('archive', key);
+    let out = 0;
+    ok.forEach(function(x){ const keep = x.rows.filter(function(r){ return r.date >= per.start && r.date <= per.end; }); out += x.rows.length - keep.length; x.rows = keep; });
+    if (out) monthNote = out + ' entries are outside '+esc(r34MonthName(key))+' (weeks that cross the month end) and are skipped — upload that file again under the other month.';
+  }
+  state._r34Many = { kind: kind, key: key, items: ok.filter(function(x){ return x.rows.length && !(kind === 'weekly' && x.sameWeek); }) };
+  const total = state._r34Many.items.reduce(function(a, x){ return a + x.rows.length; }, 0);
+  box.innerHTML = '<div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-2 text-xs" id="r34-prev">'+
+    '<p class="text-slate-100 font-semibold">'+items.length+' workbook'+(items.length>1?'s':'')+' · '+(kind === 'archive' ? 'archive for '+esc(r34MonthName(key)) : 'one weekly roster per file, all departments')+'</p>'+
+    items.map(function(x){
+      if (x.error) return '<div class="r34-wb border-t border-slate-700/40 pt-1.5"><p class="text-slate-200 truncate">'+esc(x.file)+'</p><p class="text-amber-200">'+esc(x.error)+' Skipped.</p></div>';
+      const ppl = x.sheets.reduce(function(a, s){ return a + s.people; }, 0), fixed = x.sheets.filter(function(s){ return s.remappedFrom; });
+      return '<div class="r34-wb border-t border-slate-700/40 pt-1.5 min-w-0"><p class="text-slate-200 truncate">'+esc(x.file)+'</p>'+
+        '<p class="text-slate-300">Week '+esc(r34Short(x.week))+' – '+esc(r34Short(r34Add(x.week,6)))+' · '+x.sheets.length+' departments · '+ppl+' people · '+x.rows.length+' entries</p>'+
+        (x.w.warning ? '<p class="text-amber-200 r34-wk-warn"><i class="fa-solid fa-triangle-exclamation mr-1"></i>'+esc(x.w.warning)+'</p>' : '')+
+        (fixed.length ? '<p class="text-amber-200 r34-wk-warn">'+fixed.length+' sheet'+(fixed.length>1?'s':'')+' dated another week ('+esc(fixed.map(function(s){ return s.department+' '+r34Short(s.remappedFrom); }).slice(0,4).join(', '))+(fixed.length>4?'…':'')+') — read Mon–Sun as this week.</p>' : '')+
+        (x.dupOf ? '<p class="text-amber-200 r34-dup"><i class="fa-solid fa-clone mr-1"></i>Possible duplicate: same shifts as '+esc(x.dupOf)+'.</p>' : '')+
+        (x.sameWeek && kind === 'weekly' ? '<p class="text-amber-200">Same week as '+esc(x.sameWeek)+' — skipped (upload one file per week).</p>' : '')+'</div>';
+    }).join('')+(monthNote ? '<p class="text-amber-200">'+monthNote+'</p>' : '')+'</div>'+
+    (total ? '<button type="button" id="r34-send-many" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white mt-2"><i class="fa-solid fa-cloud-arrow-up mr-1"></i>Upload '+(kind === 'archive' ? total+' entries' : state._r34Many.items.length+' week'+(state._r34Many.items.length>1?'s':'')+' ('+total+' entries)')+'</button>' : '')+'<div id="r34-prog"></div>';
+  const sb = $('#r34-send-many'); if (sb) sb.onclick = function(){ sb.disabled = true; r34SendMany().finally(function(){ sb.disabled = false; }); };
+}
+async function r34SendMany(){
+  const M = state._r34Many; if (!M) return;
+  const prog = $('#r34-prog'), out = [];
+  const jobs = M.kind === 'archive'
+    ? [{ kind: 'archive', key: M.key, department: 'ALL', file: M.items.map(function(x){ return x.file; }).join(' + ').slice(0, 180), layout: 'workbook', rows: (function(){ const o = {}; M.items.forEach(function(x){ x.rows.forEach(function(r){ o[String(r.rawName).toLowerCase()+'|'+r.department+'|'+r.date] = r; }); }); return Object.keys(o).map(function(k){ return o[k]; }); })() }]
+    : M.items.map(function(x){ return { kind: 'weekly', key: x.week, department: 'ALL', file: x.file, layout: 'workbook', rows: x.rows, note: x.w.warning }; });
+  for (let i = 0; i < jobs.length; i++) {
+    const bar = function(pct, txt){ if (prog) prog.innerHTML = '<div class="r34-bar mt-2"><i style="width:'+Math.round((i*100 + pct)/jobs.length)+'%"></i></div><p class="text-[11px] text-slate-400 mt-1">'+(jobs.length>1?'File '+(i+1)+' of '+jobs.length+': ':'')+esc(txt)+'</p>'; };
+    const res = await r34Push(jobs[i], bar);
+    if (!res) { out.push('<p class="text-rose-200 text-xs">'+esc(jobs[i].file)+': not uploaded.</p>'); break; }
+    out.push(r34ResultHtml(jobs[i].kind, res, '<p class="text-slate-400 truncate">'+esc(jobs[i].file)+'</p>'));
+  }
+  if (prog) prog.innerHTML = '';
+  cacheInvalidate(['r34my']);
+  $('#r34-preview').innerHTML = '<div class="space-y-2" id="r34-many-result">'+out.join('')+'</div>';
+  state._r34Many = null;
 }
 
 /* ---------- unmatched names ---------- */
