@@ -83,8 +83,9 @@ const W = (s, e, label) => ({ s, e, label }), OFF = { label: 'DAY OFF' }, AL = {
     await until(() => page.isVisible(btn), 90000);
     const prev = await txt('#r34-prev');
     await page.click(btn);
-    await until(async () => !!(await page.$(resultSel)), ms || 240000);
-    return { prev, result: await txt(resultSel) };
+    await until(async () => /shifts for|not uploaded|Stopped/.test(await page.evaluate(s => { const e = document.querySelector(s); return e ? e.textContent : ''; }, resultSel)), ms || 240000);
+    await page.waitForTimeout(1200);
+    return { prev, result: await page.evaluate(s => { const e = document.querySelector(s); return e ? e.innerText || e.textContent : ''; }, resultSel) };
   };
 
   await page.goto(SITE, { waitUntil: 'load' });
@@ -105,6 +106,8 @@ const W = (s, e, label) => ({ s, e, label }), OFF = { label: 'DAY OFF' }, AL = {
   const P = k => people.find(p => p.email.toLowerCase() === A(k).toLowerCase());
   const st = P('staff'), hod = P('hod'), boat = P('boat'), chef = P('chef'), asst = P('asst');
   check('test people found (staff, hod, boat, chef)', st && hod && boat && chef, JSON.stringify(people.map(p => p.department)));
+  // re-runnable: drop the chef link a previous run saved, so "First I" is unmatched again
+  for (const l of (unm0.data && unm0.data.links) || []) if (chef && String(l.userEmail).toLowerCase() === A('chef').toLowerCase()) await api('unlinkRosterName', { id: l.id });
   console.log('  people:', [st, hod, asst, boat, chef].filter(Boolean).map(p => p.name + ' · ' + p.department).join(' | '));
   const today = fjToday(), mon1 = add(monday(today), 7), mon2 = add(mon1, 7);
   const sheetOf = d => d === 'Housekeeping' ? 'Houskeeping' : d.replace(/[\\/?*:\[\]]/g, ' '); // real misspelt sheet name; '/' is not allowed in sheet names
@@ -173,7 +176,7 @@ const W = (s, e, label) => ({ s, e, label }), OFF = { label: 'DAY OFF' }, AL = {
   console.log('  preview:', rate);
   check('preview: 8 codes, 6 auto-matched by name + department', /of 8 match/.test(rate) && autoN === 6, rate + ' · ticked ' + autoN);
   check('preview: the chef ("First I") goes to manual linking', await page.$('.ec-pick[data-code="GLT904"]') !== null);
-  check('preview: the unknown listing name has no account', /1 without an account/.test(rate), rate);
+  check('preview: chef ("First I") + the unknown listing name have no automatic account', /2 without an account/.test(rate), rate);
   await page.evaluate(() => { const d = document.getElementById('ec-unm'); if (d) d.open = true; });
   if (await page.$('.ec-pick[data-code="GLT904"]')) await page.selectOption('.ec-pick[data-code="GLT904"]', { value: U('chef').email });
   check('no horizontal scroll at 390px', await noScroll());

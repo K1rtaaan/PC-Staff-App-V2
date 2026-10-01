@@ -94,7 +94,7 @@ var R34_SETTINGS = {
 /* ---------- schema + settings (idempotent) ---------- */
 function r34Ensure(force) {
   var c = null;
-  try { c = CacheService.getScriptCache(); if (!force && c.get('pcr_r34_schema_1') === '1') return; } catch (e) {}
+  try { c = CacheService.getScriptCache(); if (!force && c.get('pcr_r34_schema_2') === '1') return; } catch (e) {}
   var ss = getSS();
   ensureSheet(ss, R34.SHIFTS, R34_SHIFT_HEADERS);
   ensureSheet(ss, R34.ARCH, R34_SHIFT_HEADERS);
@@ -116,7 +116,7 @@ function r34Ensure(force) {
     setSetting('departments', JSON.stringify(list), 'system 3.4.0');
     setSetting('departments_roster_340', 'added: ' + R34_ROSTER_DEPTS.join(', '), 'system 3.4.0');
   }
-  try { if (c) c.put('pcr_r34_schema_1', '1', 21600); } catch (e2) {}
+  try { if (c) c.put('pcr_r34_schema_2', '1', 21600); } catch (e2) {}
 }
 
 function r34DeptList() {
@@ -1232,12 +1232,20 @@ function r34PlanCodes(rows, users) {
 function previewEmployeeCodes(p) {
   var me = v3Requester(p);
   if (!isAdminPerm(me)) return { success: false, error: 'Admin only' };
-  r34Ensure();
+  r34Ensure(); r34EnsureCodeCol();
   var rows = r34Json(p.rows, null); if (!Array.isArray(rows)) rows = Array.isArray(p.rows) ? p.rows : [];
   if (rows.length > 3000) return { success: false, error: 'Too many rows (max 3000)' };
   var users = r34CodeUsers(), plan = r34PlanCodes(rows, users);
   plan.people = users.map(function (u) { return { email: r34Lower(u.email), name: r34UserName(u), department: u.department || '', code: r34EmpCode(u.employeeCode) }; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
   return { success: true, data: plan };
+}
+/** 3.4.0: the employeeCode column must exist before codes are read or written (does not rely on the r34Ensure cache). */
+function r34EnsureCodeCol() {
+  try {
+    var ush = getSS().getSheetByName('Users'); if (!ush || typeof ush.getRange !== 'function') return;
+    var h = ush.getRange(1, 1, 1, Math.max(ush.getLastColumn(), 1)).getValues()[0].map(String);
+    if (h.indexOf('employeeCode') < 0) { ensureColumns(ush, ['employeeCode']); scInvalidateSheet('Users'); }
+  } catch (e) {}
 }
 function r34SetCode(u, code, by) {
   updateRowById('Users', u.id, { employeeCode: code });
@@ -1247,7 +1255,7 @@ function r34SetCode(u, code, by) {
 function applyEmployeeCodes(p) {
   var me = v3Requester(p);
   if (!isAdminPerm(me)) return { success: false, error: 'Admin only' };
-  r34Ensure();
+  r34Ensure(); r34EnsureCodeCol();
   var items = r34Json(p.items, null); if (!Array.isArray(items)) items = Array.isArray(p.items) ? p.items : [];
   var lock = r34Lock();
   try {
@@ -1270,7 +1278,7 @@ function applyEmployeeCodes(p) {
 function setEmployeeCode(p) {
   var me = v3Requester(p);
   if (!isAdminPerm(me)) return { success: false, error: 'Admin only' };
-  r34Ensure();
+  r34Ensure(); r34EnsureCodeCol();
   var u = findUserByEmail(String(p.targetEmail || '').trim().toLowerCase());
   if (!u) return { success: false, error: 'User not found' };
   var raw = String(p.code == null ? '' : p.code).trim(), code = raw ? r34EmpCode(raw) : '';
