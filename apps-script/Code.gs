@@ -1436,7 +1436,9 @@ function sendAppMail(to, subject, body, kind) {
     try { console.warn('sendAppMail: ' + warn); if (props) props.setProperty('MAIL_LAST_WARNING', nowIso() + ' ' + warn); } catch (eW) {}
   }
   var from = String(getSetting('mail_from', '') || '').trim();
-  if (from && provider === 'mailapp') {
+  // mail_from (a verified Gmail "Send mail as" alias of the owner, e.g. pcrstaffapp@gmail.com) needs the https://mail.google.com/ scope;
+  // used whenever Brevo did not send (provider mailapp, or auto without a Brevo key). Falls back to MailApp on any error.
+  if (from && provider !== 'brevo' && !(provider === 'auto' && key)) {
     try {
       GmailApp.sendEmail(toStr, subject, body, { from: from, name: name, replyTo: replyTo || undefined });
       return { sent: true, via: 'gmail alias', sender: name + ' <' + from + '>' };
