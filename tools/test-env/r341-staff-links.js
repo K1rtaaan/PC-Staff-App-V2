@@ -206,6 +206,8 @@ const hide = s => String(s).split(PW).join('***');
   await login('staff');
   for (const x of (((await api('getSpecialMeals', {})).data || {}).requests || [])) if (/auto-test/.test(x.reason) && (x.status === 'pending' || x.status === 'approved')) await api('cancelSpecialMeal', { id: x.id }); // re-runnable
   await api('cancelMealOrder', { meal: 'dinner', serviceDate: D }).catch(() => null); // re-runnable: an order left by the smoke / r330 run would hide the rostered-off card
+  await page.reload({ waitUntil: 'load' }); await until(() => page.evaluate(() => typeof state !== 'undefined' && !!(state.user && state.user.email)), 60000); await page.waitForTimeout(1500); // drop the phone's saved copy of that order
+  await page.evaluate(() => { try { closeModal(); } catch (e) {} });
   await nav('meals');
   await page.evaluate(() => { try { r33PickMealTab('dinner'); } catch (e) { state._mealTab = 'dinner'; v3PaintMeals(); } });
   await until(() => page.isVisible('#s34-off-dinner'), 60000);
