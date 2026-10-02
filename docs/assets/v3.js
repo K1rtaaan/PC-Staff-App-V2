@@ -900,8 +900,68 @@ function v3OrdersGrid(){
     (anyClosed ? '<p class="text-[11px] text-amber-200/90 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2" id="home-books-closed"><i class="fa-solid fa-lock mr-1"></i>Orders closed for some meals — use a Late Meal Request on the Meals page while the late window is open.</p>' : '')+
     '</section>';
 }
-function v3DoThisNow(){ // 3.5.0: Meals / Boat / My history are already in the bottom bar and More
-  const tiles = v3Tile("v3OpenLeaveForm()",'fa-plane-departure','Request leave','Day off, annual, sick') + v3Tile("a32OpenReport()",'fa-flag','Report a problem','Error, change or idea');
+/* ---- 3.5.1: Home › My roster (first section) — the Schedule › My roster first card, tap → Schedule ---- */
+function v351HomeRoster(){
+  if (state.demo || !r34On() || v3IsSuper()) return '';
+  const d = cachePeek('r34my');
+  if (!d) { v351LoadRoster(); return '<div id="home-roster" class="hidden"></div>'; }
+  const open = ' role="button" tabindex="0" onclick="navigate(\'schedule\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();navigate(\'schedule\');}"';
+  if (d.locked) return '<div id="home-roster" class="cursor-pointer min-w-0"'+open+' aria-label="Open Schedule to link your account">'+
+    v3Card(v3Title('fa-lock','My roster · Schedule is locked')+'<p class="text-xs text-slate-300">Link your employee number (e.g. GL018) to see your shifts here.'+
+      (d.linkRequest && d.linkRequest.status === 'pending' ? ' <span class="text-amber-200">Waiting for your HOD.</span>' : '')+'</p>'+
+      '<p class="text-[11px] text-teal-300 font-semibold">Open Schedule to link <i class="fa-solid fa-chevron-right ml-1"></i></p>', 'home-roster-locked')+'</div>';
+  if (v351Fresh()) v351LoadRoster();
+  return '<div id="home-roster" class="cursor-pointer min-w-0"'+open+' aria-label="My roster — open Schedule">'+
+    r34TodayCardHtml(d, 'home-roster-card').replace('</section>', '<p class="text-[11px] text-teal-300 font-semibold">My roster <i class="fa-solid fa-chevron-right ml-1"></i></p></section>')+'</div>';
+}
+function v351Fresh(){ return Date.now() - cacheAt('r34my') > 10 * 60000; } // older than 10 min → refresh in the background
+function v351LoadRoster(){
+  if (state._v351Rp) return; state._v351Rp = true;
+  api('getMyRoster', {}).then(function(r){
+    state._v351Rp = false;
+    if (!r || !r.success) return;
+    cacheSet('r34my', r.data);
+    state._r34LeaveTypes = (r.data.leaveTypes||[]).slice();
+    if (r.data.lead) state._r34Unm = r.data.lead.unmatched || 0;
+    if (state.tab === 'home') { const el = $('#home-roster'); if (el && !v3HomeTyping()) el.outerHTML = v351HomeRoster() || '<div id="home-roster" class="hidden"></div>'; }
+  }).catch(function(){ state._v351Rp = false; });
+}
+/* ---- 3.5.1: Home quick actions → Boat › Village boat (runs to book) / Boat › Resort boat (PCE request form) ---- */
+function v351OpenBoat(t){
+  state._boatTab = t; r33Put('pcr_boat_tab', t);
+  state._v351Focus = t === 'resort' ? '#rb-form' : '#boat-root .book-run';
+  navigate('boat');
+  const tk = Date.now(); state._v351FocusAt = tk;
+  const tick = function(n){
+    if (state._v351FocusAt !== tk || state.tab !== 'boat') return;
+    const el = document.querySelector(state._v351Focus);
+    if (el) { const card = (t === 'resort' ? el : el.closest('.glass, section, div')) || el; try { card.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { card.scrollIntoView(); }
+      const f = t === 'resort' ? el.querySelector('input, select, textarea') : null; if (f) try { f.focus({ preventScroll: true }); } catch (e) {}
+      state._v351Focus = null; return; }
+    if (n < 40) setTimeout(function(){ tick(n + 1); }, 250);
+  };
+  setTimeout(function(){ tick(0); }, 150);
+}
+/* 3.5.1: role shortcuts on Home — only for roles the user really holds (admin → Admin + Approvals, chef → Kitchen Admin,
+   HOD / assistant HOD → Approvals + Department, boat manager / captain → Boat Admin). One tile per page, never twice. */
+function v351RoleShortcuts(){
+  if (v3IsSuper()) return [];
+  const out = [], seen = {}, cnt = (typeof v35ApCount === 'function') ? v35ApCount() : 0;
+  const add = function(tab, icon, label, sub, n){ if (seen[tab]) return; seen[tab] = 1; out.push(v3Tile("navigate('"+tab+"')", icon, label, sub, n).replace('class="v3-tile ', 'data-tab="'+tab+'" class="v3-tile v351-role ')); };
+  const admin = v3Has('admin'), lead = v3Has('hod') || v3IsAsst(), chef = v3IsChef(), boat = v3Has('boat_manager') || v3Has('boat_captain');
+  if (admin || lead) add('approvals', 'fa-inbox', 'Approvals', admin ? 'All departments' : 'My department', cnt);
+  if (admin) add('adminhub', 'fa-user-shield', 'Admin', 'People, leave, system');
+  if (lead) add('deptadmin', 'fa-people-roof', 'Department', 'My team, roster');
+  if (chef) add('kitchenadmin', 'fa-fire-burner', 'Kitchen Admin', 'Lists, menu, reports');
+  if (boat) add('boatadmin', 'fa-anchor', 'Boat Admin', 'Runs, resort boat, emergency');
+  return out;
+}
+function v3DoThisNow(){ // 3.5.0: Meals / Boat / My history are already in the bottom bar and More · 3.5.1: + book village / resort boat
+  const tiles = v3Tile("v351OpenBoat('village')",'fa-ship','Book village boat','Seats on a village run') + v3Tile("v351OpenBoat('resort')",'fa-anchor','Book resort boat','PCE · request form') +
+    v3Tile("v3OpenLeaveForm()",'fa-plane-departure','Request leave','Day off, annual, sick') + v3Tile("a32OpenReport()",'fa-flag','Report a problem','Error, change or idea');
+  const role = v351RoleShortcuts();
+  if (role.length) return '<section class="space-y-2 min-w-0" id="home-dothisnow">'+v3Title('fa-bolt','Quick actions')+'<div class="grid grid-cols-2 gap-2">'+tiles+'</div>'+
+    '<p class="text-[10px] uppercase tracking-wide text-slate-500 px-1 pt-1">My roles</p><div class="grid grid-cols-2 gap-2" id="home-role-actions">'+role.join('')+'</div></section>';
   return '<section class="space-y-2 min-w-0" id="home-dothisnow">'+v3Title('fa-bolt','Quick actions')+'<div class="grid grid-cols-2 gap-2">'+tiles+'</div></section>';
 }
 function v3HodBar(){
@@ -1026,9 +1086,9 @@ function v3RemindersStrip(){
 }
 function renderHome(){
   if (v3IsSuper()) return v3RenderSuperHome();
-  // 3.5.0: greeting · cutoff banner · my meals (status once) · quick actions · top announcements · suggestion box
+  // 3.5.1: my roster (Schedule on + linked) · 3.5.0: greeting · cutoff banner · my meals (status once) · quick actions · top announcements · suggestion box
   $('#main-content').innerHTML = v3Page(
-    v3GreetingCard() + v3CutoffBanner() + v3SignInBanner() + queueHostHtml('*') +
+    v351HomeRoster() + v3GreetingCard() + v3CutoffBanner() + v3SignInBanner() + queueHostHtml('*') + // 3.5.1: My roster first
     v3OrdersGrid() + v3DoThisNow() + v35HomeAnnouncements() + v3SuggestionBox(), 'home');
   bindQueueButtons();
   v3BindSuggestionBox();
@@ -3080,6 +3140,7 @@ async function r34RenderSchedule(){
   if (state.demo) { $('#sch-body').innerHTML = v3Card(v3Title('fa-circle-info','Not in the demo')+'<p class="text-xs text-slate-300">Rosters, leave balances and roster reminders need the real server. Sign in with a staff account to try them.</p>'); return; }
   const peek = cachePeek('r34my');
   if (peek) r34PaintSchedule(peek, cur);
+  if (peek && Date.now() - cacheAt('r34my') < 60000) return; // 3.5.1: just loaded (e.g. by Home) — don't fetch it twice
   let r = null;
   try { r = await api('getMyRoster', {}); } catch (e) { if (!peek) $('#sch-body').innerHTML = v3Card('<p class="text-xs text-rose-200">'+esc(e.message||'Could not load')+'</p>'); return; }
   if (state.tab !== 'schedule') return;
@@ -3124,6 +3185,15 @@ function r34DayRow(x, today){
   return '<div class="v3-row py-1.5 border-b border-slate-700/40 last:border-0 text-xs min-w-0'+(x.date===today?' bg-teal-500/10 rounded-lg px-1':'')+'"><span class="text-slate-200 shrink-0 w-24">'+esc(x.label)+'</span>'+
     '<span class="min-w-0 truncate text-right">'+v3Chip(esc(x.text), R34_TONE[x.status]||'mute')+(x.role?' <span class="text-[10px] text-slate-400">'+esc(x.role)+'</span>':'')+(x.pending?' <span class="text-[10px] text-amber-300">'+esc(x.pending)+' asked</span>':'')+'</span></div>';
 }
+/** 3.5.1: the first card of Schedule › My roster (today's shift, status, countdown to the next day off, pattern).
+ *  Shared by Schedule and the staff Home tab (same data: the 'r34my' cache, one getMyRoster call). */
+function r34TodayCardHtml(d, cardId){
+  const t = d.today || {};
+  return v3Card(v3Title('fa-sun','Today · '+esc(t.label||''), v3Chip(esc(t.status==='work'?'Working':t.status==='leave'?'Leave':t.status==='off'?'Off':t.status==='released'?'Released':'—'), R34_TONE[t.status]||'mute'))+
+    '<p class="text-2xl font-semibold text-slate-100" id="sch-today">'+esc(t.text||'')+'</p>'+r34Countdown(d)+
+    (!d.hasRoster ? '<p class="text-xs text-slate-400">No roster uploaded for you yet. Your HOD uploads the weekly roster before each week; admins upload the monthly resort roster.</p>' : '')+
+    (d.pattern ? '<p class="text-[11px] text-slate-400">Roster pattern: <span class="text-slate-200" id="sch-pattern">'+esc(d.pattern)+'</span></p>' : ''), cardId);
+}
 function r34RosterHtml(d){
   const t = d.today || {}, today = t.date;
   let html = '';
@@ -3133,10 +3203,7 @@ function r34RosterHtml(d){
     if (L.unmatched) bits.push('<button type="button" onclick="navigate(\'rosterunmatched\')" class="w-full text-left text-xs text-sky-200"><i class="fa-solid fa-user-tag mr-1"></i>'+L.unmatched+' roster name'+(L.unmatched===1?'':'s')+' to link</button>');
     if (bits.length) html += v3Card(bits.join(''), 'sch-lead');
   }
-  html += v3Card(v3Title('fa-sun','Today · '+esc(t.label||''), v3Chip(esc(t.status==='work'?'Working':t.status==='leave'?'Leave':t.status==='off'?'Off':t.status==='released'?'Released':'—'), R34_TONE[t.status]||'mute'))+
-    '<p class="text-2xl font-semibold text-slate-100" id="sch-today">'+esc(t.text||'')+'</p>'+r34Countdown(d)+
-    (!d.hasRoster ? '<p class="text-xs text-slate-400">No roster uploaded for you yet. Your HOD uploads the weekly roster before each week; admins upload the monthly resort roster.</p>' : '')+
-    (d.pattern ? '<p class="text-[11px] text-slate-400">Roster pattern: <span class="text-slate-200" id="sch-pattern">'+esc(d.pattern)+'</span></p>' : ''), 'sch-today-card');
+  html += r34TodayCardHtml(d, 'sch-today-card');
   const wk = d.week || { days: [] };
   html += v3Card(v3Title('fa-calendar-week','This week', '<span class="text-[10px] text-slate-400">'+esc(r34Short(wk.start||today))+' – '+esc(r34Short(wk.end||today))+'</span>')+
     wk.days.map(function(x){ return r34DayRow(x, today); }).join(''), 'sch-week');

@@ -42,7 +42,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
   const moreGroups = () => ev(() => [...document.querySelectorAll('#main-content section[id^=more-g-]')].map(s => s.id.replace('more-g-', '')));
   const dupes = a => a.filter((x, i) => a.indexOf(x) !== i);
   const pageDupes = () => ev(() => { const l = [...document.querySelectorAll('#main-content .v3-list-btn')].map(b => (b.querySelector('p') || b).innerText.split('\n')[0].trim()); return l.filter((x, i) => l.indexOf(x) !== i); });
-  const versionOnce = () => ev(() => (document.getElementById('main-content').innerText.match(/PCR Staff App 3\.5\.0/g) || []).length === 1 && !!document.querySelector('#pcr-credit .pcr-about-btn'));
+  const versionOnce = () => ev(() => (document.getElementById('main-content').innerText.match(/PCR Staff App 3\.5\.\d+/g) || []).length === 1 && !!document.querySelector('#pcr-credit .pcr-about-btn'));
 
   const MENUS = {
     staff: { nav: ['Home', 'Meals', 'Boat', 'More'], groups: ['me'] },

@@ -1,7 +1,15 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.5.0**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.5.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
+
+## 3.5.1 — Home: my roster first, boat + role shortcuts (2026-10-03, TEST)
+
+| ID | Change |
+|----|--------|
+| C199 | **Home › My roster** is the first section (Pranav): the same card as the first card of Schedule › My roster (today's shift and status, countdown to the next day off, roster pattern), drawn by the same function (`r34TodayCardHtml`) from the same saved data (`r34my`). Shown only when Schedule is on; a not-linked account sees a short "Schedule is locked — open Schedule to link" card; hidden in the demo / for superadmin. Tap → Schedule. Schedule does not fetch again when Home loaded it in the last minute. |
+| C200 | **Home quick actions**: + **Book village boat** (Boat › Village boat, scrolled to the runs) and **Book resort boat** (Boat › Resort boat / PCE request form); Request leave and Report a problem stay. Two per row at 320 / 390 px. |
+| C201 | **Role shortcuts on Home** ("My roles"), only for roles the user holds: admin → Admin + Approvals · chef → Kitchen Admin · HOD / assistant HOD → Approvals + Department · boat manager / captain → Boat Admin. Several roles → each shortcut once. Tests: `tools/tests/r351flows.js` (demo), Home checks in `tools/test-env/r350-test-env.js`. |
 
 ## 3.5.0 — Clean-up: one page per job, nothing repeated (2026-10-02)
 

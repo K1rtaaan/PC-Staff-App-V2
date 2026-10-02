@@ -1,4 +1,4 @@
-// 3.5.0 TEST-environment walk at 390px: TEST site + TEST backend. Every t-* account signs in; bottom nav + More role groups
+// 3.5.0 / 3.5.1 TEST-environment walk at 390px: TEST site + TEST backend. Every t-* account signs in; bottom nav + More role groups
 // match the 3.5.0 layout, every role page opens without errors, old page names redirect, and (admin) the
 // "Admin" department is gone (HR / Admin → Management, migration flag departments_350). Never touches live.
 //   node tools/test-env/r350-test-env.js SITE_URL [shotDir]
@@ -62,6 +62,39 @@ const OLD = { usersv3: 'people', gllink: 'people', deptstaff: 'peoplelinks', boa
     if (key === 'super') check('super nav: Overview · Approvals · Manage · More', nav.join('|') === 'Overview|Approvals|Manage|More', nav.join('|'));
     else check('nav: Home · Meals · Boat · (Schedule) · More', /^Home\|Meals\|Boat\|(Schedule\|)?More$/.test(nav.join('|')), nav.join('|'));
     check('nav has no duplicates', new Set(nav).size === nav.length, nav.join('|'));
+    if (key === 'staff') { // 3.5.1: Home › My roster first + boat quick actions
+      const S351 = '/workspace/v3-test-shots/351/'; fs.mkdirSync(S351, { recursive: true });
+      await go('home');
+      const want = await ev(() => r34On());
+      await until(() => ev(() => !!document.querySelector('#home-roster:not(.hidden)')), 45000);
+      const hr = await ev(() => { const m = document.getElementById('main-content'), r = document.getElementById('home-roster'); const first = m && m.querySelector('#home-roster, section');
+        return { has: !!r && !r.classList.contains('hidden'), first: !!(first && first.id === 'home-roster'), locked: !!document.getElementById('home-roster-locked'), txt: r ? r.innerText.slice(0, 160) : '' }; });
+      if (want) { check('Home: My roster is the first section (Schedule on)', hr.has && hr.first, JSON.stringify(hr));
+        const sch = await ev(() => { const d = cachePeek('r34my'); return d && !d.locked ? (d.today || {}).text || '' : null; });
+        if (sch !== null) check('Home roster card = Schedule › My roster first card (today text)', hr.txt.indexOf(sch) >= 0, sch + ' | ' + hr.txt); }
+      else check('Home: no roster section when Schedule is off', !hr.has);
+      const qa = await ev(() => [...document.querySelectorAll('#home-dothisnow .v3-tile')].map(b => b.innerText.split('\n')[0].trim()));
+      check('Home quick actions: village boat, resort boat, leave, report', ['Book village boat', 'Book resort boat', 'Request leave', 'Report a problem'].every(x => qa.indexOf(x) >= 0) && qa.length === 4, qa.join('|'));
+      for (const w of [390, 320]) { await page.setViewportSize({ width: w, height: w === 390 ? 844 : 700 }); await page.waitForTimeout(800);
+        check('Home ' + w + 'px: no horizontal scroll', await noScroll());
+        check('Home ' + w + 'px: quick action tiles do not overflow', await ev(() => [...document.querySelectorAll('#home-dothisnow .v3-tile')].every(b => b.scrollWidth <= b.clientWidth + 1)));
+        await page.screenshot({ path: S351 + 'staff-home-' + w + '.png', fullPage: true });
+        await page.screenshot({ path: S351 + 'staff-home-' + w + '-top.png' }); }
+      await page.setViewportSize({ width: 390, height: 844 });
+      if (hr.has) { await page.click('#home-roster'); await page.waitForTimeout(1500); check('tap My roster → Schedule', await ev(() => state.tab) === 'schedule'); await go('home'); }
+      const e0 = errors.length;
+      await page.click('#home-dothisnow .v3-tile:nth-child(1)'); await page.waitForTimeout(1500);
+      await until(() => ev(() => !!document.querySelector('#boat-root .book-run') || /No (boat )?runs/i.test(document.getElementById('main-content').innerText)), 30000);
+      check('"Book village boat" → Boat › Village boat', await ev(() => state.tab === 'boat' && r33BoatTab() === 'village'), await ev(() => state.tab + ' ' + r33BoatTab()));
+      await page.screenshot({ path: S351 + 'staff-book-village-390.png' });
+      await go('home'); await page.click('#home-dothisnow .v3-tile:nth-child(2)'); await page.waitForTimeout(1500);
+      await until(() => ev(() => !!document.querySelector('#rb-form')), 30000); await page.waitForTimeout(1200);
+      check('"Book resort boat" → Boat › Resort boat form (PCE)', await ev(() => state.tab === 'boat' && r33BoatTab() === 'resort' && !!document.querySelector('#rb-form')));
+      check('resort form scrolled into view', await ev(() => { const r = document.querySelector('#rb-form').getBoundingClientRect(); return r.top < window.innerHeight && r.bottom > 0; }));
+      await page.screenshot({ path: S351 + 'staff-book-resort-390.png' });
+      check('quick actions: no page errors', errors.length === e0, errors.slice(e0).join(' | '));
+      await ev(() => { state._boatTab = 'village'; r33Put('pcr_boat_tab', 'village'); });
+    }
     await go('more');
     const groups = await ev(() => [...document.querySelectorAll('#main-content section[id^=more-g-]')].map(s => s.id.replace('more-g-', '')).filter(x => x !== 'me'));
     check('More role groups = ' + (ROLE[key].groups.join(',') || 'none'), ROLE[key].groups.every(g => groups.indexOf(g) >= 0) && (key !== 'staff' || groups.length === 0), groups.join(','));
