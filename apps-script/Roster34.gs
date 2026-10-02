@@ -87,9 +87,11 @@ var R34_BASE_DEPTS = ['F&B', 'Bar', 'Kitchen', 'Boatman', 'Porters', 'Kids Club'
 var R34_ROSTER_DEPTS = ['Front Office', 'Stores'];
 /** 3.4.1 (Pranav 2 Oct 2026): Medical and Admin added (listing "HR" → Admin); Band and Naisoso are not departments (removed if present);
  *  "Construction" (roster section / Summary / listing) counts as Maintenance — see R34_DEPT_ALIAS. */
-var R34_341_DEPTS = ['Medical', 'Admin'];
+var R34_341_DEPTS = ['Medical']; // 3.5.0 (Pranav): "Admin" is a role, not a department — HR belongs to Management
 var R34_REMOVED_DEPTS = ['Band', 'Naisoso'];
-var R34_DEPT_ALIAS = { construction: 'maintenance', hr: 'admin', humanresources: 'admin', humanresource: 'admin' };
+var R34_DEPT_ALIAS = { construction: 'maintenance', hr: 'management', humanresources: 'management', humanresource: 'management', admin: 'management' }; // 3.5.0: HR (and the old 3.4.1 "Admin" department) = Management
+var R35_OLD_DEPTS = ['Admin', 'HR', 'Human Resources', 'Human Resource'];
+var R35_DEPT_SHEETS = ['Users', 'Leave Requests', 'Dept Updates', 'Resort Boat Bookings', 'Special Meal Requests', 'Roster Link Requests', 'Staff Listing', 'Emergency Travel'];
 var R34_SETTINGS = {
   leave_types: function () { return JSON.stringify(R34_DEFAULT_LEAVE_TYPES); },
   roster_leave_codes: function () { return JSON.stringify(R34_DEFAULT_CODES); },
@@ -100,7 +102,7 @@ var R34_SETTINGS = {
 /* ---------- schema + settings (idempotent) ---------- */
 function r34Ensure(force) {
   var c = null;
-  try { c = CacheService.getScriptCache(); if (!force && c.get('pcr_r34_schema_3') === '1') return; } catch (e) {}
+  try { c = CacheService.getScriptCache(); if (!force && c.get('pcr_r34_schema_4') === '1') return; } catch (e) {}
   var ss = getSS();
   ensureSheet(ss, R34.SHIFTS, R34_SHIFT_HEADERS);
   ensureSheet(ss, R34.ARCH, R34_SHIFT_HEADERS);
@@ -132,12 +134,45 @@ function r34Ensure(force) {
     setSetting('departments', JSON.stringify(l2), 'system 3.4.1');
     setSetting('departments_341', 'added: ' + R34_341_DEPTS.join(', ') + '; removed: ' + R34_REMOVED_DEPTS.join(', '), 'system 3.4.1');
   }
-  try { if (c) c.put('pcr_r34_schema_3', '1', 21600); } catch (e2) {}
+  if (!have.departments_350) r35MoveAdminDept(); // once (3.5.0): − Admin department; Admin / HR rows → Management
+  try { if (c) c.put('pcr_r34_schema_4', '1', 21600); } catch (e2) {}
+}
+/** 3.5.0: remove the "Admin" department (3.4.1) from the list and move every record with department Admin / HR to Management. Idempotent. */
+function r35MoveAdminDept() {
+  var old = {}; R35_OLD_DEPTS.forEach(function (d) { old[d.toLowerCase()] = 1; });
+  var list = r34DeptList().filter(function (x) { return !old[String(x).toLowerCase()]; });
+  if (list.indexOf('Management') < 0) { var oi = list.indexOf('Other'); if (oi >= 0) list.splice(oi, 0, 'Management'); else list.push('Management'); }
+  setSetting('departments', JSON.stringify(list), 'system 3.5.0');
+  var moved = {}, total = 0;
+  var isOld = function (v) { return !!old[String(v == null ? '' : v).trim().toLowerCase()]; };
+  R35_DEPT_SHEETS.concat([R34.SHIFTS, R34.MAP, R34.UNM, R34.ALLOW]).forEach(function (name) {
+    var rows = []; try { rows = sheetToObjects(name) || []; } catch (e) { return; }
+    var noId = false, n = 0;
+    rows.forEach(function (o) {
+      ['department', 'rosterDept'].forEach(function (col) {
+        if (!isOld(o[col])) return;
+        var patch = {}; patch[col] = 'Management';
+        if (o.id !== undefined && o.id !== '' && updateRowById(name, o.id, patch)) n++; else noId = true;
+      });
+    });
+    if (noId) { // rows without an id (e.g. roster shifts): patch the cells in the sheet itself
+      try {
+        var sh = getSS().getSheetByName(name), v = sh.getDataRange().getValues(), hdr = v[0].map(String);
+        ['department', 'rosterDept'].forEach(function (col) {
+          var ci = hdr.indexOf(col); if (ci < 0) return;
+          for (var r = 1; r < v.length; r++) if (isOld(v[r][ci])) { sh.getRange(r + 1, ci + 1).setValue('Management'); n++; }
+        });
+      } catch (e2) {}
+    }
+    if (n) { moved[name] = n; total += n; }
+  });
+  setSetting('departments_350', 'removed: Admin; moved to Management: ' + total + (total ? ' (' + Object.keys(moved).map(function (k) { return k + ' ' + moved[k]; }).join(', ') + ')' : ''), 'system 3.5.0');
+  return { total: total, moved: moved };
 }
 
 function r34DeptList() {
   var v = r34Json(getSetting('departments', ''), null);
-  if (!Array.isArray(v) || !v.length) { v = R34_BASE_DEPTS.concat(R34_ROSTER_DEPTS); v.splice(v.indexOf('Other'), 0, 'Medical', 'Admin'); }
+  if (!Array.isArray(v) || !v.length) { v = R34_BASE_DEPTS.concat(R34_ROSTER_DEPTS); v.splice(v.indexOf('Other'), 0, 'Medical'); }
   var seen = {};
   R34_REMOVED_DEPTS.forEach(function (r) { seen[r.toLowerCase()] = 1; }); // 3.4.1: never offered again
   return v.map(function (x) { return String(x || '').trim(); }).filter(function (x) { var k = x.toLowerCase(); if (!x || seen[k]) return false; seen[k] = 1; return true; });
@@ -1213,7 +1248,7 @@ function r34ListDepts(d) {
   var T = [[/ELECTRIC|MAINT|CONSTRUCT|PLUMB|JOINER|CARPENT|PAINT|MARINE|MECHANIC|WORKSHOP/, ['Maintenance']], [/GARDEN|GROUND/, ['Grounds']],
     [/RESTAURANT|F ?& ?B|WAIT|FOOD/, ['F&B', 'Bar']], [/\bBAR\b/, ['Bar', 'F&B']], [/BOAT|CAPTAIN|DECK/, ['Boatman']], [/HOUSEKEEP|LAUNDRY|ROOM/, ['Housekeeping']],
     [/KIDS/, ['Kids Club']], [/KITCHEN|CHEF|COOK|BAKER|PASTRY|STEWARD/, ['Kitchen', 'BR Kitchen', 'Donu Kitchen']], [/DIVE/, ['Diveshop']],
-    [/FRONT|GUEST REL|RESERV|RECEPT/, ['Front Office', 'IT/Office']], [/^IT\b|INFORMATION/, ['IT/Office']], [/HUMAN|^HR\b|ADMIN/, ['Admin']], [/ACCOUNT|FINANCE|PAYROLL/, ['Admin', 'Management', 'IT/Office']], [/MANAGEMENT|MANAGER/, ['Management']],
+    [/FRONT|GUEST REL|RESERV|RECEPT/, ['Front Office', 'IT/Office']], [/^IT\b|INFORMATION/, ['IT/Office']], [/HUMAN|^HR\b|ADMIN/, ['Management']], [/ACCOUNT|FINANCE|PAYROLL/, ['Management', 'IT/Office']], [/MANAGEMENT|MANAGER/, ['Management']],
     [/MEDIC|NURSE|CLINIC|DOCTOR|FIRST AID/, ['Medical']],
     [/SECUR/, ['Security']], [/\bSPA\b/, ['Spa']], [/STORE/, ['Stores']], [/PORTER/, ['Porters']], [/ACTIVIT/, ['Activities']]];
   for (var i = 0; i < T.length; i++) if (T[i][0].test(k)) return T[i][1];

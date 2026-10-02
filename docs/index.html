@@ -219,7 +219,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
 const APP_VERSION = '3.5.0';
-const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Front Office','Stores','Medical','Admin','Other']; // 3.4.1: + Medical, Admin (listing "HR" → Admin); "Construction" = Maintenance
+const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Front Office','Stores','Medical','Other']; // 3.4.1: + Medical · 3.5.0: no "Admin" department (a role only) — listing "HR" → Management; "Construction" = Maintenance
 /* 3.4.0: the server's department list (App Setting "departments") wins; merged in place (never removes/renames), cached for the sign-up form */
 const PCR_REMOVED_DEPTS = ['band','naisoso']; // 3.4.1 (Pranav): not app departments
 function pcrMergeDepartments(list){

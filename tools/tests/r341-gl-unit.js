@@ -85,11 +85,20 @@ function upload(tok, kind, key, dept, rows, opts) {
 }
 // ---------- departments ----------
 const L = (d) => JSON.stringify(run('r34ListDepts', d));
-check('HR → Admin', L('HR') === '["Admin"]' && L('Human Resources') === '["Admin"]', L('HR'));
+check('HR → Management (3.5.0)', L('HR') === '["Management"]' && L('Human Resources') === '["Management"]' && L('Admin') === '["Management"]', L('HR'));
 check('Band / Naisoso → skipped (null)', run('r34ListDepts', 'Band') === null && run('r34ListDepts', 'Naisoso') === null);
 check('Medical dept from Nurse', /Medical/.test(L('Nurse')), L('Nurse'));
 const dl = run('r34DeptList');
-check('department list has Admin + Medical, no Band / Naisoso', dl.indexOf('Admin') >= 0 && dl.indexOf('Medical') >= 0 && dl.indexOf('Band') < 0 && dl.indexOf('Naisoso') < 0, JSON.stringify(dl));
+check('department list has Medical + Management, no Admin / Band / Naisoso (3.5.0)', dl.indexOf('Admin') < 0 && dl.indexOf('Management') >= 0 && dl.indexOf('Medical') >= 0 && dl.indexOf('Band') < 0 && dl.indexOf('Naisoso') < 0, JSON.stringify(dl));
+check('HR / Admin department = Management for matching (3.5.0)', run('r34DeptEq', 'HR', 'Management') && run('r34DeptEq', 'Admin', 'Management') && !run('r34DeptEq', 'Admin', 'IT/Office'));
+// 3.5.0: an old "Admin" department (3.4.1) is moved to Management — list + records
+store.Users.push(U('hradm@x.com', 'Ana', 'Hrr', 'Admin', 'staff'), U('hr2@x.com', 'Jone', 'Hrr', 'HR', 'staff'));
+run('setSetting', 'departments', JSON.stringify(dl.slice(0, -1).concat(['Admin', 'Other'])), 'test');
+const mv = run('r35MoveAdminDept');
+const dl2 = run('r34DeptList');
+check('migration: Admin removed from the department list, Management kept', dl2.indexOf('Admin') < 0 && dl2.indexOf('Management') >= 0, JSON.stringify(dl2));
+check('migration: users with department Admin / HR → Management', mv.total >= 2 && run('findUserByEmail', 'hradm@x.com').department === 'Management' && run('findUserByEmail', 'hr2@x.com').department === 'Management', JSON.stringify(mv));
+check('migration is idempotent', run('r35MoveAdminDept').total === 0);
 check('Construction → Maintenance', run('r34DeptKey', 'Construction') === run('r34DeptKey', 'Maintenance'));
 // ---------- family leave codes ----------
 const C = run('r34Codes');
@@ -116,7 +125,7 @@ r = api('saveStaffListing', { sessionToken: T.admin, rows: JSON.stringify([
   { code: 'GL900', name: 'Band Guy', department: 'Band' }, { code: 'GL901', name: 'Naisoso Man', department: 'Naisoso' },
   { code: '', name: 'No Code' }, { code: 'GL101', name: 'Dup' }]) });
 check('listing saved, Band + Naisoso skipped, bad rows skipped', r.success && r.data.saved === 4 && r.data.skippedDept === 2 && r.data.skippedBad === 2, JSON.stringify(r));
-check('HR listing row → Admin', store[R('G341.LISTING')].find(x => x.code === 'GL104').department === 'Admin');
+check('HR listing row → Management (3.5.0)', store[R('G341.LISTING')].find(x => x.code === 'GL104').department === 'Management');
 r = api('getStaffListingInfo', { sessionToken: T.hod });
 check('listing info (HOD)', r.success && r.data.count === 4, JSON.stringify(r));
 // ---------- lookup ----------

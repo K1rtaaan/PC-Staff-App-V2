@@ -3290,7 +3290,7 @@ const R34_TOTAL = /^day ?(total|hours)\b/i;
 const R34_SECTION = /\b(team|staff|cooks|restaurant|reservations|shifts|construction|stores|maintenance|joinery|electrical|painting|marine|kids ?club|food ?& ?beverage|front office|housekeeping|security|kitchen|grounds|porters?|diveshop|dive|spa|bar|donu|tepaniyaki|boatman)\b/i;
 const R34_ROLE = /^(supervisor|hostess|waithelp|waiter|shift ?leader|captain|captn|runner|assistant|mechanic|trainee|gro|dm|am|pm|night|bartender|barman|cook|chef|steward|cashier|driver|crew|security|spa|stores)\b/i;
 /** sheet name → app department (known list first; typos like "Houskeeping"; else the sheet name) */
-const R34_SHEET_ALIAS = { houskeeping:'Housekeeping', housekeeping:'Housekeeping', bar:'Bar', bar1:'Bar', maint:'Maintenance', 'newfb':'F&B', fb:'F&B', diveshop:'Diveshop', boatman:'Boatman', frontoffice:'Front Office', brkitchen:'BR Kitchen', donukitchen:'Donu Kitchen', kidsclub:'Kids Club', construction:'Maintenance', hr:'Admin', humanresources:'Admin' }; // 3.4.1: Construction = Maintenance, HR = Admin
+const R34_SHEET_ALIAS = { houskeeping:'Housekeeping', housekeeping:'Housekeeping', bar:'Bar', bar1:'Bar', maint:'Maintenance', 'newfb':'F&B', fb:'F&B', diveshop:'Diveshop', boatman:'Boatman', frontoffice:'Front Office', brkitchen:'BR Kitchen', donukitchen:'Donu Kitchen', kidsclub:'Kids Club', construction:'Maintenance', hr:'Management', humanresources:'Management', admin:'Management' }; // 3.4.1: Construction = Maintenance, HR = Admin
 function r34SheetDept(name, depts){
   const k = r34Hdr(name);
   const known = (depts||[]).find(function(d){ return r34Hdr(d) === k; });
@@ -3766,7 +3766,7 @@ async function r34RenderAllowances(){
 
 /* ============ N. start ============ */
 /* ============ 3.4.1: People & roles by department (grid · pending HOD-step requests · global search) + GL number linking ============ */
-function g341DK(d){ const k = String(d==null?'':d).toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]/g,''); return ({ construction:'maintenance', hr:'admin', humanresources:'admin' })[k] || k; }
+function g341DK(d){ const k = String(d==null?'':d).toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]/g,''); return ({ construction:'maintenance', hr:'management', humanresources:'management', humanresource:'management', admin:'management' })[k] || k; }
 function g341DeptEq(a, b){ const x = g341DK(a), y = g341DK(b); return !!x && !!y && (x === y || (x.length >= 3 && y.length >= 3 && (x.indexOf(y) >= 0 || y.indexOf(x) >= 0))); }
 function g341Chip(u){ return '<span class="g341-have text-[10px] rounded-full px-2 py-0.5 border shrink-0 '+(u.employeeCode ? 'border-teal-400/50 text-teal-100' : 'border-slate-600 text-slate-400')+'">'+(u.employeeCode ? esc(u.employeeCode)+' ✓' : 'no GL')+'</span>'; }
 function g341RowHtml(u){
