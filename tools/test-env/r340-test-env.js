@@ -251,13 +251,15 @@ let restoreListing = null; // 3.5.0: Employee codes → Confirm also saves the s
   await page.evaluate(() => { state._schTab = 'leave'; r34RenderSchedule(); }); await page.waitForTimeout(4000);
   await until(() => page.isVisible('#sch-lv-new'), 60000);
   await shot('07-staff-leave-tab');
-  await page.click('#sch-lv-new'); await until(() => page.isVisible('#v3f-submit'), 10000);
   const lvDay = add(mon2, 9);
+  { const old = ((await api('getLeave', { scope: 'mine' })).data || {}); // re-runnable: withdraw this test's request from an earlier run
+    for (const l of (old.requests || old.leave || [])) if (String(l.startDate).slice(0, 10) === lvDay && /auto-test/.test(l.reason || '') && !/cancel|reject/.test(l.status)) await api('cancelLeave', { id: l.id }); }
+  await page.click('#sch-lv-new'); await until(() => page.isVisible('#v3f-submit'), 10000);
   await page.fill('#v3f-startDate', lvDay); await page.fill('#v3f-endDate', lvDay);
   await page.fill('#v3f-reason', '[auto-test] 3.4.0 leave from Schedule');
   await page.click('#v3f-submit'); await page.waitForTimeout(5000);
   const mineL = ((await api('getLeave', { scope: 'mine' })).data || {});
-  const lv = (mineL.requests || mineL.leave || []).find(l => String(l.startDate).slice(0, 10) === lvDay && /auto-test/.test(l.reason || ''));
+  const lv = (mineL.requests || mineL.leave || []).filter(l => String(l.startDate).slice(0, 10) === lvDay && /auto-test/.test(l.reason || '') && /pending/.test(l.status)).pop();
   check('leave request sent from the Schedule tab', !!lv, JSON.stringify(mineL).slice(0, 300));
   // ================= HOD approves
   if (lv) {
