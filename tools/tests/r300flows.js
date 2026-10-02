@@ -33,7 +33,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
     await page.evaluate(() => { const m = document.querySelector('#modal-close, .modal-close'); if (m) m.click(); });
   };
   const navLabels = async () => page.evaluate(() => Array.from(document.querySelectorAll('#bottom-nav .nav-item span:first-of-type')).map(e => e.textContent));
-  const roleBtns = async () => page.evaluate(() => Array.from(document.querySelectorAll('#main-content section[id^=more-g-]')).map(e => e.id.replace('more-g-', '')).filter(x => x !== 'me')) /* 3.5.0: More role groups */);
+  const roleBtns = async () => page.evaluate(() => Array.from(document.querySelectorAll('#main-content section[id^=more-g-]')).map(e => e.id.replace('more-g-', '')).filter(x => x !== 'me') /* 3.5.0: More role groups */);
 
   // ---- staff
   cur = 'staff';

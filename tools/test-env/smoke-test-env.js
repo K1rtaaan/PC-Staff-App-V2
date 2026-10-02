@@ -29,7 +29,7 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
   const nav = async t => { await page.evaluate(t => { if (t === 'meals' && typeof r33PickMealTab === 'function') { state._mealTab = 'dinner'; try { localStorage.setItem('pcrtest_meals_tab', 'dinner'); } catch (e) {} } if (t === 'boat') { try { localStorage.setItem('pcrtest_boat_tab', 'village'); state._boatTab = 'village'; } catch (e) {} } navigate(t); }, t); await page.waitForTimeout(2500); };
   const shot = n => page.screenshot({ path: S + n + '.png', fullPage: true });
   const api = (a, p) => page.evaluate(([a, p]) => api(a, p || {}), [a, p]);
-  const roleBtns = () => page.evaluate(() => Array.from(document.querySelectorAll('[data-rolebtn]')).map(e => e.dataset.rolebtn));
+  const roleBtns = () => page.evaluate(() => Array.from(document.querySelectorAll('#main-content section[id^=more-g-]')).map(e => e.id.replace('more-g-', '')).filter(x => x !== 'me') /* 3.5.0: More role groups */);
   const until = async (fn, ms) => { const t0 = Date.now(); while (Date.now() - t0 < (ms || 20000)) { if (await fn()) return true; await page.waitForTimeout(500); } return false; };
   const formOk = async () => { if (await until(() => page.isVisible('#v3f-submit'), 3000)) { await page.click('#v3f-submit'); await page.waitForTimeout(500); } };
   async function login(key, pw) {
@@ -100,10 +100,10 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
     check('boat runs listed (seeded schedule)', runs.length > 0, (await txt('#main-content')).slice(0, 200));
     if (runs.length) {
       await runs[runs.length - 1].click(); await page.waitForTimeout(5000);
-      await nav('bookings'); await until(() => page.$('.cancel-bb'), 20000); await shot('30-staff-bookings');
-      const c = await page.$$('.cancel-bb');
+      await nav('bookings'); await until(() => page.$('#boat-mybookings .mb-cancel'), 20000); await shot('30-staff-bookings'); // 3.5.0: My bookings live on the Boat tab
+      const c = await page.$$('#boat-mybookings .mb-cancel');
       check('boat booking confirmed (in My bookings)', c.length > 0, (await txt('#main-content')).slice(0, 200));
-      if (c.length) { const n = c.length; await c[0].click(); await formOk(); const ok = await until(async () => (await page.$$('.cancel-bb')).length < n, 30000); check('boat booking cancelled', ok); }
+      if (c.length) { const n = c.length; await c[0].click(); await formOk(); const ok = await until(async () => (await page.$$('#boat-mybookings .mb-cancel')).length < n, 30000); check('boat booking cancelled', ok); }
     }
   }
   // ---------- chef: kitchen day summary + PDF
