@@ -70,6 +70,10 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
 
   // ---------- staff: meals
   if (await login('staff')) {
+    await nav('home'); await until(() => page.evaluate(() => !r34On() || !!document.querySelector('#v3-greet #home-roster')), 45000); // 3.5.2: one combined top card
+    const hm = await page.evaluate(() => { const m = document.getElementById('main-content'), g = document.getElementById('v3-greet'), f = m.querySelector('section');
+      return { first: !!(f && f.id === 'v3-greet'), bula: !!(g && /Bula,/.test(g.innerText)), on: r34On(), roster: !!(g && g.querySelector('#home-roster')), extra: !!m.querySelector('#home-roster-card') }; });
+    check('Home: Bula card first, my roster inside when Schedule is on', hm.first && hm.bula && !hm.extra && (hm.roster === hm.on), JSON.stringify(hm));
     await nav('more'); check('staff: no role buttons', (await roleBtns()).length === 0, await roleBtns());
     await nav('meals'); await until(() => page.$('#meal-card-dinner'), 20000); await page.waitForTimeout(1500);
     await shot('20-staff-meals');

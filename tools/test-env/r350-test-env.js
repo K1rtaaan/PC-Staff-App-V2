@@ -68,20 +68,22 @@ const OLD = { usersv3: 'people', gllink: 'people', deptstaff: 'peoplelinks', boa
       const rs = await ev(() => [...document.querySelectorAll('#home-role-actions .v351-role')].map(b => b.dataset.tab));
       const perms = await ev(() => v3Perms().join(','));
       check('Home role shortcuts (' + perms + ')', EXP.every(t => rs.indexOf(t) >= 0) && new Set(rs).size === rs.length && (EXP.length || !rs.length), rs.join(','));
-      fs.mkdirSync('/workspace/v3-test-shots/351/test-site/', { recursive: true });
-      await page.screenshot({ path: '/workspace/v3-test-shots/351/test-site/' + key + '-home-390.png', fullPage: true });
+      fs.mkdirSync('/workspace/v3-test-shots/352/', { recursive: true });
+      await page.screenshot({ path: '/workspace/v3-test-shots/352/' + key + '-home-390.png', fullPage: true });
     }
     if (key === 'staff') { // 3.5.1: Home › My roster first + boat quick actions
-      const S351 = '/workspace/v3-test-shots/351/test-site/'; fs.mkdirSync(S351, { recursive: true });
+      const S351 = '/workspace/v3-test-shots/352/'; fs.mkdirSync(S351, { recursive: true });
       await go('home');
       await until(() => ev(() => !!document.querySelector('#home-roster:not(.hidden)')), 45000);
       const want = await ev(() => r34On()); // after the flags have loaded
-      const hr = await ev(() => { const m = document.getElementById('main-content'), r = document.getElementById('home-roster'); const first = m && m.querySelector('#home-roster, section');
-        return { has: !!r && !r.classList.contains('hidden'), first: !!(first && first.id === 'home-roster'), locked: !!document.getElementById('home-roster-locked'), txt: r ? r.innerText.slice(0, 160) : '' }; });
-      if (want) { check('Home: My roster is the first section (Schedule on)', hr.has && hr.first, JSON.stringify(hr));
+      const hr = await ev(() => { const m = document.getElementById('main-content'), r = document.getElementById('home-roster'), g = document.getElementById('v3-greet'); const first = m && m.querySelector('section');
+        return { has: !!r, inGreet: !!(r && g && g.contains(r)), first: !!(first && first.id === 'v3-greet'), bula: !!(g && /Bula,/.test(g.innerText)), photo: !!(g && g.querySelector('img, .rounded-full, [class*=avatar]')), cards: m.querySelectorAll('#home-roster-card, #sch-today-card').length,
+          locked: !!document.getElementById('home-roster-locked'), txt: r ? r.innerText.slice(0, 160) : '' }; });
+      check('Home: one combined top card (Bula greeting first)', hr.first && hr.bula && hr.cards === 0, JSON.stringify(hr));
+      if (want) { check('Home: My roster is inside the Bula card (Schedule on)', hr.has && hr.inGreet, JSON.stringify(hr));
         const sch = await ev(() => { const d = cachePeek('r34my'); return d && !d.locked ? (d.today || {}).text || '' : null; });
         if (sch !== null) check('Home roster card = Schedule › My roster first card (today text)', hr.txt.indexOf(sch) >= 0, sch + ' | ' + hr.txt); }
-      else check('Home: no roster section when Schedule is off', !hr.has);
+      else check('Home: plain Bula card when Schedule is off', !hr.has);
       const qa = await ev(() => [...document.querySelectorAll('#home-dothisnow .v3-tile')].map(b => b.innerText.split('\n')[0].trim()));
       check('Home quick actions: village boat, resort boat, leave, report', ['Book village boat', 'Book resort boat', 'Request leave', 'Report a problem'].every(x => qa.indexOf(x) >= 0) && qa.length === 4, qa.join('|'));
       for (const w of [390, 320]) { await page.setViewportSize({ width: w, height: w === 390 ? 844 : 700 }); await page.waitForTimeout(800);

@@ -1,7 +1,13 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.5.1**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.5.2**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
+
+## 3.5.2 — Home: one combined top card (2026-10-03, TEST)
+
+| ID | Change |
+|----|--------|
+| C202 | **My roster merged into the Bula greeting card** (Pranav): greeting, name and photo, then today's shift + status, days to the next day off and the roster pattern (same content / function / saved data as Schedule › My roster's first card — `r34TodayInnerHtml`). Tapping the roster part opens Schedule. Locked account: "Schedule is locked — open Schedule to link" line inside the card. Superadmin, demo, Schedule off: plain Bula card. Replaces the separate card from C199. |
 
 ## 3.5.1 — Home: my roster first, boat + role shortcuts (2026-10-03, TEST)
 

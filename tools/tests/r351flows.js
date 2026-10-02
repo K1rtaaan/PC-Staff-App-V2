@@ -66,7 +66,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
       await nav('home', 1200);
       await ev(() => document.querySelectorAll('#home-dothisnow .v3-tile')[1].click()); await page.waitForTimeout(3000);
       check('Book resort boat → Boat › Resort boat form', await ev(() => state.tab === 'boat' && r33BoatTab() === 'resort' && !!document.querySelector('#rb-form')));
-      check('demo: no roster section (Schedule needs the server)', !(await has('#home-roster:not(.hidden)')));
+      await nav('home', 1200); check('demo: plain Bula card (no roster block — Schedule needs the server)', !(await has('#home-roster')) && /Bula,/.test(await txt('#v3-greet')));
     }
   }
   // several roles at once: each shortcut once (admin + HOD + chef + boat manager)

@@ -872,6 +872,7 @@ function v3GreetingCard(){
     '<h2 class="text-lg font-semibold text-slate-100 truncate">Bula, '+esc(displayName(u))+'</h2>'+
     '<p class="text-[11px] text-slate-400 truncate">'+esc(v3RoleLabel(u))+' · '+esc(u.department||'—')+(state.demo?' · demo':'')+'</p>'+
     '<p class="text-[11px] text-teal-300 mt-0.5"><i class="fa-regular fa-clock mr-1"></i><span id="v3-clock" class="v3-countdown">'+formatFiji()+'</span></p></div></div>'+
+    v352RosterBlock()+
     ((boat || v3LeaveLine()) ? '<div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-1.5">' : '')+
     (boat ? '<div class="v3-row text-xs"><span class="text-slate-400 shrink-0"><i class="fa-solid fa-ship mr-1 text-teal-400"></i>'+(boat.mine?'My boat':'Next boat')+'</span>'+
       '<button type="button" onclick="navigate(\'boat\')" class="text-right min-w-0 truncate text-slate-100">'+esc(v3DateLabel(boat.date))+' '+esc(boat.time)+' '+esc(boat.route||'')+
@@ -901,18 +902,19 @@ function v3OrdersGrid(){
     '</section>';
 }
 /* ---- 3.5.1: Home › My roster (first section) — the Schedule › My roster first card, tap → Schedule ---- */
-function v351HomeRoster(){
+/* 3.5.2: My roster lives INSIDE the Bula greeting card (Pranav): the Schedule › My roster first-card content, tap → Schedule.
+   Hidden (plain Bula card) for superadmin, the demo and when Schedule is off; a locked account gets the "open Schedule to link" line. */
+function v352RosterBlock(){
   if (state.demo || !r34On() || v3IsSuper()) return '';
   const d = cachePeek('r34my');
-  if (!d) { v351LoadRoster(); return '<div id="home-roster" class="hidden"></div>'; }
+  if (!d) { v351LoadRoster(); return ''; }
   const open = ' role="button" tabindex="0" onclick="navigate(\'schedule\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();navigate(\'schedule\');}"';
-  if (d.locked) return '<div id="home-roster" class="cursor-pointer min-w-0"'+open+' aria-label="Open Schedule to link your account">'+
-    v3Card(v3Title('fa-lock','My roster · Schedule is locked')+'<p class="text-xs text-slate-300">Link your employee number (e.g. GL018) to see your shifts here.'+
-      (d.linkRequest && d.linkRequest.status === 'pending' ? ' <span class="text-amber-200">Waiting for your HOD.</span>' : '')+'</p>'+
-      '<p class="text-[11px] text-teal-300 font-semibold">Open Schedule to link <i class="fa-solid fa-chevron-right ml-1"></i></p>', 'home-roster-locked')+'</div>';
+  const cls = ' class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-2 min-w-0 cursor-pointer"';
+  if (d.locked) return '<div id="home-roster"'+cls+open+' aria-label="Open Schedule to link your account"><p class="text-xs text-slate-300" id="home-roster-locked"><i class="fa-solid fa-lock mr-1 text-amber-300"></i>Schedule is locked — '+
+    (d.linkRequest && d.linkRequest.status === 'pending' ? 'waiting for your HOD. ' : '')+'<span class="text-teal-300 font-semibold">open Schedule to link <i class="fa-solid fa-chevron-right ml-0.5"></i></span></p></div>';
   if (v351Fresh()) v351LoadRoster();
-  return '<div id="home-roster" class="cursor-pointer min-w-0"'+open+' aria-label="My roster — open Schedule">'+
-    r34TodayCardHtml(d, 'home-roster-card').replace('</section>', '<p class="text-[11px] text-teal-300 font-semibold">My roster <i class="fa-solid fa-chevron-right ml-1"></i></p></section>')+'</div>';
+  return '<div id="home-roster"'+cls+open+' aria-label="My roster — open Schedule">'+r34TodayInnerHtml(d).replace('text-2xl font-semibold', 'text-xl font-semibold')+
+    '<p class="text-[11px] text-teal-300 font-semibold">My roster <i class="fa-solid fa-chevron-right ml-1"></i></p></div>';
 }
 function v351Fresh(){ return Date.now() - cacheAt('r34my') > 10 * 60000; } // older than 10 min → refresh in the background
 function v351LoadRoster(){
@@ -923,7 +925,7 @@ function v351LoadRoster(){
     cacheSet('r34my', r.data);
     state._r34LeaveTypes = (r.data.leaveTypes||[]).slice();
     if (r.data.lead) state._r34Unm = r.data.lead.unmatched || 0;
-    if (state.tab === 'home') { const el = $('#home-roster'); if (el && !v3HomeTyping()) el.outerHTML = v351HomeRoster() || '<div id="home-roster" class="hidden"></div>'; }
+    if (state.tab === 'home') { const el = $('#v3-greet'); if (el && !v3HomeTyping()) el.outerHTML = v3GreetingCard(); }
   }).catch(function(){ state._v351Rp = false; });
 }
 /* ---- 3.5.1: Home quick actions → Boat › Village boat (runs to book) / Boat › Resort boat (PCE request form) ---- */
@@ -1086,9 +1088,9 @@ function v3RemindersStrip(){
 }
 function renderHome(){
   if (v3IsSuper()) return v3RenderSuperHome();
-  // 3.5.1: my roster (Schedule on + linked) · 3.5.0: greeting · cutoff banner · my meals (status once) · quick actions · top announcements · suggestion box
+  // 3.5.2: greeting card with my roster inside · 3.5.0: greeting · cutoff banner · my meals (status once) · quick actions · top announcements · suggestion box
   $('#main-content').innerHTML = v3Page(
-    v351HomeRoster() + v3GreetingCard() + v3CutoffBanner() + v3SignInBanner() + queueHostHtml('*') + // 3.5.1: My roster first
+    v3GreetingCard() + v3CutoffBanner() + v3SignInBanner() + queueHostHtml('*') + // 3.5.2: My roster is inside the greeting card
     v3OrdersGrid() + v3DoThisNow() + v35HomeAnnouncements() + v3SuggestionBox(), 'home');
   bindQueueButtons();
   v3BindSuggestionBox();
@@ -3187,13 +3189,14 @@ function r34DayRow(x, today){
 }
 /** 3.5.1: the first card of Schedule › My roster (today's shift, status, countdown to the next day off, pattern).
  *  Shared by Schedule and the staff Home tab (same data: the 'r34my' cache, one getMyRoster call). */
-function r34TodayCardHtml(d, cardId){
+function r34TodayInnerHtml(d){ // 3.5.2: shared by Schedule › My roster (card) and the Home greeting card (block)
   const t = d.today || {};
-  return v3Card(v3Title('fa-sun','Today · '+esc(t.label||''), v3Chip(esc(t.status==='work'?'Working':t.status==='leave'?'Leave':t.status==='off'?'Off':t.status==='released'?'Released':'—'), R34_TONE[t.status]||'mute'))+
+  return v3Title('fa-sun','Today · '+esc(t.label||''), v3Chip(esc(t.status==='work'?'Working':t.status==='leave'?'Leave':t.status==='off'?'Off':t.status==='released'?'Released':'—'), R34_TONE[t.status]||'mute'))+
     '<p class="text-2xl font-semibold text-slate-100" id="sch-today">'+esc(t.text||'')+'</p>'+r34Countdown(d)+
     (!d.hasRoster ? '<p class="text-xs text-slate-400">No roster uploaded for you yet. Your HOD uploads the weekly roster before each week; admins upload the monthly resort roster.</p>' : '')+
-    (d.pattern ? '<p class="text-[11px] text-slate-400">Roster pattern: <span class="text-slate-200" id="sch-pattern">'+esc(d.pattern)+'</span></p>' : ''), cardId);
+    (d.pattern ? '<p class="text-[11px] text-slate-400">Roster pattern: <span class="text-slate-200" id="sch-pattern">'+esc(d.pattern)+'</span></p>' : '');
 }
+function r34TodayCardHtml(d, cardId){ return v3Card(r34TodayInnerHtml(d), cardId); }
 function r34RosterHtml(d){
   const t = d.today || {}, today = t.date;
   let html = '';
