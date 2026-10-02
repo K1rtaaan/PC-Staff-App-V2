@@ -47,6 +47,7 @@ function workbook(file, mon, people, opts) {
 }
 const W = (s, e, label) => ({ s, e, label }), OFF = { label: 'DAY OFF' }, AL = { label: 'ANNUAL LEAVE' };
 
+let restoreListing = null; // 3.5.0: Employee codes → Confirm also saves the staff listing; put the real one back afterwards
 (async () => {
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, serviceWorkers: 'block' });
@@ -167,6 +168,10 @@ const W = (s, e, label) => ({ s, e, label }), OFF = { label: 'DAY OFF' }, AL = {
   lrows.push(['GLT908', 'Malelili Testperson', '03/04/2025', 'Stores']); // no account
   XLSX.utils.book_append_sheet(lwb, XLSX.utils.aoa_to_sheet(lrows), 'Staff Listing');
   fs.writeFileSync(TMP + 'TEST staff listing.xlsx', XLSX.write(lwb, { type: 'buffer', bookType: 'xlsx' }));
+  const snap = await page.evaluate(() => api('getStaffListingRows', {}));
+  const SNAP = (snap && snap.success && snap.data.rows) || [];
+  check('snapshot of the saved staff listing taken', snap && snap.success, JSON.stringify(snap).slice(0, 200));
+  restoreListing = async () => { restoreListing = null; if (!SNAP.length) return null; await login('admin'); return page.evaluate(r => api('saveStaffListing', { rows: JSON.stringify(r) }), SNAP); };
   await nav('empcodes');
   await until(() => page.isVisible('#ec-file'), 60000);
   await page.setInputFiles('#ec-file', TMP + 'TEST staff listing.xlsx');
@@ -288,8 +293,9 @@ const W = (s, e, label) => ({ s, e, label }), OFF = { label: 'DAY OFF' }, AL = {
   await nav('schedule'); await page.evaluate(() => { state._schTab = 'leave'; r34RenderSchedule(); }); await page.waitForTimeout(5000);
   await shot('09-staff-balance-after-archive');
 
+  if (restoreListing) { const rs = await restoreListing(); check('real staff listing restored (' + SNAP.length + ' rows)', !rs || rs.success, JSON.stringify(rs).slice(0, 200)); }
   check('no live backend calls', liveCalls === 0, liveCalls);
   check('no page errors', errors.length === 0, errors.join(' | '));
   console.log('\nRESULT pass=' + pass + ' fail=' + fail);
   await browser.close(); process.exit(fail ? 1 : 0);
-})().catch(e => { console.log('TEST CRASH', e); process.exit(2); });
+})().catch(async e => { console.log('TEST CRASH', e); try { if (restoreListing) { const rs = await restoreListing(); console.log('staff listing restored after crash: ' + JSON.stringify(rs && rs.data)); } } catch (e2) { console.log('RESTORE FAILED — re-import the staff listing'); } process.exit(2); });
