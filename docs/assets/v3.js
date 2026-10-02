@@ -4118,6 +4118,7 @@ function v35Navigate(tab){
   state._roleMode = V3_ROLE_TABS[tab] || '';
   if (tab === 'approvals') state._roleMode = v3IsSuper() || v3IsAdmin() ? 'admin' : (v3CanDept() ? 'dept' : (v3CanChef() ? 'kitchen' : 'boat'));
   if (tab === 'adminlog') state._roleMode = state.logArea || 'admin';
+  if (state._roleMode === 'dept' && v3IsAdmin() && ['people','peoplelinks','leavelist','leavecal','empcodes','rosterunmatched'].indexOf(tab) >= 0) state._roleMode = 'admin'; // admin work is logged in the Admin area
   if (tab !== 'mealbehalf' && tab !== 'mealtimes') state._mbBackKeep = false;
   const hub = v35HubOf(tab);
   const ht = $('#header-title'); if (ht) ht.textContent = hub ? V35_HUBS[hub].title : (V3_TITLES[tab] || tab);

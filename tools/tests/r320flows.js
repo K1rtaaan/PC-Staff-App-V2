@@ -58,7 +58,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   cur = 'admin'; await login(ADMIN);
   await go("navigate('adminhub')");
   const hub = await page.innerText('#main-content');
-  check('Admin Settings lists Overview + System tools', /Overview/.test(hub) && /System tools/.test(hub), hub.slice(0, 300));
+  check('Admin page: Overview at the top + System row (3.5.0)', !!(await page.$('#ov-body')) && /System/.test(hub), hub.slice(0, 300));
   await go("navigate('adminoverview')");
   check('admin: Overview shows the dashboard stats', await page.isVisible('#sa-meals') && await page.isVisible('#sa-pending') && await page.isVisible('#sa-users'), (await page.innerText('#main-content')).slice(0, 200));
   await go("navigate('admintools')");
@@ -92,8 +92,8 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
 
   // 3) superadmin About image
   cur = 'super'; await login(SUPER);
-  await go("navigate('manage')");
-  check('Manage lists About image', /About image/.test(await page.innerText('#main-content')));
+  await go("navigate('system')");
+  check('System lists About image (3.5.0)', /About image/.test(await page.innerText('#main-content')));
   await go("navigate('aboutimage')");
   check('About image page with preview (default)', /about-default\.jpg$/.test(await page.getAttribute('#ai-prev', 'src')) && /Default poster/.test(await page.innerText('#ai-state')));
   await page.setInputFiles('#ai-file', path.join(__dirname, '..', '..', 'public', 'assets', 'golden-logo.jpg')); await page.waitForTimeout(1500);
