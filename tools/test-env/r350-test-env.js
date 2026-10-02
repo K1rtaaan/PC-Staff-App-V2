@@ -74,8 +74,8 @@ const OLD = { usersv3: 'people', gllink: 'people', deptstaff: 'peoplelinks', boa
     if (key === 'staff') { // 3.5.1: Home › My roster first + boat quick actions
       const S351 = '/workspace/v3-test-shots/351/test-site/'; fs.mkdirSync(S351, { recursive: true });
       await go('home');
-      const want = await ev(() => r34On());
       await until(() => ev(() => !!document.querySelector('#home-roster:not(.hidden)')), 45000);
+      const want = await ev(() => r34On()); // after the flags have loaded
       const hr = await ev(() => { const m = document.getElementById('main-content'), r = document.getElementById('home-roster'); const first = m && m.querySelector('#home-roster, section');
         return { has: !!r && !r.classList.contains('hidden'), first: !!(first && first.id === 'home-roster'), locked: !!document.getElementById('home-roster-locked'), txt: r ? r.innerText.slice(0, 160) : '' }; });
       if (want) { check('Home: My roster is the first section (Schedule on)', hr.has && hr.first, JSON.stringify(hr));
