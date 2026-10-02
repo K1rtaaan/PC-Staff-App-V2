@@ -62,8 +62,17 @@ const OLD = { usersv3: 'people', gllink: 'people', deptstaff: 'peoplelinks', boa
     if (key === 'super') check('super nav: Overview · Approvals · Manage · More', nav.join('|') === 'Overview|Approvals|Manage|More', nav.join('|'));
     else check('nav: Home · Meals · Boat · (Schedule) · More', /^Home\|Meals\|Boat\|(Schedule\|)?More$/.test(nav.join('|')), nav.join('|'));
     check('nav has no duplicates', new Set(nav).size === nav.length, nav.join('|'));
+    if (key !== 'super') { // 3.5.1: role shortcuts on Home only for held roles, once each
+      const EXP = { staff: [], hod: ['approvals', 'deptadmin'], asst: ['approvals', 'deptadmin'], chef: ['kitchenadmin'], boat: ['boatadmin'], admin: ['approvals', 'adminhub'] }[key] || [];
+      await go('home'); await page.waitForTimeout(1500);
+      const rs = await ev(() => [...document.querySelectorAll('#home-role-actions .v351-role')].map(b => b.dataset.tab));
+      const perms = await ev(() => v3Perms().join(','));
+      check('Home role shortcuts (' + perms + ')', EXP.every(t => rs.indexOf(t) >= 0) && new Set(rs).size === rs.length && (EXP.length || !rs.length), rs.join(','));
+      fs.mkdirSync('/workspace/v3-test-shots/351/test-site/', { recursive: true });
+      await page.screenshot({ path: '/workspace/v3-test-shots/351/test-site/' + key + '-home-390.png', fullPage: true });
+    }
     if (key === 'staff') { // 3.5.1: Home › My roster first + boat quick actions
-      const S351 = '/workspace/v3-test-shots/351/'; fs.mkdirSync(S351, { recursive: true });
+      const S351 = '/workspace/v3-test-shots/351/test-site/'; fs.mkdirSync(S351, { recursive: true });
       await go('home');
       const want = await ev(() => r34On());
       await until(() => ev(() => !!document.querySelector('#home-roster:not(.hidden)')), 45000);
