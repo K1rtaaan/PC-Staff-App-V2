@@ -4248,7 +4248,7 @@ function v35RenderDeptPage(){
     v3Row("state._mbBack='deptadmin';navigate('mealbehalf')",'fa-star','Order for someone','Staff without a phone · contractors') +
     v3Row(a31LogNav('dept'),'fa-clock-rotate-left','Activity log','Who changed what');
   $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3Back('more','More')) +
-    '<p class="text-xs text-slate-400 px-1">'+(v3IsAdmin() ? 'All departments (admin)' : esc(state.user.department||''))+'</p>'+v3HodBar()+
+    '<p class="text-xs text-slate-400 px-1">'+(v3IsAdmin() ? 'All departments (admin)' : esc((state.user||{}).department||''))+'</p>'+v3HodBar()+
     '<section class="glass rounded-2xl overflow-hidden" id="dept-rows">'+rows+'</section>', 'deptadmin-root');
   v3RefreshHome().then(function(){ if (state.tab === 'deptadmin') { const el = $('#v3-hodbar'); if (el) el.outerHTML = v3HodBar(); } }).catch(function(){});
 }
@@ -4353,7 +4353,7 @@ async function v35RenderSystem(){
     if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast('Enter a valid email','error'); return; }
     const passcode = await askPasscode('super', true); if (!passcode) return;
     const a = await v3Call('setAppSetting', { key: 'revert_owner_email', value: v, passcode: passcode }, 'Revert owner saved');
-    if (a) { state.appSettings = Object.assign({}, state.appSettings, { revert_owner_email: v }); state.a31CanRevert = !!v && v === String(state.user.email).toLowerCase(); state._a32RepAt = 0; }
+    if (a) { state.appSettings = Object.assign({}, state.appSettings, { revert_owner_email: v }); state.a31CanRevert = !!v && v === String((state.user||{}).email).toLowerCase(); state._a32RepAt = 0; }
   };
   $('#st-prov').onchange = function(){ const b = this.value === 'brevo'; $('#st-g').classList.toggle('hidden', b); $('#st-b').classList.toggle('hidden', !b); };
   $('#st-save').onclick = async function(){
@@ -4437,10 +4437,10 @@ function v35HomeAnnouncements(){
   if (!top.length) return '';
   return '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="home-announce">'+v3Title('fa-bullhorn','Announcements','<button type="button" onclick="navigate(\'announcements\')" class="text-xs text-teal-300">All <i class="fa-solid fa-chevron-right"></i></button>')+
     top.map(function(x){ return '<div class="rounded-xl border '+(x.imp?'border-amber-400/40 bg-amber-500/10':'border-slate-700/60 bg-slate-900/40')+' p-2.5 min-w-0 home-ann"><p class="text-xs font-semibold text-slate-100 break-words">'+(x.imp?'<i class="fa-solid fa-triangle-exclamation text-amber-300 mr-1"></i>':'')+esc(x.title)+'</p>'+
-      (x.body?'<p class="text-[11px] text-slate-300 break-words">'+esc(String(x.body).length > 140 ? String(x.body).slice(0, 140)+'…' : x.body)+'</p>':'')+'<p class="text-[10px] text-slate-500">'+esc(x.k === 'resort' ? 'Whole resort' : (state.user.department||'Department'))+' · '+esc(x.by||'')+'</p></div>'; }).join('')+'</section>';
+      (x.body?'<p class="text-[11px] text-slate-300 break-words">'+esc(String(x.body).length > 140 ? String(x.body).slice(0, 140)+'…' : x.body)+'</p>':'')+'<p class="text-[10px] text-slate-500">'+esc(x.k === 'resort' ? 'Whole resort' : ((state.user||{}).department||'Department'))+' · '+esc(x.by||'')+'</p></div>'; }).join('')+'</section>';
 }
 async function v35RenderAnnouncements(){
-  const tk = V35.tok, adm = v3IsAdmin(), canPost = v3CanDept(), mine = state.user.department || '';
+  const tk = V35.tok, adm = v3IsAdmin(), canPost = v3CanDept(), mine = (state.user||{}).department || '';
   const view = adm ? (state._annDept != null ? state._annDept : mine) : mine;
   const depts = PCR_DEPARTMENTS.slice();
   const post = canPost ? '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ann-post">'+v3Title('fa-pen','Post an announcement')+
@@ -4586,7 +4586,7 @@ function v35EditDetails(u){
 }
 /** HOD / assistant HOD: the same People page, locked to their department (GL link, edit details, remove). */
 async function v35RenderHodPeople(){
-  const tk = V35.tok, dept = state.user.department || '', me = String(state.user.email).toLowerCase();
+  const tk = V35.tok, dept = (state.user||{}).department || '', me = String((state.user||{}).email).toLowerCase();
   const f = state.uf || { q:'' }; state.uf = f;
   $('#main-content').innerHTML = v3Page(
     '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="uf-top"><p class="text-sm font-semibold text-slate-100">'+esc(dept || 'My department')+'</p><label for="uf-q" class="text-[11px] text-slate-400">Search my department</label><input id="uf-q" class="ui-input w-full" type="search" placeholder="Name, email or GL number" value="'+esc(f.q||'')+'"/>'+
@@ -4648,7 +4648,7 @@ function v35ApChips(mode){
 }
 function v35Ok(r){ return r && r.success ? (r.data || {}) : null; }
 async function v35ApLoad(mode){
-  const adm = v3IsAdmin(), lead = v3CanDept(), chef = v3CanChef(), me = String(state.user.email).toLowerCase(), dept = state.user.department || '';
+  const adm = v3IsAdmin(), lead = v3CanDept(), chef = v3CanChef(), me = String((state.user||{}).email).toLowerCase(), dept = (state.user||{}).department || '';
   const chips = v35ApChips(mode), want = function(c){ return chips.indexOf(c) >= 0; };
   const q = function(on, a, p){ return on ? api(a, p || {}).catch(function(){ return null; }) : Promise.resolve(null); };
   const pend = adm && mode === 'all' ? await q(true, 'getDeptPending', {}) : null;
