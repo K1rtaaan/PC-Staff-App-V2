@@ -185,7 +185,8 @@ const TAG = '[auto-test] ' + new Date().toISOString().slice(0, 16);
   const tap = async (sel) => { await until(() => page.$(sel), 30000); await page.waitForTimeout(800); try { await page.click(sel, { timeout: 8000 }); } catch (e) { await page.$eval(sel, el => el.click()); } };
   const r3 = rows.find(x => x.date === D(3)), r4 = rows.find(x => x.date === D(4));
   await tap(RB(out0.id) + ' .ap-yes'); await hodGone(out0.id);
-  if (await page.$(RB(ret0.id))) { await tap(RB(ret0.id) + ' .ap-yes'); await hodGone(ret0.id); }
+  await page.waitForTimeout(2000); await until(() => page.$(RB(ret0.id)), 30000); // per leg in 3.5.0
+  await tap(RB(ret0.id) + ' .ap-yes'); await hodGone(ret0.id);
   await tap(RB(oth.id) + ' .ap-yes'); await hodGone(oth.id);
   await tap(RB(r3.id) + ' .ap-no'); await formSubmit('Short staffed that day'); await hodGone(r3.id);
   await tap(RB(r4.id) + ' .ap-yes'); await hodGone(r4.id);

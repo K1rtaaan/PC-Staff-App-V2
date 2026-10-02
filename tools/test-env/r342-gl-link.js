@@ -101,8 +101,10 @@ const hide = s => String(s).split(PW).join('***');
 
   // pending HOD-step items: t-staff asks for leave far ahead (HOD step)
   await login('staff');
-  const lvDate = add(fjToday(), 50 + (Date.now() % 20));
-  const lv = await api('submitLeave', { startDate: lvDate, endDate: lvDate, leaveType: 'Annual leave', reason: 'gl-e2e ' + L });
+  let lvDate, lv; // re-runnable: earlier runs leave pending requests behind → try another free date
+  for (let k = 0; k < 12; k++) { lvDate = add(fjToday(), 50 + ((Date.now() / 1000 | 0) + k * 7) % 80);
+    lv = await api('submitLeave', { startDate: lvDate, endDate: lvDate, leaveType: 'Annual leave', reason: 'gl-e2e ' + L });
+    if (!(lv && lv.success === false && /already have a pending/.test(lv.error || ''))) break; }
   check('staff submits leave (waits for HOD)', lv && lv.success, JSON.stringify(lv));
 
   // ================= admin: People & roles at 390px

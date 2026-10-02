@@ -4503,8 +4503,8 @@ async function v35LoadMyBookings(){
   const box = $('#boat-mybookings'); if (!box || state.tab !== 'boat') return;
   const tk = V35.tok;
   let r = null; try { r = await api('myBoatBookings', {}); } catch (e) {}
-  if (V35.tok !== tk || !box.isConnected) return;
-  const list = ((r && r.success && r.data && r.data.bookings) || []).filter(function(b){ const d = String((b.run && b.run.date) || b.date || ''); return !d || d >= fijiDateString(addFijiDays(getFijiNow(), -1)); });
+  if (!box.isConnected || state.tab !== 'boat') return; // a repaint makes a fresh box + call
+  const list = ((r && r.success && r.data && r.data.bookings) || []).filter(function(b){ return b.status !== 'cancelled'; }).filter(function(b){ const d = String((b.run && b.run.date) || b.date || ''); return !d || d >= fijiDateString(addFijiDays(getFijiNow(), -1)); });
   box.innerHTML = '<section class="glass rounded-xl p-3 space-y-2 min-w-0" id="boat-mine"><p class="text-sm font-semibold text-teal-200"><i class="fa-solid fa-ticket mr-1.5"></i>My bookings</p>'+
     (list.length ? list.map(function(b){ return '<div class="v3-row text-xs py-1.5 border-t border-slate-700/40 min-w-0"><div class="min-w-0"><p class="text-slate-100 truncate">'+esc((b.run && b.run.route) || b.runId)+'</p><p class="text-[11px] text-slate-400">'+esc((b.run && b.run.date) || '')+' '+esc((b.run && b.run.time) || '')+' · '+esc(b.seats)+' seat(s) · '+esc(b.status)+'</p></div>'+
       (b.status === 'confirmed' ? '<button type="button" class="mb-cancel shrink-0 rounded-lg px-2 py-1 text-[11px] border border-rose-500/40 text-rose-200" data-id="'+esc(b.id)+'">Cancel</button>' : '')+'</div>'; }).join('') : '<p class="text-xs text-slate-400">No upcoming bookings.</p>')+'</section>';

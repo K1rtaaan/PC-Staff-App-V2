@@ -235,7 +235,7 @@ const hide = s => String(s).split(PW).join('***');
   check('kitchen summary: approved special meal listed', spd.some(x => /auto-test/.test(x.reason)), JSON.stringify(ks.data.dinner.specialMeals));
   check('kitchen summary: island estimate', ks.data.island && ks.data.island.onIsland >= 1, JSON.stringify(ks.data.island));
   const ph = await page.evaluate(d => specialMealsPrintHtml(d.dinner.specialMeals) + kitPrepDataFor(d).specialMeals.length, ks.data);
-  check('printout / PDF: "Special meal requests" section', /Special meal requests \(1/.test(ph) && /auto-test/.test(ph), ph.slice(0, 200));
+  check('printout / PDF: "Meals while away" section (3.5.0 name)', /Meals while away \(1/.test(ph) && /auto-test/.test(ph), ph.slice(0, 200));
   await nav('kitchen');
   await until(() => page.isVisible('#kit-day-panel'), 60000);
   if (await page.$('.kit-day-chip[data-date="' + D + '"]')) await page.click('.kit-day-chip[data-date="' + D + '"]');
