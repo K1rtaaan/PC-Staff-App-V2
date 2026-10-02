@@ -78,7 +78,7 @@ const OLD = { usersv3: 'people', gllink: 'people', deptstaff: 'peoplelinks', boa
       await page.screenshot({ path: S + key + '-' + t + '.png', fullPage: true });
     }
     if (key === 'admin' || key === 'hod') for (const o of Object.keys(OLD)) {
-      if (key === 'hod' && o === 'gllink') continue;
+      if (key === 'hod' && /^(gllink|boatruns|kitchenreports)$/.test(o)) continue; // not HOD pages → home is right
       await go(o);
       check('old page "' + o + '" → ' + OLD[o], await ev(() => state.tab) === OLD[o], await ev(() => state.tab));
     }
