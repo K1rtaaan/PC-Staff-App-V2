@@ -438,10 +438,28 @@ function s34SpecialFor(date) {
   } catch (e) {}
   return o;
 }
+/** 3.5.0: Kitchen Admin › Reports roster compare — expected staff per meal from the rosters already uploaded (no local file). Chef / admin, max 45 days. */
+function getRosterExpected(p) {
+  var me = v3Requester(p);
+  if (!isChefPerm(me) && !isAdminPerm(me)) return { success: false, error: 'Kitchen or admin only' };
+  r34Ensure(); s34Ensure();
+  var from = v3Date(p.from || r34Today()), to = v3Date(p.to || from);
+  if (!r34IsoOk(from) || !r34IsoOk(to) || to < from) return { success: false, error: 'Pick a valid date range' };
+  var off = s34OffList(), days = [];
+  for (var d = from, n = 0; d <= to && n < 45; d = r34Add(d, 1), n++) {
+    var lv = s34ApprovedLeaveOn(d), trips = s34BoatTrips(d), ck = null, r = null;
+    try { ck = scKey('r34', 'isl341:' + d + ':' + s34Hash(JSON.stringify([off, lv, trips]))); r = scGetJson(ck); } catch (e) { ck = null; }
+    if (!r) { r = s34IslandCount(d, off, lv, trips); if (ck) { try { scPutJson(ck, r, 3600); } catch (e2) {} } }
+    var meals = {};
+    S34_MEAL_ORDER.forEach(function (m) { meals[m] = (r.meals && r.meals[m]) ? r.meals[m].onIsland : 0; });
+    days.push({ date: d, hasRoster: r.on + r.offN > 0, onIsland: r.on, meals: meals });
+  }
+  return { success: true, data: { from: from, to: to, days: days, truncated: days.length >= 45 && r34Add(from, 45) <= to } };
+}
 function routeStaff34(action, p) {
   var map = { requestScheduleLink: requestScheduleLink, decideLinkRequest: decideLinkRequest, setStaffLink: setStaffLink, getLinkRequests: getLinkRequests,
     getDeptRosterStaff: getDeptRosterStaff, registerStaff: registerStaff, setFirstPassword: setFirstPassword,
-    getIslandEstimate: getIslandEstimate, requestSpecialMeal: requestSpecialMeal, cancelSpecialMeal: cancelSpecialMeal, getSpecialMeals: getSpecialMeals, decideSpecialMeal: decideSpecialMeal };
+    getIslandEstimate: getIslandEstimate, requestSpecialMeal: requestSpecialMeal, cancelSpecialMeal: cancelSpecialMeal, getSpecialMeals: getSpecialMeals, decideSpecialMeal: decideSpecialMeal, getRosterExpected: getRosterExpected };
   var fn = map[action];
   if (!fn && action === 'testMailLog' && typeof testMailLogAction === 'function') fn = testMailLogAction; // TEST backend only (TestEnv.gs)
   if (!fn) return null;

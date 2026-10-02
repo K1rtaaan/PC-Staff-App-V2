@@ -13,10 +13,10 @@ const V3_ROLE_LABEL = { super_admin:'Superadmin', admin:'Admin', hod:'HOD', assi
 const V3_ROLE_FILTERS = ['super_admin','admin','hod','assistant_hod','chef','boat_manager','boat_captain','staff'];
 /** Assignable roles (multi-select). staff is implied. */
 const V3_PERM_OPTIONS = [['hod','HOD'],['assistant_hod','Assistant HOD'],['chef','Chef / Kitchen'],['boat_manager','Boat manager'],['boat_captain','Boat captain'],['admin','Admin'],['super_admin','Superadmin']];
-const V3_BUTTONS = { admin:{ tab:'adminhub', icon:'fa-user-shield', label:'Admin Settings', sub:'Users & roles, leave, reminders, reports' },
-  kitchen:{ tab:'kitchenadmin', icon:'fa-fire-burner', label:'Kitchen Admin', sub:'Lists, menus, requests, meal times' },
-  boat:{ tab:'boatadmin', icon:'fa-anchor', label:'Boat Admin', sub:'Runs, passengers, emergency travel' },
-  dept:{ tab:'deptadmin', icon:'fa-people-group', label:'Department Admin', sub:'Approvals, staff, updates, leave' } };
+const V3_BUTTONS = { admin:{ tab:'adminhub', icon:'fa-user-shield', label:'Admin', sub:'Overview, people, leave, rosters, system' },
+  kitchen:{ tab:'kitchenadmin', icon:'fa-fire-burner', label:'Kitchen Admin', sub:'Today, lists, approvals, menu, reports' },
+  boat:{ tab:'boatadmin', icon:'fa-anchor', label:'Boat Admin', sub:'Village runs, resort boat, emergency' },
+  dept:{ tab:'deptadmin', icon:'fa-people-group', label:'Department', sub:'People, leave overview, announcements' } };
 /* stations were removed in 3.0.0 — kept as no-op stubs so older helpers stay safe */
 function v3Station(){ return ''; }
 function v3Exclusive(){ return false; }
@@ -685,7 +685,7 @@ function v3AskReauth(){
 /* ============ D. navigation ============ */
 navItems = function(){
   if (v3IsSuper()) return [
-    { id:'home', icon:'fa-gauge-high', label:'Dashboard' }, { id:'approvals', icon:'fa-inbox', label:'Approvals' },
+    { id:'home', icon:'fa-gauge-high', label:'Overview' }, { id:'approvals', icon:'fa-inbox', label:'Approvals' },
     { id:'manage', icon:'fa-sliders', label:'Manage' }, { id:'more', icon:'fa-ellipsis', label:'More' }];
   return [{ id:'home', icon:'fa-house', label:'Home' }, { id:'meals', icon:'fa-utensils', label:'Meals' },
     { id:'boat', icon:'fa-ship', label:'Boat' }, { id:'more', icon:'fa-ellipsis', label:'More' }];
@@ -696,9 +696,10 @@ const V3_ROLE_TABS = {
   boatadmin:'boat', boatruns:'boat', emergency:'boat', resortboat:'boat',
   deptadmin:'dept', approvals:'dept', deptstaff:'dept', deptupdatespost:'dept', leavecal:'dept', leavesummary:'dept', mealbehalf:'dept',
   adminhub:'admin', usersv3:'admin', users:'admin', reminders:'admin', suggestions:'admin', adminstatus:'admin', settings:'admin', admin:'admin', manage:'admin', migrate:'admin',
-  adminoverview:'admin', admintools:'admin', aboutimage:'admin' // 3.2.0
+  adminoverview:'admin', admintools:'admin', aboutimage:'admin', // 3.2.0
+  kitchenlists:'kitchen', kitchenapprovals:'kitchen', boatemergency:'boat', people:'dept', peoplelinks:'dept', leavelist:'dept', system:'admin' // 3.5.0 hubs
 };
-const V3_TAB_PARENT = { breakfast:'meals', lunch:'meals', dinner:'meals', myorders:'more', history:'more', leave:'more', profile:'more', notifications:'more', bookings:'more', deptupdates:'more' }; // 3.4.0: schedule is its own bottom tab
+const V3_TAB_PARENT = { breakfast:'meals', lunch:'meals', dinner:'meals', myorders:'more', history:'more', leave:'more', profile:'more', notifications:'more', bookings:'more', deptupdates:'more', inbox:'more', announcements:'more', pushsettings:'more', myreports:'more' }; // 3.4.0: schedule is its own bottom tab
 renderNav = function(targetSel){
   const items = navItems(), ids = items.map(function(n){ return n.id; });
   let active = ids.includes(state.tab) ? state.tab : (V3_TAB_PARENT[state.tab] || (v3IsSuper() && V3_ROLE_TABS[state.tab] ? 'manage' : 'more'));
@@ -730,7 +731,7 @@ canPrivilegedTab = function(tab){
   if (kind === 'kitchen') return v3CanChef();
   if (kind === 'boat') return v3HasBoat();
   if (kind === 'dept') return v3CanDept();
-  if (kind === 'admin') return (tab === 'settings' || tab === 'admin' || tab === 'migrate' || tab === 'aboutimage') ? v3IsSuper() : v3IsAdmin();
+  if (kind === 'admin') return (tab === 'migrate' || tab === 'aboutimage') ? v3IsSuper() : v3IsAdmin();
   return true;
 };
 roleLandingTab = function(){
@@ -744,52 +745,10 @@ const V3_TITLES = { home:'Home', meals:'Meals', boat:'Boat', more:'More', bookin
   kitchenadmin:'Kitchen Admin', boatadmin:'Boat Admin', deptadmin:'Department Admin', adminhub:'Admin Settings', mealtimes:'Meal times', mealstats:'Meal statistics', offmenu:'Orders not on the menu',
   boatruns:'Boat runs (admin)', emergency:'Emergency travel', leavesummary:'Leave summary', mealbehalf:'Meal on behalf', migrate:'Role migration', deptupdatespost:'Department updates',
   adminlog:'Activity log', superlog:'Superadmin log', reports:'Reports', myreports:'My reports', pushsettings:'Phone notifications', adminoverview:'Overview', admintools:'System tools', aboutimage:'About image', resortboat:'Resort boat (PCE)' };
-navigate = function(tab){
-  if (tab === 'myorders') tab = 'history';
-  if (tab === 'breakfast' || tab === 'lunch' || tab === 'dinner') { state.mealFocus = tab; tab = 'meals'; }
-  if (tab === 'chef') tab = 'kitchenadmin';
-  if (tab === 'stboat') tab = 'boatadmin';
-  if (v3IsSuper() && A31_SUPER_NO_TABS[tab]) { toast(A31_SUPER_TOAST,'error'); tab = 'home'; } // 3.1.0: superadmin = admin-only account
-  if (tab === 'leave' && r34On() && (!v3CanDept() || state.leaveTabForce === 'mine')) { state._schTab = 'leave'; state.leaveTabForce = null; tab = 'schedule'; } // 3.4.0: own leave lives in the Schedule tab
-  if (!canPrivilegedTab(tab)) { toast('That area is not part of your role','error'); tab = 'home'; }
-  if (tab === 'schedule' && !featureOn('feature_my_schedule')) { toast('My Schedule is off for now.','error'); tab = 'more'; }
-  if (state._v3Timer) { clearInterval(state._v3Timer); state._v3Timer = null; }
-  if (state._homeRemTimer) { clearInterval(state._homeRemTimer); state._homeRemTimer = null; }
-  state.tab = tab;
-  state._roleMode = V3_ROLE_TABS[tab] || '';
-  if (tab === 'approvals' && !v3IsSuper()) state._roleMode = 'dept';
-  if (tab === 'adminlog') state._roleMode = state.logArea || 'admin';
-  const ht = $('#header-title'); if (ht) ht.textContent = V3_TITLES[tab] || tab;
-  const sticky = $('#app-sticky'); if (sticky) sticky.classList.remove('hidden');
-  const map = {
-    home: renderHome, meals: renderMeals, boat: renderBoat, more: renderMore, bookings: renderMyBookings, profile: renderMyProfile, schedule: r34RenderSchedule,
-    history: v3RenderHistory, leave: v3RenderLeave, notifications: v3RenderNotifications, deptstaff: v3RenderDeptStaff, deptupdates: v3RenderDeptUpdates, deptupdatespost: v3RenderDeptUpdates,
-    chefreq: v3RenderChefRequests, chefcomments: v3RenderChefComments, chefmenu: v3RenderMenuEditor,
-    kitchen: renderKitchen, manage: v3RenderManage, usersv3: v3RenderUsers, users: renderUsers, reminders: v3RenderReminders, adminstatus: v3RenderAdminStatus, leavecal: v3RenderLeaveCalendar,
-    settings: v3RenderSettings, admin: renderAdmin, suggestions: renderSuggestions, approvals: v3RenderApprovals, special: v3RenderSpecialPage,
-    kitchenadmin: v3RenderKitchenAdmin, boatadmin: v3RenderBoatAdmin, deptadmin: v3RenderDeptAdmin, adminhub: v3RenderAdminHub, mealtimes: v3RenderMealTimes,
-    mealstats: v3RenderMealStats, offmenu: v3RenderOffMenu, boatruns: v3RenderBoatRuns, emergency: v3RenderEmergency, leavesummary: v3RenderLeaveSummary, mealbehalf: v3RenderMealBehalf, migrate: v3RenderMigrate,
-    adminlog: a31RenderLog, superlog: a31RenderSuperLog, reports: a32RenderReports, myreports: a32RenderMyReports, pushsettings: a33RenderSettings,
-    adminoverview: a34RenderOverview, admintools: a34RenderTools, aboutimage: a34RenderAboutImage, resortboat: r33RenderResortAdmin,
-    rostermonthly: function(){ return r34RenderUpload('monthly'); }, rosterweekly: function(){ return r34RenderUpload('weekly'); }, rosterarchive: function(){ return r34RenderUpload('archive'); },
-    rosterunmatched: r34RenderUnmatched, leaveallow: r34RenderAllowances, empcodes: r34RenderEmpCodes, deptstaff: s34RenderDeptStaff, // 3.4.0
-    gllink: g341RenderGlLink // 3.4.1
-  };
-  if (['home','meals','boat','kitchen'].includes(tab)) paintSkeleton({ cards: 3 });
-  try { history.replaceState(null, '', location.pathname + location.search + (tab === 'home' ? '' : '#'+tab)); } catch (e) {}
-  const fn = map[tab] || renderHome;
-  Promise.resolve().then(fn).catch(function(e){ console.error(e); toast('Could not open '+(V3_TITLES[tab]||tab),'error'); });
-  renderNav('#bottom-nav');
-  renderDataStatus();
-  const mc = $('#main-content'); if (mc) mc.scrollTop = 0;
-  try { window.scrollTo(0, 0); } catch (e) {}
-  if (tab === 'home') setTimeout(prefetchNextTabByRole, 400);
-  v3PollNotifications();
-  a32AfterNav(tab); // 3.1.0: page guide "?" + first-time guide, report badge
-};
+navigate = function(tab){ return v35Navigate(tab); }; // 3.5.0: see v35Navigate (redirects old page names, hub tabs, stale-render token)
 /** Unread notifications badge on More (at most one check a minute, never blocks a screen). */
 function v3PollNotifications(){
-  if (!state.user || state.tab === 'more' || state.tab === 'notifications') return;
+  if (!state.user || state.tab === 'more' || state.tab === 'inbox') return;
   if (state._v3UnreadAt && Date.now() - state._v3UnreadAt < 60000) return;
   state._v3UnreadAt = Date.now();
   setTimeout(function(){
@@ -798,6 +757,7 @@ function v3PollNotifications(){
 }
 /** Role-page header: back to the role dashboard. */
 function v3RoleBack(kind){
+  if (v3IsSuper()) return v3Back('manage','Manage'); // 3.5.0: superadmin role pages live under Manage
   const b = V3_BUTTONS[kind]; if (!b) return v3Back('more','More');
   return v3Back(b.tab, b.label);
 }
@@ -907,20 +867,16 @@ function v3LeaveLine(){
 function v3GreetingCard(){
   const u = state.user, today = fijiDateString();
   const boat = v3NextBoat();
-  const todayRow = V3_MEALS.map(function(m){
-    const o = v3MyMeal(m, today);
-    return '<div class="v3-row text-xs"><span class="text-slate-400 shrink-0 w-20">'+V3_MEAL_LABEL[m]+'</span><span class="min-w-0 truncate text-right">'+v3MealLine(m, o)+'</span></div>';
-  }).join('');
   return '<section class="glass rounded-2xl p-4 space-y-3 min-w-0" id="v3-greet">'+
     '<div class="flex items-center gap-3 min-w-0">'+homeAvatarHtml(u)+'<div class="min-w-0 flex-1">'+
     '<h2 class="text-lg font-semibold text-slate-100 truncate">Bula, '+esc(displayName(u))+'</h2>'+
     '<p class="text-[11px] text-slate-400 truncate">'+esc(v3RoleLabel(u))+' · '+esc(u.department||'—')+(state.demo?' · demo':'')+'</p>'+
     '<p class="text-[11px] text-teal-300 mt-0.5"><i class="fa-regular fa-clock mr-1"></i><span id="v3-clock" class="v3-countdown">'+formatFiji()+'</span></p></div></div>'+
-    '<div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-1.5"><p class="v3-section-title">Today · '+esc(v3DateLabel(today) === 'Today' ? WEEKDAY_NAMES[getFijiNow().getUTCDay()] : today)+'</p>'+todayRow+
-    (boat ? '<div class="v3-row text-xs pt-1 border-t border-slate-700/50"><span class="text-slate-400 shrink-0"><i class="fa-solid fa-ship mr-1 text-teal-400"></i>'+(boat.mine?'My boat':'Next boat')+'</span>'+
-      '<button type="button" onclick="navigate(\''+(boat.mine?'bookings':'boat')+'\')" class="text-right min-w-0 truncate text-slate-100">'+esc(v3DateLabel(boat.date))+' '+esc(boat.time)+' '+esc(boat.route||'')+
+    ((boat || v3LeaveLine()) ? '<div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-1.5">' : '')+
+    (boat ? '<div class="v3-row text-xs"><span class="text-slate-400 shrink-0"><i class="fa-solid fa-ship mr-1 text-teal-400"></i>'+(boat.mine?'My boat':'Next boat')+'</span>'+
+      '<button type="button" onclick="navigate(\'boat\')" class="text-right min-w-0 truncate text-slate-100">'+esc(v3DateLabel(boat.date))+' '+esc(boat.time)+' '+esc(boat.route||'')+
       (boat.left!=null?' · <span class="text-teal-300">'+boat.left+' seats left</span>':'')+'</button></div>' : '')+
-    v3LeaveLine()+'</div></section>';
+    v3LeaveLine()+((boat || v3LeaveLine()) ? '</div>' : '')+'</section>';
 }
 function v3OrdersGrid(){
   const tom = fijiDateString(addFijiDays(getFijiNow(),1));
@@ -936,22 +892,24 @@ function v3OrdersGrid(){
       '<p class="mt-0.5">'+(o ? v3Status(o.status) : '<span class="text-[11px] text-slate-400">Not ordered</span>')+'</p>'+
       '<p class="text-[10px] mt-1 '+(cd?(cd.late?'text-orange-300':'text-teal-300'):'text-amber-300')+'">'+(cd ? '<span data-cd="'+cd.t.getTime()+'" class="v3-countdown">'+v3Countdown(cd.t.getTime()-getFijiNow().getTime())+'</span><br><span class="text-slate-500">'+cd.label+'</span>' : 'Orders closed')+'</p></button>';
   }).join('');
-  return '<section class="space-y-2 min-w-0" id="home-myorders">'+v3Title('fa-receipt','My orders · tomorrow '+esc(v3DateLabel(tom)==='Tomorrow'?WEEKDAY_NAMES[addFijiDays(getFijiNow(),1).getUTCDay()]:tom))+
-    '<div class="grid grid-cols-3 gap-2" id="home-meal-grid">'+cards+'</div>'+
+  const today = fijiDateString(); // 3.5.0: the meal status shows once — tomorrow's cards + one compact line for today
+  const todayLine = '<p class="text-[11px] text-slate-400 px-1 min-w-0" id="home-today-line"><span class="text-slate-500">Today:</span> '+V3_MEALS.map(function(m){ const o = v3MyMeal(m, today);
+    return esc(V3_MEAL_LABEL[m])+' '+(o && !isInactiveMealStatus(o.status) ? '<span class="text-teal-300">'+(m==='dinner'&&o.mealChoice?esc(o.mealChoice):'✓')+'</span>' : '<span class="text-slate-500">—</span>'); }).join(' · ')+'</p>';
+  return '<section class="space-y-2 min-w-0" id="home-myorders">'+v3Title('fa-receipt','My meals · tomorrow '+esc(v3DateLabel(tom)==='Tomorrow'?WEEKDAY_NAMES[addFijiDays(getFijiNow(),1).getUTCDay()]:tom))+
+    '<div class="grid grid-cols-3 gap-2" id="home-meal-grid">'+cards+'</div>'+todayLine+
     (anyClosed ? '<p class="text-[11px] text-amber-200/90 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2" id="home-books-closed"><i class="fa-solid fa-lock mr-1"></i>Orders closed for some meals — use a Late Meal Request on the Meals page while the late window is open.</p>' : '')+
     '</section>';
 }
-function v3DoThisNow(){
-  const tiles = v3Tile(v3Nav('meals'),'fa-utensils','Meals','Order, change, late request') + v3Tile(v3Nav('boat'),'fa-ship','Book a boat','Village runs') +
-    v3Tile("v3OpenLeaveForm()",'fa-plane-departure','Request leave','Day off, annual, sick') + v3Tile(v3Nav('history'),'fa-list-check','My orders','Meals, boats, leave');
-  return '<section class="space-y-2 min-w-0" id="home-dothisnow">'+v3Title('fa-bolt','Do this now')+'<div class="grid grid-cols-2 gap-2">'+tiles+'</div></section>';
+function v3DoThisNow(){ // 3.5.0: Meals / Boat / My history are already in the bottom bar and More
+  const tiles = v3Tile("v3OpenLeaveForm()",'fa-plane-departure','Request leave','Day off, annual, sick') + v3Tile("a32OpenReport()",'fa-flag','Report a problem','Error, change or idea');
+  return '<section class="space-y-2 min-w-0" id="home-dothisnow">'+v3Title('fa-bolt','Quick actions')+'<div class="grid grid-cols-2 gap-2">'+tiles+'</div></section>';
 }
 function v3HodBar(){
   const hb = v3Home().hodBar; if (!hb) return '';
   const cell = function(tab, n, label, icon){ return '<button type="button" onclick="navigate(\''+tab+'\')" class="rounded-xl p-2.5 text-left border min-w-0 '+(n?'border-amber-400/40 bg-amber-500/10':'border-slate-700/70 bg-slate-900/40')+'">'+
     '<p class="text-xl font-semibold '+(n?'text-amber-200':'text-slate-300')+'">'+n+'</p><p class="text-[10px] text-slate-400 leading-tight"><i class="fa-solid '+icon+' mr-1"></i>'+label+'</p></button>'; };
-  const cells = cell('approvals', hb.leave||0, 'Leave to review', 'fa-plane-departure') + cell('approvals', hb.late||0, 'Late meals', 'fa-clock') + cell('leavecal', hb.onLeaveToday||0, 'On leave today', 'fa-calendar-days') +
-    (v3IsAdmin() ? cell('approvals', hb.leaveMgmt||0, 'Final approval', 'fa-stamp') : '');
+  const cells = cell('approvals:leave', hb.leave||0, 'Leave to review', 'fa-plane-departure') + cell('approvals:late', hb.late||0, 'Late meals', 'fa-clock') + cell('leavecal', hb.onLeaveToday||0, 'On leave today', 'fa-calendar-days') +
+    (v3IsAdmin() ? cell('approvals:leave', hb.leaveMgmt||0, 'Final approval', 'fa-stamp') : '');
   return '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="v3-hodbar">'+v3Title('fa-clipboard-check', v3IsAdmin() ? 'Waiting for you (all departments)' : 'Waiting for you · '+esc(state.user.department||''))+
     '<div class="grid '+(v3IsAdmin()?'grid-cols-4':'grid-cols-3')+' gap-2">'+cells+'</div></section>';
 }
@@ -988,8 +946,8 @@ function v3ChefDashCard(c){
     '<div class="grid grid-cols-3 gap-2">'+num('Breakfast', t.tomorrow.breakfast)+num('Lunch', t.tomorrow.lunch)+num('Dinner', t.tomorrow.dinner)+'</div>'+
     '<p class="text-[10px] text-slate-400">Today: '+(t.today.breakfast||0)+' breakfast · '+(t.today.lunch||0)+' lunch · '+(t.today.dinner||0)+' dinner</p>'+
     '<div class="grid grid-cols-3 gap-2">'+
-      '<button type="button" onclick="navigate(\'chefreq\')" class="rounded-xl p-2 text-left border '+(c.pending.late?'border-amber-400/40 bg-amber-500/10':'border-slate-700/60')+'"><p class="text-lg font-semibold">'+c.pending.late+'</p><p class="text-[10px] text-slate-400">Late requests</p></button>'+
-      '<button type="button" onclick="navigate(\'chefreq\')" class="rounded-xl p-2 text-left border '+(c.pending.special?'border-amber-400/40 bg-amber-500/10':'border-slate-700/60')+'"><p class="text-lg font-semibold">'+c.pending.special+'</p><p class="text-[10px] text-slate-400">Special requests</p></button>'+
+      '<button type="button" onclick="state._apChip=\'late\';navigate(\'kitchenapprovals\')" class="rounded-xl p-2 text-left border '+(c.pending.late?'border-amber-400/40 bg-amber-500/10':'border-slate-700/60')+'"><p class="text-lg font-semibold">'+c.pending.late+'</p><p class="text-[10px] text-slate-400">Late requests</p></button>'+
+      '<button type="button" onclick="state._apChip=\'special\';navigate(\'kitchenapprovals\')" class="rounded-xl p-2 text-left border '+(c.pending.special?'border-amber-400/40 bg-amber-500/10':'border-slate-700/60')+'"><p class="text-lg font-semibold">'+c.pending.special+'</p><p class="text-[10px] text-slate-400">Orders for someone</p></button>'+
       '<button type="button" onclick="navigate(\'chefcomments\')" class="rounded-xl p-2 text-left border '+(c.feedbackNew?'border-sky-400/40 bg-sky-500/10':'border-slate-700/60')+'"><p class="text-lg font-semibold">'+(c.feedbackNew||0)+'</p><p class="text-[10px] text-slate-400">New food comments</p></button></div>'+
     '<div class="grid grid-cols-2 gap-3 min-w-0"><div class="space-y-1 min-w-0"><p class="text-[10px] text-slate-400">Most liked</p>'+list(c.liked,'likes','ok')+'</div><div class="space-y-1 min-w-0"><p class="text-[10px] text-slate-400">Most disliked</p>'+list(c.disliked,'dislikes','bad')+'</div></div>'+
     '<div class="space-y-1"><p class="text-[10px] text-slate-400">Orders per day (last 7 days incl. tomorrow)</p>'+v3WeeklyChart(c.weekly)+'</div></section>';
@@ -1005,7 +963,7 @@ function v3DeptUpdatesBlock(list, compact){
   if (!v3DeptOk()) return '';
   list = list || [];
   const body = list.length ? list.map(function(u){ return v3UpdateCard(u, compact); }).join('') : v3Empty('No updates from your department yet.');
-  return '<section class="glass rounded-2xl p-4 space-y-3 min-w-0" id="home-deptupdates">'+v3Title('fa-bullhorn','Department updates · '+esc(state.user.department||''),'<button type="button" onclick="navigate(\'deptupdates\')" class="text-xs text-teal-300">All <i class="fa-solid fa-chevron-right"></i></button>')+body+'</section>';
+  return '<section class="glass rounded-2xl p-4 space-y-3 min-w-0" id="home-deptupdates">'+v3Title('fa-bullhorn','Department updates · '+esc(state.user.department||''),'<button type="button" onclick="navigate(\'announcements\')" class="text-xs text-teal-300">All <i class="fa-solid fa-chevron-right"></i></button>')+body+'</section>';
 }
 function v3UpdateCard(u, compact){
   const r = u.myReaction;
@@ -1068,17 +1026,14 @@ function v3RemindersStrip(){
 }
 function renderHome(){
   if (v3IsSuper()) return v3RenderSuperHome();
-  const h = v3Home();
+  // 3.5.0: greeting · cutoff banner · my meals (status once) · quick actions · top announcements · suggestion box
   $('#main-content').innerHTML = v3Page(
     v3GreetingCard() + v3CutoffBanner() + v3SignInBanner() + queueHostHtml('*') +
-    v3OrdersGrid() + v3DoThisNow() +
-    v3DeptUpdatesBlock(h.deptUpdates, true) +
-    v3SuggestionBox() + v3RemindersStrip() +
-    '<p class="text-center text-[10px] text-slate-500" id="home-ver">UI '+APP_VERSION+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>', 'home');
+    v3OrdersGrid() + v3DoThisNow() + v35HomeAnnouncements() + v3SuggestionBox(), 'home');
   bindQueueButtons();
-  v3BindUpdateCards($('#home-deptupdates'), function(){ v3RefreshHome().then(function(){ if (state.tab === 'home') renderHome(); }); });
   v3BindSuggestionBox();
   v3StartTicker();
+  v35LoadAnnouncements(false).then(function(ch){ if (ch && state.tab === 'home' && !v3HomeTyping()) { const el = $('#home-announce'); const html = v35HomeAnnouncements(); if (el) el.outerHTML = html || '<div id="home-announce" class="hidden"></div>'; else if (html) { const g = $('#home-dothisnow'); if (g) g.insertAdjacentHTML('afterend', html); } } }).catch(function(){});
   if (!cacheGet('v3home')) {
     bootWait().then(function(){
       if (cacheGet('v3home') || state.tab !== 'home') return;
@@ -1158,31 +1113,16 @@ function v3BindLeaveCards(root, after){
       });
   }; });
 }
-async function v3RenderLeave(){
-  const tabs = (v3IsSuper() || r34On()) ? [] : [{ id:'mine', label:'My leave' }]; // 3.1.0: superadmin never applies for leave · 3.4.0: own leave = Schedule tab
-  if (v3CanDept()) tabs.push({ id:'dept', label: v3IsAdmin() ? 'HOD step' : 'Department' });
-  if (v3IsAdmin()) tabs.push({ id:'final', label:'Final approval' });
-  let cur = state.leaveTab && tabs.some(function(t){ return t.id === state.leaveTab; }) ? state.leaveTab : (v3IsAdmin() ? 'final' : (v3CanDept() ? 'dept' : 'mine'));
-  if (state.leaveTabForce) { cur = state.leaveTabForce; state.leaveTabForce = null; }
-  state.leaveTab = cur;
+async function v3RenderLeave(){ // 3.5.0: own leave only (decisions are in Approvals · team view is the Leave overview)
   $('#main-content').innerHTML = v3Page(v3Back('more','More') +
-    (tabs.length > 1 ? '<div class="grid gap-1 rounded-xl bg-slate-900/60 p-1" style="grid-template-columns:repeat('+tabs.length+',1fr)">'+tabs.map(function(t){ return '<button type="button" class="v3-seg rounded-lg py-2 text-xs '+(t.id===cur?'bg-teal-600 text-white font-semibold':'text-slate-300')+'" data-t="'+t.id+'">'+t.label+'</button>'; }).join('')+'</div>' : '')+
-    (cur === 'mine' ? '<button type="button" id="lv-new" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white"><i class="fa-solid fa-plus mr-1"></i>New leave request</button>' : '<button type="button" onclick="navigate(\'leavecal\')" class="w-full rounded-xl py-2.5 text-sm border border-teal-500/40 text-teal-200"><i class="fa-solid fa-calendar-days mr-1"></i>Leave calendar</button>')+
+    '<button type="button" id="lv-new" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white"><i class="fa-solid fa-plus mr-1"></i>New leave request</button>'+
     '<div id="lv-list" class="space-y-2">'+v3Loading()+'</div>', 'leave-root');
-  $$('.v3-seg').forEach(function(b){ b.onclick = function(){ state.leaveTab = b.dataset.t; v3RenderLeave(); }; });
-  const nb = $('#lv-new'); if (nb) nb.onclick = v3OpenLeaveForm;
-  const scope = cur === 'mine' ? 'mine' : (v3IsAdmin() ? 'all' : 'dept');
-  const d = await v3Call('getLeave', { scope: scope });
+  $('#lv-new').onclick = v3OpenLeaveForm;
+  const d = await v3Call('getLeave', { scope: 'mine' });
   if (state.tab !== 'leave') return;
-  const me = String(state.user.email).toLowerCase();
-  let rows = (d && d.requests) || [];
-  if (cur === 'dept') rows = rows.filter(function(l){ return String(l.userEmail).toLowerCase() !== me; }).map(function(l){ l.canDecide = l.status === 'pending_hod'; return l; });
-  if (cur === 'final') rows = rows.filter(function(l){ return String(l.userEmail).toLowerCase() !== me; }).map(function(l){ l.canDecide = l.status === 'pending_manager'; return l; });
-  if (cur !== 'mine') rows.sort(function(a,b){ return (b.canDecide?1:0) - (a.canDecide?1:0); });
-  const list = $('#lv-list');
-  const pendingN = rows.filter(function(l){ return l.canDecide; }).length;
-  list.innerHTML = (cur !== 'mine' ? '<p class="text-[11px] text-slate-400">'+pendingN+' waiting for your decision'+(cur==='final'?' (already approved by the HOD)':'')+'</p>' : '') +
-    (rows.length ? rows.map(function(l){ return v3LeaveCard(l, cur === 'mine' ? 'mine' : 'review'); }).join('') : v3Empty(cur === 'mine' ? 'You have no leave requests yet.' : 'Nothing here.'));
+  const rows = (d && d.requests) || [];
+  const list = $('#lv-list'); if (!list) return;
+  list.innerHTML = rows.length ? rows.map(function(l){ return v3LeaveCard(l, 'mine'); }).join('') : v3Empty('You have no leave requests yet.');
   v3BindLeaveCards(list, v3RenderLeave);
 }
 
@@ -1194,7 +1134,7 @@ async function v3RenderLeaveCalendar(){
   const y = +month.slice(0,4), m = +month.slice(5,7);
   const shift = function(k){ const d = new Date(Date.UTC(y, m-1+k, 1)); return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0'); };
   const MN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  $('#main-content').innerHTML = v3Page(v3Back(v3IsAdmin()?'manage':'more', v3IsAdmin()?'Manage':'More') +
+  $('#main-content').innerHTML = v3Page(
     '<section class="glass rounded-2xl p-3 space-y-3 min-w-0" id="leavecal-root"><div class="v3-row"><button type="button" id="lc-prev" class="rounded-lg px-3 py-2 border border-slate-600 text-slate-200" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>'+
     '<h3 class="text-sm font-semibold text-slate-100" id="lc-title">'+MN[m-1]+' '+y+'</h3><button type="button" id="lc-next" class="rounded-lg px-3 py-2 border border-slate-600 text-slate-200" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></button></div>'+
     '<div id="lc-dept"></div><div id="lc-grid">'+v3Loading()+'</div>'+
@@ -1227,6 +1167,8 @@ async function v3RenderLeaveCalendar(){
     }).join('') : v3Empty('No approved or waiting leave.')));
   };
   $('#lc-list').innerHTML = listHtml(rows, 'This month');
+  $('#lc-list').insertAdjacentHTML('afterend', '<button type="button" id="lc-csv" class="w-full rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-download mr-1"></i>Download this month (CSV)</button>');
+  $('#lc-csv').onclick = function(){ v3Download('leave-'+month+(state.lcDept?'-'+state.lcDept.replace(/[^a-z0-9]+/gi,'-'):'')+'.csv', rows.map(function(l){ return { name:l.userName, department:l.department, type:l.leaveType, from:l.startDate, to:l.endDate, status:l.status }; }), ['name','department','type','from','to','status']); };
   $$('.lc-day').forEach(function(b){ b.onclick = function(){ $('#lc-list').innerHTML = listHtml(on(b.dataset.ds), v3DateLabel(b.dataset.ds)) + '<button type="button" id="lc-all" class="text-xs text-teal-300">Show the whole month</button>'; $('#lc-all').onclick = function(){ $('#lc-list').innerHTML = listHtml(rows, 'This month'); }; }; });
 }
 
@@ -1319,12 +1261,12 @@ async function s34FetchIsland(){
 function s34OffCard(meal, date, isl){
   const mine = ((isl && isl.mySpecial) || []).filter(function(x){ return x.meal === meal && (x.status === 'pending' || x.status === 'approved'); }).slice(-1)[0];
   return '<div class="rounded-xl border border-sky-400/40 bg-sky-500/10 p-3 space-y-2 text-xs" id="s34-off-'+meal+'"><p class="text-sky-100 font-semibold"><i class="fa-solid fa-plane-departure mr-1"></i>You are rostered off '+esc(/^(Today|Tomorrow)$/.test(v3DateLabel(date)) ? v3DateLabel(date).toLowerCase()+' ('+v3DayDate(date)+')' : 'on '+v3DateLabel(date))+'</p>'+
-    '<p class="text-slate-300">Your roster shows leave that day, so normal '+esc(V3_MEAL_LABEL[meal].toLowerCase())+' orders are closed for you. On the island anyway? Ask your HOD for a special meal.</p>'+
-    (mine ? '<p class="text-slate-200 s34-sp-status">Special meal request: <strong>'+esc(mine.status)+'</strong> — '+esc(mine.reason||'')+'</p><button type="button" class="text-[11px] text-slate-400 underline s34-sp-cancel" data-id="'+esc(mine.id)+'">Cancel this request</button>' :
-      '<button type="button" class="w-full rounded-xl py-2 text-sm border border-sky-400/50 text-sky-100 s34-sp-btn" data-meal="'+meal+'" data-date="'+esc(date)+'"><i class="fa-solid fa-utensils mr-1"></i>Special meal request</button>')+'</div>';
+    '<p class="text-slate-300">Your roster shows leave that day, so normal '+esc(V3_MEAL_LABEL[meal].toLowerCase())+' orders are closed for you. On the island anyway? Ask your HOD for a meal while away.</p>'+
+    (mine ? '<p class="text-slate-200 s34-sp-status">Meal while away: <strong>'+esc(mine.status)+'</strong> — '+esc(mine.reason||'')+'</p><button type="button" class="text-[11px] text-slate-400 underline s34-sp-cancel" data-id="'+esc(mine.id)+'">Cancel this request</button>' :
+      '<button type="button" class="w-full rounded-xl py-2 text-sm border border-sky-400/50 text-sky-100 s34-sp-btn" data-meal="'+meal+'" data-date="'+esc(date)+'"><i class="fa-solid fa-utensils mr-1"></i>Meal while away</button>')+'</div>';
 }
 function s34OpenSpecialRequest(meal, date){
-  openModal('<div class="space-y-3" id="s34-sp-form"><h3 class="text-lg font-semibold text-sand-100">Special meal request</h3><p class="text-xs text-slate-300">'+esc(V3_MEAL_LABEL[meal])+' · '+esc(v3DateLabel(date))+'. Your HOD approves it; the chef then sees it on the kitchen list.</p>'+
+  openModal('<div class="space-y-3" id="s34-sp-form"><h3 class="text-lg font-semibold text-sand-100">Meal while away</h3><p class="text-xs text-slate-300">'+esc(V3_MEAL_LABEL[meal])+' · '+esc(v3DateLabel(date))+'. Your HOD approves it; the chef then sees it on the kitchen list.</p>'+
     '<label for="s34-sp-reason" class="text-[11px] text-slate-400">Reason (required)</label><textarea id="s34-sp-reason" class="ui-input w-full" rows="3" maxlength="300" placeholder="e.g. staying on the island during my leave"></textarea>'+
     '<div class="grid grid-cols-2 gap-2"><button type="button" class="glass rounded-xl py-2 text-sm" onclick="closeModal()">Cancel</button><button type="button" id="s34-sp-send" class="btn-primary rounded-xl py-2 text-sm text-white font-semibold">Send to HOD</button></div></div>');
   $('#s34-sp-send').onclick = async function(){
@@ -1541,7 +1483,7 @@ async function v3OpenSpecialForm(){
   try { await v3FetchMenu(); } catch (e) {}
   const items = v3MenuItems();
   const lockDept = !(v3IsAdmin() || v3CanChef());
-  const html = '<div class="space-y-3 min-w-0"><h3 class="font-semibold text-slate-100">Special meal order</h3>'+
+  const html = '<div class="space-y-3 min-w-0"><h3 class="font-semibold text-slate-100">Order for someone</h3>'+
     '<p class="text-[11px] text-slate-400">For tomorrow ('+esc(dinnerCutoffInfo().serviceDate)+'), within the normal booking times.</p>'+
     '<div class="space-y-1"><label class="text-[11px] text-slate-400" for="sp-name">Name *</label><input id="sp-name" class="ui-input w-full" maxlength="60" placeholder="Full name"/></div>'+
     '<div class="grid grid-cols-2 gap-2"><label class="flex items-center gap-2 text-xs text-slate-200 rounded-xl border border-slate-600 p-2"><input type="radio" name="sp-type" value="staff" checked/> Staff (no phone)</label>'+
@@ -1567,18 +1509,18 @@ async function v3OpenSpecialForm(){
     if (type === 'contractor' && !p.guestCompany) { toast('Company name is required','error'); return; }
     if (!p.reason) { toast('Reason is required','error'); return; }
     this.disabled = true;
-    const d = await v3Call('placeSpecialMeal', p, 'Special '+p.meal+' sent to the chef');
+    const d = await v3Call('placeSpecialMeal', p, 'Order for '+p.guestName+' sent to the chef');
     this.disabled = false;
     if (!d) return;
     closeModal(); cacheInvalidate(['v3home','kitchenDashboard','mealRequests']);
-    if (state.tab === 'special' || state.tab === 'mealbehalf') v3RenderSpecialPage();
+    if (state.tab === 'mealbehalf') v3RenderSpecialPage();
   };
 }
 function v3RequestCard(x, actions){
   const who = x.kind === 'special' ? esc(x.userName)+' <span class="text-[10px] text-slate-400">('+esc(x.department)+')</span>' : esc(x.userName)+' <span class="text-[10px] text-slate-400">· '+esc(x.department)+'</span>';
   return '<article class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-1.5 min-w-0">'+
     '<div class="v3-row"><p class="text-sm text-slate-100 min-w-0 truncate">'+who+'</p>'+v3Status(x.status)+'</div>'+
-    '<p class="text-xs text-slate-300">'+v3Chip(x.kind === 'special' ? 'Special' : 'Late', x.kind === 'special' ? 'info' : 'warn')+' '+esc(V3_MEAL_LABEL[x.meal])+' · '+esc(v3DateLabel(x.serviceDate))+(x.meal==='dinner'&&x.mealChoice?' · <strong>'+esc(x.mealChoice)+'</strong>':'')+'</p>'+
+    '<p class="text-xs text-slate-300">'+v3Chip(x.kind === 'special' ? 'For someone' : 'Late', x.kind === 'special' ? 'info' : 'warn')+' '+esc(V3_MEAL_LABEL[x.meal])+' · '+esc(v3DateLabel(x.serviceDate))+(x.meal==='dinner'&&x.mealChoice?' · <strong>'+esc(x.mealChoice)+'</strong>':'')+'</p>'+
     (x.reason?'<p class="text-[11px] text-slate-300 break-words">Reason: '+esc(x.reason)+'</p>':'')+
     (x.specialNote?'<p class="text-[11px] break-words">'+noteChipHtml(x.specialNote)+'</p>':'')+
     '<p class="text-[10px] text-slate-500">Sent '+esc(v3Ts(x.createdAt))+(x.requestedBy && x.kind==='special'?' by '+esc(String(x.requestedBy).split('@')[0]):'')+(x.decidedBy?' · decided by '+esc(String(x.decidedBy).split('@')[0])+' '+esc(v3Ts(x.decidedAt)):'')+'</p>'+
@@ -1592,67 +1534,20 @@ function v3BindRequestCards(root, after){
     if (d) { cacheInvalidate(['v3home','kitchenDashboard','mealRequests']); v3RefreshHome(); after(); }
   }; });
 }
-async function v3RenderSpecialPage(){
-  const back = state._roleMode === 'kitchen' ? v3RoleBack('kitchen') : v3RoleBack('dept');
-  $('#main-content').innerHTML = v3Page(back + '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="sp-entry">'+v3Title('fa-star','Meal on behalf / special meal')+
+async function v3RenderSpecialPage(){ // 3.5.0: one "Order for someone" page (was Meal on behalf / Special meal order)
+  const back = state._mbBack ? v3Back(state._mbBack, state._mbBack === 'kitchenadmin' ? 'Kitchen Admin' : (state._mbBack === 'deptadmin' ? 'Department' : 'Back')) : (v3CanChef() && !v3IsLead() ? v3Back('kitchenadmin','Kitchen Admin') : v3RoleBack('dept'));
+  $('#main-content').innerHTML = v3Page(back + '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="sp-entry">'+v3Title('fa-star','Order for someone')+
     '<p class="text-[11px] text-slate-400">Order a meal for staff without a phone or for a contractor. It goes to the chef, within the normal ordering times.</p>'+
     '<button type="button" onclick="v3OpenSpecialForm()" id="btn-special" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white"><i class="fa-solid fa-plus mr-1"></i>New order for someone</button></section>'+
-    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0">'+v3Title('fa-list','Special orders I sent (last 3 days)')+'<div id="sp-list">'+v3Loading()+'</div></section>', 'special-root');
+    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0">'+v3Title('fa-list','Orders I sent (last 3 days)')+'<div id="sp-list">'+v3Loading()+'</div></section>', 'special-root');
   const d = await v3Call('getMealRequests', { days: 3 });
-  if (state.tab !== 'special' && state.tab !== 'mealbehalf') return;
+  if (state.tab !== 'mealbehalf') return;
   const me = String(state.user.email).toLowerCase();
   const rows = ((d && d.requests) || []).filter(function(x){ return x.kind === 'special' && String(x.requestedBy).toLowerCase() === me; });
   $('#sp-list').innerHTML = rows.length ? '<div class="space-y-2">'+rows.map(function(x){ return v3RequestCard(x, false); }).join('')+'</div>' : v3Empty('None yet.');
 }
 
 /* ============ I. Approvals inbox (HOD / chef / admin / superadmin) ============ */
-async function v3RenderApprovals(){
-  $('#main-content').innerHTML = v3Page((v3IsSuper() ? '' : v3RoleBack('dept')) + '<div id="ap-body" class="space-y-4">'+v3Loading()+'</div>', 'approvals-root');
-  const me = String(state.user.email).toLowerCase();
-  const wantLeave = v3CanDept(), wantMeals = v3CanDept() || v3CanChef();
-  const [lv, mr, rb] = await Promise.all([
-    wantLeave ? api('getLeave', { scope: v3IsAdmin() ? 'all' : 'dept' }).catch(function(){ return null; }) : null,
-    wantMeals ? api('getMealRequests', { days: 3 }).catch(function(){ return null; }) : null,
-    wantLeave ? api('getResortBoat', { scope:'hod' }).catch(function(){ return null; }) : null // 3.3.0, loaded in parallel
-  ]);
-  if (state.tab !== 'approvals') return;
-  let html = '';
-  if (wantLeave) {
-    const rows = ((lv && lv.data && lv.data.requests) || []).filter(function(l){ return String(l.userEmail).toLowerCase() !== me; });
-    const hodStep = rows.filter(function(l){ return l.status === 'pending_hod'; }).map(function(l){ l.canDecide = true; return l; });
-    const mgmt = v3IsAdmin() ? rows.filter(function(l){ return l.status === 'pending_manager'; }).map(function(l){ l.canDecide = true; return l; }) : [];
-    html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-leave">'+v3Title('fa-plane-departure','Leave — HOD step', v3Chip(String(hodStep.length), hodStep.length?'warn':'mute'))+
-      (hodStep.length ? v3ApproveAllBtn('leave', hodStep.length) + hodStep.map(function(l){ return v3LeaveCard(l, 'review'); }).join('') : v3Empty('No leave waiting for the HOD step.'))+'</section>';
-    if (v3IsAdmin()) html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-final">'+v3Title('fa-stamp','Leave — final approval (management)', v3Chip(String(mgmt.length), mgmt.length?'warn':'mute'))+
-      (mgmt.length ? v3ApproveAllBtn('final', mgmt.length) + mgmt.map(function(l){ return v3LeaveCard(l, 'review'); }).join('') : v3Empty('Nothing waiting for final approval.'))+'</section>';
-  }
-  if (wantMeals) {
-    const reqs = ((mr && mr.data && mr.data.requests) || []).filter(function(x){ return x.canDecide; });
-    const late = reqs.filter(function(x){ return x.kind === 'late'; }), sp = reqs.filter(function(x){ return x.kind === 'special'; });
-    html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-late">'+v3Title('fa-clock-rotate-left','Late meal requests', v3Chip(String(late.length), late.length?'warn':'mute'))+
-      '<p class="text-[10px] text-slate-400">Late requests are approved automatically when the late window closes ('+esc(mtLabel(mealTimesNow().late_close_dinner))+' dinner · '+esc(mtLabel(mealTimesNow().late_close_breakfast))+' breakfast & lunch). You can decline one before then.</p>'+
-      (late.length ? v3ApproveAllBtn('late', late.length) + late.map(function(x){ return v3RequestCard(x, true); }).join('') : v3Empty('No late meal requests waiting.'))+'</section>';
-    if (v3CanChef()) html += '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ap-special">'+v3Title('fa-star','Special meal requests', v3Chip(String(sp.length), sp.length?'warn':'mute'))+
-      (sp.length ? sp.map(function(x){ return v3RequestCard(x, true); }).join('') : v3Empty('No special requests waiting.'))+'</section>';
-  }
-  if (wantLeave) html += r33ApprovalsSection(rb); // 3.3.0 resort boat HOD step
-  $('#ap-body').innerHTML = html || v3Empty('Nothing needs your approval.');
-  const root = $('#ap-body');
-  const again = function(){ cacheInvalidate(['v3home']); v3RefreshHome().then(function(){ renderNav('#bottom-nav'); }); v3RenderApprovals(); };
-  v3BindLeaveCards(root, again); v3BindRequestCards(root, again); r33BindDecide(root, again);
-  root.querySelectorAll('.v3-ap-all').forEach(function(b){ b.onclick = async function(){
-    const what = { leave:'leave requests (HOD step)', final:'leave requests (final approval)', late:'late meal requests' }[b.dataset.k];
-    if (!confirm('Approve all '+b.dataset.n+' '+what+'?')) return;
-    b.disabled = true;
-    const d = await v3Call('approveAllPending', { kind: b.dataset.k });
-    b.disabled = false;
-    if (d) { toast('Approved '+d.approved+(d.skipped ? ' · '+d.skipped+' skipped (not yours to decide)' : ''), 'ok'); cacheInvalidate(['v3home','mealRequests','kitchenDashboard']); again(); }
-  }; });
-}
-/** Item 37: one "Approve all" button per approvals section (the server re-checks every item). */
-function v3ApproveAllBtn(kind, n){
-  return '<button type="button" class="v3-ap-all w-full rounded-xl py-2 text-xs font-semibold border border-emerald-500/50 text-emerald-200 bg-emerald-500/10" data-k="'+kind+'" data-n="'+n+'" id="ap-all-'+kind+'"><i class="fa-solid fa-check-double mr-1"></i>Approve all ('+n+')</button>';
-}
 function v3JoinCard(u){
   return '<article class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-2 min-w-0"><div class="v3-row"><div class="min-w-0"><p class="text-sm text-slate-100 truncate">'+esc(fullDisplayName(u))+'</p>'+
     '<p class="text-[11px] text-slate-400 truncate">'+esc(u.email)+' · '+esc(u.department)+(u.contact?' · '+esc(u.contact):'')+'</p><p class="text-[10px] text-slate-500">Signed up '+esc(v3Ts(u.createdAt))+'</p></div>'+v3Status('pending')+'</div>'+
@@ -1670,113 +1565,20 @@ function v3BindJoinCards(root, after){
 }
 
 /* ============ J. Department staff & updates ============ */
-async function v3RenderDeptStaff(){
-  const depts = PCR_DEPARTMENTS;
-  const dept = v3IsAdmin() ? (state.deptView || state.user.department || depts[0]) : state.user.department;
-  $('#main-content').innerHTML = v3Page(v3RoleBack('dept') +
-    (v3IsAdmin() ? '<select id="ds-dept" class="ui-input w-full">'+depts.map(function(d){ return '<option'+(d===dept?' selected':'')+'>'+esc(d)+'</option>'; }).join('')+'</select>' : '<p class="text-xs text-slate-400">'+esc(dept)+' · everyone who signs up with your department is listed here. You can edit their details or remove them from the department. Only admin can move someone to another department.</p>')+
-    '<div id="ds-body" class="space-y-4">'+v3Loading()+'</div>', 'deptstaff-root');
-  const sel = $('#ds-dept'); if (sel) sel.onchange = function(){ state.deptView = sel.value; v3RenderDeptStaff(); };
-  const d = await v3Call('getDeptStaff', { department: dept });
-  if (state.tab !== 'deptstaff' || !d) return;
-  const staffRow = function(u){
-    return '<div class="v3-row py-2 border-b border-slate-700/40 last:border-0 min-w-0"><div class="min-w-0"><p class="text-sm text-slate-100 truncate">'+esc(fullDisplayName(u))+(v3RoleOf(u)!=='staff'||v3IsAsst(u)?' '+v3Chip(esc(v3RoleLabel(u)),'ok'):'')+'</p>'+
-      '<p class="text-[10px] text-slate-400 truncate">'+esc(u.email)+(u.contact?' · '+esc(u.contact):'')+(u.roster?' · '+esc(u.roster):'')+'</p></div>'+
-      (String(u.email).toLowerCase() !== String(state.user.email).toLowerCase() && (v3IsAdmin() || v3RoleLabel(u) === 'Staff') ? '<div class="flex gap-1 shrink-0"><button type="button" class="v3-ds-edit rounded-lg px-2 py-1 text-[11px] border border-slate-600 text-slate-200" data-email="'+esc(u.email)+'">Edit</button>'+
-      '<button type="button" class="v3-ds-rm rounded-lg px-2 py-1 text-[11px] border border-rose-500/40 text-rose-200" data-email="'+esc(u.email)+'">Remove</button></div>' : '')+'</div>';
-  };
-  $('#ds-body').innerHTML =
-    '<section class="glass rounded-2xl p-4 space-y-1 min-w-0" id="ds-staff">'+v3Title('fa-users','Department staff', v3Chip(String(d.staff.length),'mute'))+(d.staff.length ? d.staff.map(staffRow).join('') : v3Empty('No accepted staff yet.'))+'</section>'+
-    ((d.declined||[]).length ? '<section class="glass rounded-2xl p-4 space-y-1 min-w-0">'+v3Title('fa-user-slash','Removed from the department')+d.declined.map(function(u){ return '<p class="text-xs text-slate-400 truncate">'+esc(fullDisplayName(u))+'</p>'; }).join('')+'</section>' : '');
-  const root = $('#ds-body');
-  root.querySelectorAll('.v3-ds-edit').forEach(function(b){ b.onclick = function(){
-    const u = d.staff.find(function(x){ return x.email === b.dataset.email; }); if (!u) return;
-    v3Form('Edit '+fullDisplayName(u), [
-      { id:'firstName', label:'First name', value:u.firstName }, { id:'lastName', label:'Last name', value:u.lastName },
-      { id:'preferredName', label:'Preferred name', value:u.preferredName, max:40 }, { id:'contact', label:'Contact', value:u.contact },
-      { id:'roster', label:'Roster / shift pattern', value:u.roster }, { id:'village', label:'Mainland or Village', type:'select', options:['Mainland','Village'], value: u.village === 'Village' ? 'Village' : 'Mainland' }
-    ], 'Save', async function(v){ const r = await v3Call('updateDeptStaff', Object.assign({ targetEmail: u.email }, v), 'Saved'); if (r) v3RenderDeptStaff(); return !!r; }, 'Department: '+esc(u.department)+' (only admin can change it).');
-  }; });
-  root.querySelectorAll('.v3-ds-rm').forEach(function(b){ b.onclick = async function(){
-    if (!confirm('Remove '+b.dataset.email+' from '+dept+'? They stop getting department updates and their HOD approvals until admin sets their department again.')) return;
-    const r = await v3Call('removeFromDept', { targetEmail: b.dataset.email }, 'Removed from department');
-    if (r) v3RenderDeptStaff();
-  }; });
-}
-async function v3RenderDeptUpdates(){
-  const lead = state._roleMode === 'dept' && v3CanDept();
-  $('#main-content').innerHTML = v3Page((lead ? v3RoleBack('dept') : v3Back('more','More')) +
-    (lead ? '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="du-post">'+v3Title('fa-pen','Post an update · '+esc(state.user.department||''))+
-      '<input id="du-title" class="ui-input w-full" maxlength="100" placeholder="Title"/><textarea id="du-body" rows="3" maxlength="1500" class="ui-input w-full" placeholder="Message for accepted staff in your department"></textarea>'+
-      '<button type="button" id="du-send" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white">Post update</button></section>' : '')+
-    '<div id="du-list" class="space-y-2">'+v3Loading()+'</div>', 'deptupdates-root');
-  const sb = $('#du-send');
-  if (sb) sb.onclick = async function(){
-    const t = $('#du-title').value.trim(), bd = $('#du-body').value.trim();
-    if (!t && !bd) { toast('Write something first','error'); return; }
-    const r = await v3Call('postDeptUpdate', { title: t, body: bd }, 'Posted to your department');
-    if (r) { cacheInvalidate(['v3home']); v3RefreshHome(); v3RenderDeptUpdates(); }
-  };
-  const d = await v3Call('getDeptUpdates', { limit: 30 });
-  if (state.tab !== 'deptupdates' && state.tab !== 'deptupdatespost') return;
-  const list = $('#du-list');
-  if (!d) { list.innerHTML = ''; return; }
-  if (d.locked) { list.innerHTML = v3Card('<p class="text-xs text-slate-400"><i class="fa-solid fa-lock mr-1"></i>Department updates show once you are in a department.</p>'); return; }
-  list.innerHTML = (d.updates||[]).length ? d.updates.map(function(u){ return v3UpdateCard(u, false); }).join('') : v3Card(v3Empty('No updates yet.'));
-  v3BindUpdateCards(list, v3RenderDeptUpdates);
-}
 
 /* ============ K. More, profile summary, history, notifications ============ */
-function renderMore(){
-  const u = state.user, h = v3Home(), hb = h.hodBar || {};
-  const unread = state._v3Unread || 0;
-  const group = function(title, rows){ return rows ? '<section class="space-y-1.5 min-w-0"><h3 class="v3-section-title px-1">'+title+'</h3><div class="glass rounded-2xl overflow-hidden">'+rows+'</div></section>' : ''; };
-  const profile = '<section class="glass rounded-2xl p-4 min-w-0" id="more-profile"><div class="flex items-center gap-3 min-w-0">'+homeAvatarHtml(u)+'<div class="min-w-0 flex-1">'+
-    '<p class="font-semibold text-slate-100 truncate">'+esc(fullDisplayName(u))+'</p><p class="text-[11px] text-slate-400 truncate">'+esc(u.email)+'</p>'+
-    '<p class="text-[11px] text-slate-300 mt-0.5" id="more-roles">'+esc(v3RoleLabel(u))+' · '+esc(u.department||'—')+'</p></div>'+
-    '<button type="button" onclick="navigate(\'profile\')" class="rounded-lg px-3 py-2 text-xs border border-teal-500/40 text-teal-200 shrink-0">Edit</button></div></section>';
-  let html = profile;
-  // role buttons (3.0.0): only what the account holds
-  const btns = v3IsSuper() ? [] : v3Buttons(u);
-  if (btns.length) {
-    const badge = { admin: 0, kitchen: h.chef ? (h.chef.pending.late + h.chef.pending.special + (h.chef.feedbackNew||0)) : 0, boat: ((h.boat && h.boat.emergencyPending) || 0) + ((h.resortBoat||{}).admin||0), dept: (hb.leave||0)+(hb.late||0)+(hb.leaveMgmt||0)+((h.resortBoat||{}).hod||0) };
-    html += '<section class="space-y-1.5 min-w-0" id="more-rolebtns"><h3 class="v3-section-title px-1">My role pages</h3><div class="grid grid-cols-2 gap-2">'+btns.map(function(k){
-      const b = V3_BUTTONS[k];
-      return '<button type="button" onclick="navigate(\''+b.tab+'\')" class="glass rounded-2xl p-3 text-left min-w-0 relative border border-teal-500/30" data-rolebtn="'+k+'">'+
-        '<i class="fa-solid '+b.icon+' text-teal-300 text-lg"></i><p class="text-sm font-semibold text-slate-100 mt-1">'+esc(b.label)+'</p><p class="text-[10px] text-slate-400 leading-tight">'+esc(b.sub)+'</p>'+
-        (badge[k] ? '<span class="v3-count absolute top-2 right-2">'+badge[k]+'</span>' : '')+'</button>';
-    }).join('')+'</div>'+(state.rolesNeedSignIn && !state.demo ? '<button type="button" onclick="v3AskReauth()" class="w-full text-[11px] text-sky-300 py-1"><i class="fa-solid fa-lock mr-1"></i>Sign in again to open role pages</button>' : '')+'</section>';
-  }
-  if (v3IsSuper()) {
-    html += group('Account', v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) + v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) + (a32Owner() ? v3Row(v3Nav('reports'),'fa-bug','Reports','Problems & requests from staff', state._a32RepNew||0) : '') + v3Row(v3Nav('pushsettings'),'fa-bell','Phone notifications', a32Owner() ? 'New reports on your phone' : 'Messages on your phone') + v3Row('a32OpenReport()','fa-flag','Report a problem','')) + a31SuperNoteHtml(); // 3.1.0: no staff features
-  } else {
-    html += group('Me', (r34On() ? '' : v3Row(v3Nav('leave'),'fa-plane-departure','Leave requests','Request, track or cancel')) + // 3.4.0: in the Schedule tab
-      v3Row(v3Nav('history'),'fa-clock-rotate-left','My orders & history','Orders, boats, leave, requests, feedback') +
-      v3Row(v3Nav('bookings'),'fa-ticket','My boat bookings','') +
-      v3Row(v3Nav('notifications'),'fa-bell','Notifications','', unread) +
-      v3Row(v3Nav('pushsettings'),'fa-mobile-screen','Phone notifications','Alerts on your phone, meal reminders') +
-      v3Row(v3Nav('deptupdates'),'fa-bullhorn','Department updates', esc(u.department||'')) +
-      '') +
-      group('Help', v3Row('a32OpenReport()','fa-flag','Report a problem','Error, change request or idea') + v3Row(v3Nav('myreports'),'fa-inbox','My reports','Status and replies'));
-  }
-  html += '<section class="glass rounded-2xl overflow-hidden">'+v3Row('doLogout()','fa-right-from-bracket','Sign out','')+'</section>'; // 3.3.0: the version line is shown once, in the footer under the page
-  $('#main-content').innerHTML = v3Page(html, 'more-root');
-  if (!state._v3UnreadAt || Date.now() - state._v3UnreadAt > 60000) {
-    state._v3UnreadAt = Date.now();
-    api('getMyNotifications', {}).then(function(res){ if (res && res.success) { state._v3Unread = res.data.unreadCount || 0; if (state.tab === 'more' && state._v3Unread !== unread) renderMore(); } }).catch(function(){});
-  }
-}
 async function v3RenderNotifications(){
-  $('#main-content').innerHTML = v3Page(v3Back('more','More') + '<div class="flex justify-end"><button type="button" id="nt-all" class="text-xs text-teal-300">Mark all read</button></div><div id="nt-list" class="space-y-2">'+v3Loading()+'</div>', 'notifications-root');
+  $('#main-content').innerHTML = v3Page('<div class="flex justify-end"><button type="button" id="nt-all" class="text-xs text-teal-300">Mark all read</button></div><div id="nt-list" class="space-y-2">'+v3Loading()+'</div>', 'notifications-root');
   $('#nt-all').onclick = async function(){ const d = await v3Call('markNotificationRead', { markAll:true }, 'All marked read'); if (d) { state._v3Unread = 0; v3RenderNotifications(); } };
   const d = await v3Call('getMyNotifications', {});
-  if (state.tab !== 'notifications' || !d) return;
-  const go = { leave: v3CanDept() ? 'approvals' : 'leave', late_meal: v3CanChef() ? 'chefreq' : (v3CanDept() ? 'approvals' : 'meals'), special_meal:'chefreq', meal_request:'meals', meal_cancelled:'meals', order_cancelled:'meals', admin_message:'notifications', chef_feedback: v3CanChef() ? 'chefcomments' : 'history', dept_update:'deptupdates', role:'more', resort_boat:'boat', resort_boat_hod: v3CanDept() ? 'approvals' : 'boat', resort_boat_admin: v3IsBoatManager() ? 'resortboat' : 'boat', roster:'schedule', roster_hod:'rosterweekly', roster_admin:'rostermonthly' };
+  if (state.tab !== 'inbox' || !d) return;
+  state._v3Unread = d.unreadCount != null ? d.unreadCount : (d.notifications||[]).filter(function(n){ return !n.read; }).length; renderNav('#bottom-nav');
+  const go = v35NotifyTargets();
   $('#nt-list').innerHTML = (d.notifications||[]).length ? d.notifications.map(function(n){
     return '<button type="button" class="v3-nt w-full text-left rounded-xl border p-3 min-w-0 '+(n.read?'border-slate-700/60 bg-slate-900/40':'border-teal-500/40 bg-teal-500/10')+'" data-id="'+esc(n.id)+'" data-go="'+esc(go[n.kind]||'')+'">'+
       '<p class="text-sm text-slate-100 break-words">'+(n.read?'':'<span class="inline-block w-2 h-2 rounded-full bg-teal-400 mr-1.5"></span>')+esc(n.title)+'</p><p class="text-[11px] text-slate-300 break-words">'+esc(n.body)+'</p><p class="text-[10px] text-slate-500">'+esc(v3Ts(n.createdAt))+'</p></button>';
   }).join('') : v3Card(v3Empty('No notifications.'));
-  $$('.v3-nt').forEach(function(b){ b.onclick = async function(){ await api('markNotificationRead', { id: b.dataset.id }).catch(function(){}); state._v3UnreadAt = 0; if (b.dataset.go === 'boat') { state._boatTab = 'resort'; r33Put('pcr_boat_tab', 'resort'); } if (b.dataset.go && canPrivilegedTab(b.dataset.go)) navigate(b.dataset.go); else v3RenderNotifications(); }; });
+  $$('.v3-nt').forEach(function(b){ b.onclick = async function(){ await api('markNotificationRead', { id: b.dataset.id }).catch(function(){}); state._v3UnreadAt = 0; if (b.dataset.go === 'boat') { state._boatTab = 'resort'; r33Put('pcr_boat_tab', 'resort'); } const g = String(b.dataset.go||'').split(':'); if (g[0] && canPrivilegedTab(g[0])) { if (g[1]) state._apChip = g[1]; navigate(g[0]); } else v3RenderNotifications(); }; });
 }
 async function v3RenderHistory(){
   const from = state.histFrom || fijiDateString(addFijiDays(getFijiNow(), -30)), to = state.histTo || fijiDateString(addFijiDays(getFijiNow(), 7));
@@ -1793,7 +1595,7 @@ async function v3RenderHistory(){
   $('#hi-body').innerHTML =
     '<section class="glass rounded-2xl p-4 space-y-1 text-xs min-w-0" id="hi-profile">'+v3Title('fa-id-card','Profile & app')+
       '<p class="text-slate-200">'+esc(fullDisplayName(p))+' · '+esc(v3RoleLabel(p))+'</p><p class="text-slate-400">'+esc(p.email||'')+' · '+esc(p.department||'—')+' · '+esc(p.village||'')+'</p>'+
-      '<p class="text-slate-400">App '+esc(APP_VERSION)+' · server '+esc(d.version||'')+' · range '+esc(d.from)+' → '+esc(d.to)+'</p></section>'+
+      '<p class="text-slate-400">Range '+esc(d.from)+' → '+esc(d.to)+'</p></section>'+
     sec('orders','fa-utensils','Meal orders', d.orders||[], function(o){ return line(esc(V3_MEAL_LABEL[o.meal])+' · '+esc(o.serviceDate)+(o.meal==='dinner'&&o.mealChoice?' · '+esc(o.mealChoice):''), 'Ordered '+esc(v3Ts(o.createdAt))+(o.cancelReason?' · cancel reason: '+esc(o.cancelReason):'')+(o.specialNote?' · note: '+esc(o.specialNote):''), o.status); })+
     sec('boats','fa-ship','Boats booked', d.boats||[], function(b){ return line(esc(b.date)+' '+esc(b.time)+' · '+esc(b.route), b.seats+' seat(s) · booked '+esc(v3Ts(b.createdAt)), b.status); })+
     sec('leave','fa-plane-departure','Leave requests', d.leave||[], function(l){ return line(esc(l.leaveType)+' · '+esc(l.startDate)+(l.endDate!==l.startDate?' → '+esc(l.endDate):''), esc(l.reason)+' · sent '+esc(v3Ts(l.createdAt)), l.status); })+
@@ -1813,31 +1615,20 @@ async function v3RenderHistory(){
 }
 
 /* ============ L. Kitchen Admin (chef / admin / superadmin) ============ */
-async function v3RenderKitchenAdmin(){
-  const h = v3Home();
-  const paint = function(c){
-    $('#main-content').innerHTML = v3Page(v3Back('more','More') +
-      '<div class="grid grid-cols-2 gap-2" id="chef-shortcuts">'+
-        v3Tile(v3Nav('kitchen'),'fa-list-ol','Lists & summaries','Prep list · PDF · saved summaries')+
-        v3Tile(v3Nav('chefreq'),'fa-clock-rotate-left','Late & special','Auto-approve at the late close', c ? c.pending.late + c.pending.special : 0)+
-        v3Tile(v3Nav('chefmenu'),'fa-pen-to-square','Dinner menus','All 7 days')+
-        v3Tile(v3Nav('mealtimes'),'fa-clock','Meal times','Cutoffs & late windows')+
-        v3Tile(v3Nav('offmenu'),'fa-triangle-exclamation','Not on the menu','Orders to fix')+
-        v3Tile(v3Nav('chefcomments'),'fa-comment-dots','Food feedback','From staff', c ? c.feedbackNew : 0)+
-        v3Tile(v3Nav('mealstats'),'fa-chart-column','Meal statistics','Range · roster compare')+
-        v3Tile(v3Nav('special'),'fa-star','Meal on behalf','Staff without a phone')+
-        v3Tile(a31LogNav('kitchen'),'fa-clock-rotate-left','Activity log','Who changed what')+'</div>'+
+async function v3RenderKitchenAdmin(){ // 3.5.0: Kitchen Admin › Today — orders (Served / Cancel), allergies, plus meal times / order for someone / log
+  const paint = function(){
+    $('#main-content').innerHTML = v3Page(
       '<p class="text-[11px] text-slate-400 px-1" id="ka-times"><i class="fa-solid fa-clock mr-1"></i>Dinner closes '+esc(dinnerCutLabel())+' the day before · late requests until '+esc(mtLabel(mealTimesNow().late_close_dinner))+' (auto-approved then) · breakfast & lunch close '+esc(mtLabel(mealTimesNow().breakfast_cutoff))+' / '+esc(mtLabel(mealTimesNow().lunch_cutoff))+'.</p>'+
-      v3ChefDashCard(c)+'<div id="chef-orders">'+(state._chefOrdersHtml||v3Card(v3Loading()))+'</div><div id="chef-notes">'+(state._chefNotesHtml||'')+'</div>', 'chef-root');
+      '<div id="chef-orders">'+(state._chefOrdersHtml||v3Card(v3Loading()))+'</div><div id="chef-notes">'+(state._chefNotesHtml||'')+'</div>'+
+      '<section class="glass rounded-2xl overflow-hidden" id="ka-more">'+v3Row(v3Nav('mealtimes'),'fa-clock','Meal times','Cutoffs & late windows')+
+        v3Row("state._mbBack='kitchenadmin';navigate('mealbehalf')",'fa-star','Order for someone','Staff without a phone · contractors')+
+        v3Row(a31LogNav('kitchen'),'fa-clock-rotate-left','Activity log','Who changed what in the kitchen')+'</section>', 'chef-root');
     v3BindChefOrders();
   };
-  paint(h.chef);
-  const d = await v3Call('getChefDashboard', {});
-  if (d && state.tab === 'kitchenadmin') { const cur = v3Home(); cur.chef = d; cacheSet('v3home', cur); paint(d); }
+  paint();
   v3LoadChefOrders();
   v3LoadChefNotes();
 }
-const v3RenderChefHub = v3RenderKitchenAdmin;
 /** Chef page: today's / tomorrow's orders (names, dish, notes) with "Served". */
 async function v3LoadChefOrders(){
   const day = state.chefDay || 'today';
@@ -1860,7 +1651,7 @@ async function v3LoadChefOrders(){
       }).join('') : v3Empty('No orders.'))+'</div></details>';
   }).join('');
   state._chefOrdersHtml = '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="chef-orders-card">'+v3Title('fa-utensils','Orders', '<div class="flex gap-1 rounded-lg bg-slate-900/60 p-0.5">'+['today','tomorrow'].map(function(k){ return '<button type="button" class="v3-chefday rounded-md px-2 py-1 text-[11px] '+(day===k?'bg-teal-600 text-white font-semibold':'text-slate-300')+'" data-day="'+k+'">'+(k==='today'?'Today':'Tomorrow')+'</button>'; }).join('')+'</div>')+
-    '<p class="text-[10px] text-slate-400">'+esc(v3DateLabel(date))+' · '+esc(date)+' · confirmed orders (late / special requests are under Requests)</p>'+sec+'</section>';
+    '<p class="text-[10px] text-slate-400">'+esc(v3DateLabel(date))+' · '+esc(date)+' · confirmed orders (late requests and orders for someone are under Approvals)</p>'+sec+'</section>';
   const box = $('#chef-orders'); if (box) { box.innerHTML = state._chefOrdersHtml; v3BindChefOrders(); }
 }
 function v3BindChefOrders(){
@@ -1880,39 +1671,8 @@ async function v3LoadChefNotes(){
   state._chefNotesHtml = notesCardHtml(groups, { dinnerDate: dsh.dinnerDate, breakfastDate: dsh.breakfastDate || (dsh.breakfast && dsh.breakfast.serviceDate), lunchDate: dsh.lunchDate || (dsh.lunch && dsh.lunch.serviceDate) });
   const box = $('#chef-notes'); if (box) box.innerHTML = state._chefNotesHtml;
 }
-async function v3RenderChefRequests(){
-  const canAll = v3CanChef();
-  $('#main-content').innerHTML = v3Page(v3RoleBack('kitchen') +
-    (canAll ? '<div class="grid grid-cols-2 gap-2"><button type="button" id="cr-acc-all" class="btn-primary rounded-xl py-2.5 text-sm text-white font-semibold"><i class="fa-solid fa-check-double mr-1"></i>Accept all</button>'+
-      '<button type="button" id="cr-dec-all" class="rounded-xl py-2.5 text-sm border border-rose-500/40 text-rose-200"><i class="fa-solid fa-xmark mr-1"></i>Decline all</button></div>'+
-      '<div class="grid grid-cols-2 gap-2"><button type="button" id="cr-print" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-print mr-1"></i>Print late & special list</button>'+
-      '<button type="button" id="cr-csv" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-download mr-1"></i>Download CSV</button></div>' : '')+
-    '<div id="cr-body" class="space-y-4">'+v3Loading()+'</div>', 'chefreq-root');
-  const d = await v3Call('getMealRequests', { days: 3 });
-  if (state.tab !== 'chefreq' || !d) return;
-  const reqs = d.requests || [];
-  const pend = reqs.filter(function(x){ return x.canDecide; }), done = reqs.filter(function(x){ return !x.canDecide; });
-  $('#cr-body').innerHTML = '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="cr-pending">'+v3Title('fa-hourglass-half','Waiting', v3Chip(pend.length+' ('+d.pendingLate+' late · '+d.pendingSpecial+' special)', pend.length?'warn':'mute'))+
-    (pend.length ? pend.map(function(x){ return v3RequestCard(x, true); }).join('') : v3Empty('Nothing waiting.'))+'</section>'+
-    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="cr-done">'+v3Title('fa-check','Decided (last 3 days)')+(done.length ? done.map(function(x){ return v3RequestCard(x, false); }).join('') : v3Empty('None.'))+'</section>';
-  v3BindRequestCards($('#cr-body'), v3RenderChefRequests);
-  const all = async function(dec){
-    if (!pend.length) { toast('Nothing waiting','info'); return; }
-    if (!confirm((dec === 'approve' ? 'Accept' : 'Decline')+' all '+pend.length+' waiting requests?')) return;
-    const r = await v3Call('decideAllMealRequests', { decision: dec, kind:'all' }, dec === 'approve' ? 'All accepted' : 'All declined');
-    if (r) { cacheInvalidate(['v3home','kitchenDashboard']); v3RefreshHome(); v3RenderChefRequests(); }
-  };
-  if (canAll) {
-    $('#cr-acc-all').onclick = function(){ all('approve'); };
-    $('#cr-dec-all').onclick = function(){ all('decline'); };
-    const active = reqs.filter(function(x){ return x.status !== 'rejected' && x.status !== 'cancelled'; });
-    const rowsOf = function(){ return active.map(function(x){ return [x.kind, V3_MEAL_LABEL[x.meal], x.serviceDate, x.userName, x.department, x.meal==='dinner'?x.mealChoice:'', x.specialNote||'', x.reason||'', V3_STATUS_TEXT[x.status]||x.status]; }); };
-    $('#cr-print').onclick = function(){ v3Print('Late & special meals', v3Table(['Type','Meal','Date','Name','Dept / company','Dish','Notes & allergies','Reason','Status'], rowsOf(), ['Total', '', '', String(active.length), '', '', '', '', ''])); };
-    $('#cr-csv').onclick = function(){ v3Download('late-special-meals-'+fijiDateString()+'.csv', active.map(function(x){ return { type:x.kind, meal:x.meal, date:x.serviceDate, name:x.userName, department:x.department, dish:x.meal==='dinner'?x.mealChoice:'', notes:x.specialNote, reason:x.reason, status:x.status, requestedBy:x.requestedBy, createdAt:x.createdAt }; })); };
-  }
-}
 async function v3RenderChefComments(){
-  $('#main-content').innerHTML = v3Page(v3RoleBack('kitchen') + '<div id="cc-list" class="space-y-2">'+v3Loading()+'</div>', 'chefcomments-root');
+  $('#main-content').innerHTML = v3Page(v35ReportsSeg('chefcomments') + '<div id="cc-list" class="space-y-2">'+v3Loading()+'</div>', 'chefcomments-root');
   const d = await v3Call('getChefFeedback', {});
   if (state.tab !== 'chefcomments' || !d) return;
   $('#cc-list').innerHTML = (d.feedback||[]).length ? d.feedback.map(function(f){
@@ -2013,7 +1773,7 @@ async function v3RenderMealTimes(){
 /** Kitchen Admin: dinner orders whose dish is not on that date's menu — cancel with a reason (the staff member is notified). */
 async function v3RenderOffMenu(){
   const sd = state.offDate || dinnerCutoffInfo().serviceDate;
-  $('#main-content').innerHTML = v3Page(v3RoleBack('kitchen') +
+  $('#main-content').innerHTML = v3Page(v35ReportsSeg('offmenu') +
     '<section class="glass rounded-2xl p-4 space-y-2 min-w-0">'+v3Title('fa-triangle-exclamation','Dinner orders not on the menu')+
     '<p class="text-[11px] text-slate-400">They still count in the lists (flagged) until you cancel them. Cancelling notifies the staff member so they can re-order from the right menu.</p>'+
     '<div class="flex gap-2"><input type="date" id="om-date" class="ui-input flex-1 min-w-0" value="'+esc(sd)+'"/><button type="button" id="om-go" class="btn-primary rounded-xl px-4 text-sm text-white font-semibold">Show</button></div></section>'+
@@ -2045,35 +1805,20 @@ function v3ParseCsv(text){
   if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
   return rows.filter(function(r){ return r.some(function(c){ return String(c).trim() !== ''; }); });
 }
-async function v3ReadRoster(file){
-  // CSV is read on the phone (no download needed); Excel uses the 2.7.0 roster parser
-  if (/\.csv$/i.test(file.name) || /text\/csv/.test(file.type||'')) {
-    const shifts = sheetRowsToShifts(v3ParseCsv(await file.text()), '');
-    if (!shifts.length) throw new Error('No shift rows found. Use CSV columns: name,department,date,start,end,dayOff');
-    return { shifts: shifts, fileType:'csv' };
-  }
-  return parseRosterFile(file, '');
-}
-function v3RosterExpected(shifts){
-  const by = {};
-  (shifts||[]).forEach(function(s){ const d = String(s.date||'').slice(0,10); if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || s.dayOff) return; (by[d] = by[d] || {})[String(s.rawName).trim().toLowerCase()] = 1; });
-  const out = {}; Object.keys(by).forEach(function(d){ out[d] = Object.keys(by[d]).length; });
-  return out;
-}
 async function v3RenderChefReports(){
   const today = fijiDateString();
   const st = state.rep || { period:'weekly', from: fijiDateString(addFijiDays(getFijiNow(), -6)), to: fijiDateString(addFijiDays(getFijiNow(), 1)), meal:'all' };
   state.rep = st;
-  $('#main-content').innerHTML = v3Page(v3RoleBack('kitchen') +
+  $('#main-content').innerHTML = v3Page(v35ReportsSeg('mealstats') + '<div id="rp-dash">'+(v3Home().chef ? v3ChefDashCard(v3Home().chef) : '')+'</div>' +
     '<section class="glass rounded-2xl p-4 space-y-2 min-w-0">'+v3Title('fa-chart-column','Meal statistics')+
     '<div class="grid grid-cols-3 gap-1 rounded-xl bg-slate-900/60 p-1">'+['daily','weekly','monthly'].map(function(p){ return '<button type="button" class="v3-per rounded-lg py-1.5 text-xs '+(st.period===p?'bg-teal-600 text-white font-semibold':'text-slate-300')+'" data-p="'+p+'">'+p[0].toUpperCase()+p.slice(1)+'</button>'; }).join('')+'</div>'+
     '<div class="grid grid-cols-2 gap-2"><label class="text-[10px] text-slate-400 space-y-1 min-w-0"><span>From</span><input type="date" id="rp-from" class="ui-input w-full min-w-0" value="'+st.from+'"/></label><label class="text-[10px] text-slate-400 space-y-1 min-w-0"><span>To</span><input type="date" id="rp-to" class="ui-input w-full min-w-0" value="'+st.to+'"/></label></div>'+
     '<select id="rp-meal" class="ui-input w-full">'+[['all','All meals'],['breakfast','Breakfast'],['lunch','Lunch'],['dinner','Dinner']].map(function(o){ return '<option value="'+o[0]+'"'+(st.meal===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')+'</select>'+
     '<button type="button" id="rp-go" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white font-semibold">Show report</button></section>'+
-    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="rp-roster">'+v3Title('fa-file-excel','Compare with staff roster')+
-    '<p class="text-[11px] text-slate-400">Upload the weekly roster (CSV or Excel: name, department, date, start, end, dayOff). Staff on the roster and not on a day off are "expected on the island" for each meal.</p>'+
-    '<input type="file" id="rp-file" accept=".csv,.xlsx,.xls,text/csv" class="block w-full text-xs text-slate-300"/>'+
-    '<p id="rp-roster-info" class="text-[11px] text-teal-300">'+(state.repRoster ? esc(state.repRoster.name)+' · '+state.repRoster.count+' shifts loaded' : '')+'</p></section>'+
+    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="rp-roster">'+v3Title('fa-people-roof','Compare with the rosters')+
+    '<label class="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" id="rp-cmp"'+(st.compare?' checked':'')+'/> Compare with the uploaded rosters</label>'+
+    '<p class="text-[11px] text-slate-400">Uses the weekly rosters HODs and admins already uploaded: staff on the island for each meal (not off, not on leave). Nothing to upload here.</p>'+
+    '<p id="rp-roster-info" class="text-[11px] text-teal-300">'+(state.repRoster ? esc(state.repRoster.name) : '')+'</p></section>'+
     '<div id="rp-out" class="space-y-3"></div>', 'mealstats-root');
   $$('.v3-per').forEach(function(b){ b.onclick = function(){
     const p = b.dataset.p; st.period = p;
@@ -2082,22 +1827,14 @@ async function v3RenderChefReports(){
     else { st.from = today.slice(0,8)+'01'; st.to = fijiDateString(addFijiDays(getFijiNow(), 1)); }
     v3RenderChefReports();
   }; });
-  $('#rp-file').onchange = async function(){
-    const f = this.files && this.files[0]; if (!f) return;
-    try {
-      const r = await v3ReadRoster(f);
-      state.repRoster = { name: f.name, count: r.shifts.length, expected: v3RosterExpected(r.shifts) };
-      $('#rp-roster-info').textContent = f.name+' · '+r.shifts.length+' shifts loaded';
-      toast('Roster loaded — '+Object.keys(state.repRoster.expected).length+' days', 'ok');
-      if (state.repData) v3PaintReport(state.repData);
-    } catch (e) { toast((e && e.message) || 'Could not read the roster','error'); }
-  };
+  $('#rp-cmp').onchange = function(){ st.compare = this.checked; if (!st.compare) { state.repRoster = null; $('#rp-roster-info').textContent = ''; } if (state.repData) v35RosterCompare(state.repData).then(function(){ if (state.tab === 'mealstats') v3PaintReport(state.repData); }); };
+  api('getChefDashboard', {}).then(function(r){ if (r && r.success && state.tab === 'mealstats') { const cur = v3Home(); cur.chef = r.data; cacheSet('v3home', cur); const el = $('#rp-dash'); if (el) el.innerHTML = v3ChefDashCard(r.data); } }).catch(function(){});
   $('#rp-go').onclick = async function(){
     st.from = $('#rp-from').value; st.to = $('#rp-to').value; st.meal = $('#rp-meal').value;
     $('#rp-out').innerHTML = v3Card(v3Loading());
     const d = await v3Call('getMealReport', { from: st.from, to: st.to, meal: st.meal });
     if (!d || state.tab !== 'mealstats') { const o = $('#rp-out'); if (o) o.innerHTML = ''; return; } // 3.0.1: #rp-out is gone if the page changed
-    state.repData = d; v3PaintReport(d);
+    state.repData = d; await v35RosterCompare(d); if (state.tab === 'mealstats') v3PaintReport(d);
   };
   if (state.repData) v3PaintReport(state.repData);
 }
@@ -2105,7 +1842,7 @@ function v3RenderMealStats(){ return v3RenderChefReports(); }
 function v3ReportRows(d){
   const exp = state.repRoster ? state.repRoster.expected : null;
   const rows = [];
-  d.days.forEach(function(day){ d.meals.forEach(function(m){ const c = day.meals[m]; const e = exp && exp[day.date] != null ? exp[day.date] : null; // days not on the roster stay blank
+  d.days.forEach(function(day){ d.meals.forEach(function(m){ const c = day.meals[m]; const e = exp && exp[day.date] && exp[day.date][m] != null ? exp[day.date][m] : null; // 3.5.0: per meal, from the uploaded rosters · days without a roster stay blank
     rows.push({ date: day.date, meal: m, counted: c.counted, served: c.served, late: c.late, special: c.special, cancelled: c.cancelled, declined: c.declined, pending: c.pending, expected: e, gap: e == null ? null : e - c.counted }); }); });
   return rows;
 }
@@ -2133,81 +1870,27 @@ function v3PaintReport(d){
 }
 
 /* ============ M. Admin / superadmin ============ */
-function v3ManageGroups(){
-  const h = v3Home(), hb = h.hodBar || {}, sd = (h.superDash && h.superDash.pending) || {};
-  const g = function(title, rows){ return '<section class="space-y-1.5 min-w-0"><h3 class="v3-section-title px-1">'+title+'</h3><div class="glass rounded-2xl overflow-hidden">'+rows+'</div></section>'; };
-  let html = g('Approvals', v3Row(v3Nav('approvals'),'fa-inbox','Approvals inbox','Leave, late & special meals', (hb.leave||0)+(hb.leaveMgmt||0)+(hb.late||0)) +
-    v3Row("state.leaveTabForce='final';navigate('leave')",'fa-stamp','Leave — final approval','After the HOD step', hb.leaveMgmt||sd.leaveMgmt||0));
-  html += g('Role pages', v3Row(v3Nav('adminhub'),'fa-user-shield','Admin Settings','Users & roles, leave, reminders, reports') +
-    v3Row(v3Nav('kitchenadmin'),'fa-fire-burner','Kitchen Admin','Lists, menus, requests, meal times', h.chef ? h.chef.pending.late + h.chef.pending.special : 0) +
-    v3Row(v3Nav('boatadmin'),'fa-anchor','Boat Admin','Runs, passengers, emergency travel') +
-    v3Row(v3Nav('deptadmin'),'fa-people-group','Department Admin','Any department: staff, updates, leave'));
-  html += r34ManageGroup(g); // 3.4.0 rosters + archive
-  html += g('People', v3Row(v3Nav('usersv3'),'fa-users-gear','Users & roles','Edit, delete, roles (more than one allowed), departments') +
-    v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view · approved and waiting') +
-    v3Row(v3Nav('users'),'fa-address-book','Staff directory (classic)','2.x list · add user, import CSV'));
-  html += g('Resort boat (PCE)', v3Row(v3Nav('resortboat'),'fa-anchor','Resort boat requests','Confirm HOD-approved requests · manifest · print', (h.resortBoat||{}).admin||0)); // 3.3.0
-  html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
-  html += g('Reports & system', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Reports & downloads','Download all app data') +
-    (v3IsSuper() ? v3Row(v3Nav('settings'),'fa-gear','App settings','Email (Brevo), test email, features, alert emails, revert owner') + v3Row(v3Nav('migrate'),'fa-right-left','Role migration','Preview / apply the 3.0.0 roles list') + v3Row(v3Nav('aboutimage'),'fa-image','About image','The picture behind the footer “About” button') : ''));
-  if (a32Owner()) html += g('Reports', v3Row(v3Nav('reports'),'fa-bug','Reports inbox','Problems, change requests, ideas', state._a32RepNew||0));
-  if (v3IsSuper()) html += g('Logs', v3Row(v3Nav('superlog'),'fa-shield-halved','Superadmin log','Every superadmin change'+(state.a31CanRevert ? ' · revert' : '')) +
-    v3Row(a31LogNav('admin'),'fa-user-shield','Activity log · Admin Settings','') + v3Row(a31LogNav('kitchen'),'fa-fire-burner','Activity log · Kitchen Admin','') +
-    v3Row(a31LogNav('boat'),'fa-anchor','Activity log · Boat Admin','') + v3Row(a31LogNav('dept'),'fa-people-group','Activity log · Department Admin',''));
-  return html;
-}
-function v3RenderManage(){ $('#main-content').innerHTML = v3Page(v3ManageGroups(), 'manage-root'); }
-/** Admin Settings (admin + superadmin): people, leave, reminders, reports. */
-function v3RenderAdminHub(){
-  const h = v3Home(), hb = h.hodBar || {};
-  const g = function(title, rows){ return '<section class="space-y-1.5 min-w-0"><h3 class="v3-section-title px-1">'+title+'</h3><div class="glass rounded-2xl overflow-hidden">'+rows+'</div></section>'; };
-  let html = v3Back('more','More');
-  html += g('People', v3Row(v3Nav('usersv3'),'fa-users-gear','People & roles','By department · pending requests · roles · GL link') +
-    v3Row(v3Nav('users'),'fa-address-book','Staff directory (classic)','Add user, import CSV'));
-  html += g('Leave', v3Row("state.leaveTabForce='final';navigate('leave')",'fa-stamp','Leave — final approval','After the HOD step', hb.leaveMgmt||0) +
-    v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','All departments') + v3Row(v3Nav('leavesummary'),'fa-table','Leave summary','Per department'));
-  html += g('Resort boat (PCE)', v3Row(v3Nav('resortboat'),'fa-anchor','Resort boat requests','Confirm HOD-approved requests · manifest · print', (h.resortBoat||{}).admin||0)); // 3.3.0
-  html += r34AdminGroup(g); // 3.4.0 rosters
-  html += g('Communication', v3Row(v3Nav('reminders'),'fa-bell','Reminders','Add, edit, remove') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
-  html += g('Overview & system', v3Row(v3Nav('adminoverview'),'fa-chart-line','Overview','Meals, approvals, boat load, people') +
-    v3Row(v3Nav('admintools'),'fa-screwdriver-wrench','System tools','Alert emails, archive old records, kitchen summaries')); // 3.2.0
-  html += g('Reports', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Reports & downloads','Meals, boats, leave, users (CSV)') +
-    v3Row(a31LogNav('admin'),'fa-clock-rotate-left','Activity log','Users & roles, leave, reminders, suggestions, settings'));
-  $('#main-content').innerHTML = v3Page(html, 'adminhub-root');
-}
-/** Department Admin (HOD / assistant HOD; admin sees every department). */
-function v3RenderDeptAdmin(){
-  const hb = v3Home().hodBar || {};
-  $('#main-content').innerHTML = v3Page(v3Back('more','More') +
-    '<p class="text-xs text-slate-400 px-1">'+(v3IsAdmin() ? 'All departments (admin)' : esc(state.user.department||''))+'</p>'+
-    v3HodBar()+
-    '<div class="grid grid-cols-2 gap-2" id="dept-tiles">'+
-      v3Tile(v3Nav('approvals'),'fa-inbox','Approvals','Leave, late meals, resort boat', (hb.leave||0)+(hb.late||0)+(v3IsAdmin()?(hb.leaveMgmt||0):0)+((v3Home().resortBoat||{}).hod||0))+
-      v3Tile(v3Nav('deptstaff'),'fa-users','Department staff','Edit · remove')+
-      v3Tile(v3Nav('deptupdatespost'),'fa-bullhorn','Department updates','Post, comments, likes')+
-      v3Tile(v3Nav('leavecal'),'fa-calendar-days','Leave calendar','Month view')+
-      v3Tile(v3Nav('leavesummary'),'fa-table','Leave summary','Totals & list')+
-      v3Tile(v3Nav('mealbehalf'),'fa-star','Meal on behalf','Staff without a phone')+
-      (featureOn('feature_my_schedule') ? v3Tile(v3Nav('deptstaff'),'fa-people-roof','Department staff','Roster vs app accounts · link · register · special meals', state._s34Req||0)+v3Tile(v3Nav('rosterweekly'),'fa-calendar-week','Weekly roster','Upload Mon–Sun, before the week')+v3Tile(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','Link roster names to staff', state._r34Unm||0)+v3Tile(v3Nav('gllink'),'fa-id-badge','Link GL numbers','Check against listing + roster') : '')+ // 3.4.0 · 3.4.1 GL link
-      v3Tile(a31LogNav('dept'),'fa-clock-rotate-left','Activity log','Who changed what')+'</div>', 'deptadmin-root');
-  v3RefreshHome().then(function(){ if (state.tab === 'deptadmin') { const el = $('#v3-hodbar'); if (el) el.outerHTML = v3HodBar(); } }).catch(function(){});
-}
 async function v3RenderLeaveSummary(){
-  $('#main-content').innerHTML = v3Page((state._roleMode === 'admin' ? v3RoleBack('admin') : v3RoleBack('dept')) + '<div id="ls-body">'+v3Card(v3Loading())+'</div>', 'leavesummary-root');
-  const d = await v3Call('getHodLeaveSummary', {});
-  if (state.tab !== 'leavesummary' || !d) return;
-  const rows = d.requests || d.rows || [];
-  const counts = d.counts || d.byStatus || {};
+  $('#main-content').innerHTML = v3Page('<div id="ls-dept"></div><div id="ls-body">'+v3Card(v3Loading())+'</div>', 'leavesummary-root');
+  const d = await v3Call('getHodLeaveSummary', state.lcDept ? { department: state.lcDept } : {});
+  if (state.tab !== 'leavelist' || !d) return;
+  let rows = d.requests || d.rows || [];
+  if (v3IsAdmin()) { // 3.5.0: department filter for admins (shared with the calendar)
+    const ds = PCR_DEPARTMENTS.slice();
+    $('#ls-dept').innerHTML = '<select id="ls-dsel" class="ui-input w-full" aria-label="Department"><option value="">All departments</option>'+ds.map(function(x){ return '<option'+(x===(state.lcDept||'')?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select>';
+    $('#ls-dsel').onchange = function(){ state.lcDept = this.value; v3RenderLeaveSummary(); };
+    if (state.lcDept) rows = rows.filter(function(l){ return !l.department || g341DeptEq(l.department, state.lcDept); });
+  }
+  const counts = (v3IsAdmin() && state.lcDept) ? rows.reduce(function(m, l){ m[l.status] = (m[l.status]||0)+1; return m; }, {}) : (d.counts || d.byStatus || {});
   $('#ls-body').innerHTML = v3Card(v3Title('fa-table','Leave · '+esc(d.department||d.deptLabel||'All'))+
     '<div class="grid grid-cols-3 gap-2">'+Object.keys(counts).map(function(k){ return '<div class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-2 min-w-0"><p class="text-[10px] text-slate-400 truncate">'+esc(V3_STATUS_TEXT[k]||k)+'</p><p class="text-lg font-semibold text-slate-100">'+counts[k]+'</p></div>'; }).join('')+'</div>'+
     (rows.length ? rows.slice(0, 100).map(function(l){ return '<div class="v3-row py-1.5 border-b border-slate-700/40 last:border-0 text-xs min-w-0"><div class="min-w-0"><p class="text-slate-100 truncate">'+esc(l.userName||l.userEmail)+' · '+esc(l.leaveType||'')+'</p><p class="text-[10px] text-slate-500">'+esc(l.startDate||'')+(l.endDate && l.endDate!==l.startDate?' → '+esc(l.endDate):'')+'</p></div>'+v3Status(l.status)+'</div>'; }).join('') : v3Empty('No leave requests.'))+
     '<button type="button" id="ls-csv" class="w-full rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-download mr-1"></i>Download CSV</button>', 'ls-card');
-  $('#ls-csv').onclick = function(){ v3Download('leave-summary-'+fijiDateString()+'.csv', rows); };
+  $('#ls-csv').onclick = function(){ v3Download('leave-list-'+(state.lcDept?state.lcDept.replace(/[^a-z0-9]+/gi,'-')+'-':'')+fijiDateString()+'.csv', rows); };
 }
-const v3RenderMealBehalf = function(){ return v3RenderSpecialPage(); };
 /** Superadmin: 3.0.0 role migration — preview (no changes), then apply (backs up the Users tab first). */
 async function v3RenderMigrate(){
-  $('#main-content').innerHTML = v3Page(v3Back('manage','Manage') + v3Card(v3Title('fa-right-left','Role migration (3.0.0)')+
+  $('#main-content').innerHTML = v3Page(v3Back('system','System') + v3Card(v3Title('fa-right-left','Role migration (3.0.0)')+
     '<p class="text-xs text-slate-300">Writes each person\'s roles into the <strong>roles</strong> column from their current role / permissions / assistant HOD flag. Nobody gains or loses a role. Apply makes a copy of the Users tab first.</p>'+
     '<div class="grid grid-cols-2 gap-2"><button type="button" id="mg-preview" class="rounded-xl py-2.5 text-xs border border-teal-500/40 text-teal-200"><i class="fa-solid fa-eye mr-1"></i>Preview</button><button type="button" id="mg-apply" class="rounded-xl py-2.5 text-xs border border-rose-500/40 text-rose-200">Apply…</button></div>', 'mg-card')+'<div id="mg-out"></div>', 'migrate-root');
   const show = function(d){
@@ -2240,6 +1923,7 @@ function v3EditUser(u){
     (v3IsAdmin() ? '<div class="space-y-1 min-w-0"><label for="eu3-code" class="text-[11px] text-slate-400">Employee code (payroll, e.g. GL018)</label><input id="eu3-code" class="ui-input w-full" maxlength="12" autocomplete="off" value="'+esc(u.employeeCode||'')+'" placeholder="GL…"/></div>' : '')+
     '<label class="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" id="eu3-active"'+(u.active?' checked':'')+'/> Account active</label>'+
     '<div class="flex gap-2 pt-1"><button type="button" id="eu3-cancel" class="flex-1 rounded-xl py-2.5 text-sm border border-slate-600 text-slate-300">Close</button><button type="button" id="eu3-save" class="flex-1 btn-primary rounded-xl py-2.5 text-sm font-semibold text-white">Save changes</button></div>'+
+    '<button type="button" id="v3-details-user" class="text-teal-300 text-xs mr-4"><i class="fa-solid fa-pen mr-1"></i>Edit details</button>'+
     '<button type="button" id="v3-msg-user" class="text-teal-300 text-xs mr-4"><i class="fa-solid fa-bell mr-1"></i>Send an in-app notification</button>'+
     (v3IsAdmin() && v3Perms(u).indexOf('super_admin') < 0 ? '<button type="button" id="v3-del-user" class="text-rose-300 text-xs"><i class="fa-solid fa-trash mr-1"></i>Delete this user</button>' : '')+'</div>';
   openModal(html);
@@ -2264,6 +1948,7 @@ function v3EditUser(u){
     if (r && r.warnings && r.warnings.length) toast(r.warnings[0], 'info');
     if (r) { closeModal(); state._ufKeep = true; v3RenderUsers(); }
   };
+  $('#v3-details-user').onclick = function(){ closeModal(); v35EditDetails(u); };
   $('#v3-msg-user').onclick = function(){
     closeModal();
     v3Form('Notify '+fullDisplayName(u), [{ id:'title', label:'Title', value:'Message from admin', max:100 }, { id:'body', label:'Message', type:'textarea', required:true, max:600 }], 'Send', async function(v){
@@ -2277,41 +1962,9 @@ function v3EditUser(u){
     if (r) { closeModal(); state._ufKeep = true; v3RenderUsers(); }
   };
 }
-async function v3RenderReminders(){
-  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('admin')) + '<button type="button" id="rm-add" class="btn-primary w-full rounded-xl py-3 text-sm font-semibold text-white"><i class="fa-solid fa-plus mr-1"></i>Add reminder</button><div id="rm-list" class="space-y-2">'+v3Loading()+'</div>', 'reminders-root');
-  const form = function(r){
-    v3Form(r ? 'Edit reminder' : 'New reminder', [
-      { id:'title', label:'Title', value: r && r.title, required:true, max:120 }, { id:'body', label:'Details', type:'textarea', value: r && r.body, max:1000 },
-      { id:'dueDate', label:'Due date', type:'date', value: r && String(r.dueDate||'').slice(0,10) }, { id:'important', label:'Important (shown highlighted to everyone)', type:'checkbox', value: r && (r.important === true || r.important === 'TRUE' || String(r.priority) === 'high') }
-    ], r ? 'Save' : 'Add', async function(v){
-      const p = { title: v.title, body: v.body, dueDate: v.dueDate, important: v.important ? 'true' : 'false', priority: v.important ? 'high' : 'normal' };
-      const d = r ? await v3Call('updateReminder', Object.assign({ id: r.id }, p), 'Saved') : await v3Call('addReminder', p, 'Reminder added');
-      if (d) { cacheInvalidate(['reminders']); v3RenderReminders(); }
-      return !!d;
-    });
-  };
-  $('#rm-add').onclick = function(){ form(null); };
-  const d = await v3Call('getReminders', {});
-  if (state.tab !== 'reminders' || !d) return;
-  const rows = d.reminders || [];
-  cacheSet('reminders', rows);
-  $('#rm-list').innerHTML = rows.length ? rows.map(function(r){
-    const imp = r.important === true || r.important === 'TRUE' || String(r.priority) === 'high';
-    return '<article class="glass rounded-2xl p-3 space-y-1.5 min-w-0"><div class="v3-row"><p class="text-sm text-slate-100 break-words min-w-0">'+(imp?'<i class="fa-solid fa-triangle-exclamation text-amber-300 mr-1"></i>':'')+esc(r.title)+'</p>'+(r.dueDate?v3Chip('Due '+esc(String(r.dueDate).slice(0,10)),'mute'):'')+'</div>'+
-      (r.body?'<p class="text-xs text-slate-300 break-words">'+esc(r.body)+'</p>':'')+
-      '<div class="flex gap-2"><button type="button" class="v3-rm flex-1 rounded-lg py-1.5 text-xs border border-slate-600 text-slate-200" data-a="edit" data-id="'+esc(r.id)+'">Edit</button><button type="button" class="v3-rm flex-1 rounded-lg py-1.5 text-xs border border-teal-500/40 text-teal-200" data-a="done" data-id="'+esc(r.id)+'">Done</button><button type="button" class="v3-rm flex-1 rounded-lg py-1.5 text-xs border border-rose-500/40 text-rose-200" data-a="del" data-id="'+esc(r.id)+'">Remove</button></div></article>';
-  }).join('') : v3Card(v3Empty('No active reminders.'));
-  $$('.v3-rm').forEach(function(b){ b.onclick = async function(){
-    const r = rows.find(function(x){ return x.id === b.dataset.id; });
-    if (b.dataset.a === 'edit') return form(r);
-    if (b.dataset.a === 'del' && !confirm('Remove this reminder?')) return;
-    const d2 = await v3Call(b.dataset.a === 'done' ? 'completeReminder' : 'deleteReminder', { id: b.dataset.id }, b.dataset.a === 'done' ? 'Marked done' : 'Removed');
-    if (d2) { cacheInvalidate(['reminders']); v3RenderReminders(); }
-  }; });
-}
 async function v3RenderAdminStatus(){
   const from = state.exFrom || fijiDateString(addFijiDays(getFijiNow(), -30)), to = state.exTo || fijiDateString(addFijiDays(getFijiNow(), 1));
-  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('admin')) +
+  $('#main-content').innerHTML = v3Page(v3RoleBack('admin') +
     '<section class="glass rounded-2xl p-4 space-y-2 min-w-0">'+v3Title('fa-file-arrow-down','Generate reports')+'<div class="grid grid-cols-2 gap-2"><input type="date" id="ex-from" class="ui-input w-full min-w-0" value="'+from+'"/><input type="date" id="ex-to" class="ui-input w-full min-w-0" value="'+to+'"/></div>'+
     '<button type="button" id="ex-go" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white font-semibold">Generate</button><p class="text-[10px] text-slate-400">Passwords are never included. Files are CSV (open in Excel / Google Sheets).</p></section><div id="ex-out"></div>', 'adminstatus-root');
   $('#ex-go').onclick = async function(){
@@ -2333,102 +1986,7 @@ async function v3RenderAdminStatus(){
     $('#ex-all').onclick = function(){ sets.forEach(function(s, i){ if ((s[2]||[]).length) setTimeout(function(){ one(i); }, i*350); }); };
   };
 }
-async function v3RenderSettings(){
-  const s = state.appSettings || {};
-  const prov = s.mail_provider === 'brevo' ? 'brevo' : 'mailapp';
-  $('#main-content').innerHTML = v3Page(v3Back('manage','Manage') +
-    v3Card(v3Title('fa-key','Verification & reset codes · email sender')+
-      '<p class="text-xs text-slate-300"><i class="fa-solid fa-envelope text-teal-300 mr-1"></i>Sign-up and forgot-password codes are <strong>sent by email</strong> to the registered address only — never shown on screen.</p>'+
-      '<div class="space-y-1"><label for="st-prov" class="text-[11px] text-slate-400">Send with</label><select id="st-prov" class="ui-input w-full"><option value="mailapp"'+(prov==='mailapp'?' selected':'')+'>Google (the account that runs the script) — default</option><option value="brevo"'+(prov==='brevo'?' selected':'')+'>Brevo email service (API key in Script Properties)</option></select></div>'+
-      '<div id="st-g" class="space-y-2'+(prov==='brevo'?' hidden':'')+'"><div class="space-y-1"><label for="st-from" class="text-[11px] text-slate-400">Send from (Gmail “send as” alias · blank = the script account)</label><input id="st-from" type="email" class="ui-input w-full" placeholder="blank = script account" value="'+esc(s.mail_from||'')+'"/></div>'+
-      '<p class="text-[10px] text-slate-500">An alias must first be added in that Gmail (Settings → Accounts → Send mail as). If it fails, mail goes from the script account.</p></div>'+
-      '<div id="st-b" class="space-y-2'+(prov==='brevo'?'':' hidden')+'"><div class="space-y-1"><label for="st-bmail" class="text-[11px] text-slate-400">Brevo sender address (verified in Brevo)</label><input id="st-bmail" type="email" class="ui-input w-full" value="'+esc(s.brevo_sender_email||'')+'"/></div>'+
-      '<p class="text-[11px] '+(s.brevo_key_set?'text-emerald-300':'text-amber-200')+'"><i class="fa-solid '+(s.brevo_key_set?'fa-check':'fa-triangle-exclamation')+' mr-1"></i>'+(s.brevo_key_set?'Brevo API key is set (Script Properties → BREVO_API_KEY)':'No Brevo API key yet — add BREVO_API_KEY in Apps Script → Project settings → Script properties. Until then mail falls back to Google.')+'</p></div>'+
-      '<div class="space-y-1"><label for="st-name" class="text-[11px] text-slate-400">Sender name</label><input id="st-name" class="ui-input w-full" maxlength="60" value="'+esc(s.mail_sender_name||'PCR Staff App')+'"/></div>'+
-      '<button type="button" id="st-save" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white font-semibold">Save sender</button>'+
-      '<div class="pt-2 space-y-2 border-t border-slate-700/60" id="st-test"><p class="text-[11px] text-slate-400" id="st-mailstatus">Email status: checking…</p><div class="flex gap-2"><input id="st-testto" type="email" class="ui-input flex-1 min-w-0" placeholder="Send a test to (blank = me)"/><button type="button" id="st-testgo" class="rounded-xl px-3 text-xs border border-teal-500/40 text-teal-200">Send test</button></div></div>')+
-    v3Card(v3Title('fa-rotate-left','Superadmin log · revert owner')+
-      '<p class="text-[11px] text-slate-400">Only this superadmin account can undo entries in the Superadmin log. Once set, only that account can change it.</p>'+
-      '<div class="flex gap-2"><input id="st-owner" type="email" class="ui-input flex-1 min-w-0" placeholder="owner email" value="'+esc(s.revert_owner_email||'')+'"/><button type="button" id="st-owner-save" class="rounded-xl px-3 text-xs border border-teal-500/40 text-teal-200">Save</button></div>', 'st-owner-card')+
-    v3Card(v3Title('fa-toggle-on','Feature flags')+'<div id="admin-body"></div>')+
-    v3Card(v3Title('fa-envelope','Alert emails & other tools')+'<button type="button" onclick="openAlertEmails()" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Manage alert emails</button>'+
-      '<button type="button" onclick="navigate(\'admin\')" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Classic admin tools (boat, kitchen, archive)</button>'), 'settings-root');
-  $('#st-owner-save').onclick = async function(){
-    const v = String($('#st-owner').value||'').trim().toLowerCase();
-    if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast('Enter a valid email','error'); return; }
-    const passcode = await askPasscode('super', true); if (!passcode) return;
-    const a = await v3Call('setAppSetting', { key: 'revert_owner_email', value: v, passcode: passcode }, 'Revert owner saved');
-    if (a) { state.appSettings = Object.assign({}, state.appSettings, { revert_owner_email: v }); state.a31CanRevert = !!v && v === String(state.user.email).toLowerCase(); state._a32RepAt = 0; }
-  };
-  $('#st-prov').onchange = function(){ const b = this.value === 'brevo'; $('#st-g').classList.toggle('hidden', b); $('#st-b').classList.toggle('hidden', !b); };
-  $('#st-save').onclick = async function(){
-    const pv = $('#st-prov').value, from = String($('#st-from').value||'').trim(), bm = String($('#st-bmail').value||'').trim(), name = String($('#st-name').value||'').trim() || 'PCR Staff App';
-    const okMail = function(x){ return !x || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); };
-    if (!okMail(from) || !okMail(bm)) { toast('Enter a valid email or leave it blank','error'); return; }
-    if (pv === 'brevo' && !bm) { toast('Brevo needs a sender address','error'); return; }
-    const passcode = await askPasscode('super', true); if (!passcode) return;
-    const sets = [['mail_provider', pv], ['mail_from', from], ['brevo_sender_email', bm], ['mail_sender_name', name], ['brevo_sender_name', name]];
-    for (let i = 0; i < sets.length; i++) { const a = await v3Call('setAppSetting', { key: sets[i][0], value: sets[i][1], passcode: passcode }, i === sets.length-1 ? 'Sender saved' : null); if (!a) return; }
-    state.appSettings = Object.assign({}, state.appSettings, { mail_provider: pv, mail_from: from, brevo_sender_email: bm, mail_sender_name: name, brevo_sender_name: name }); cacheInvalidate(['featureFlags','v3home']);
-  };
-  $('#st-testgo').onclick = async function(){
-    this.disabled = true;
-    const r = await api('sendTestEmail', { to: String($('#st-testto').value||'').trim() }).catch(function(){ return null; });
-    this.disabled = false;
-    if (r && r.success) toast('Test email sent to '+r.data.to+' via '+(r.data.via === 'brevo' ? 'Brevo' : 'Google')+(r.data.warning ? ' · '+r.data.warning : ''),'ok');
-    else toast((r && r.error) || 'Test email failed','error');
-    if (r && r.data && r.data.mail) paintMail(r.data.mail);
-  };
-  const paintMail = function(m){ const el = $('#st-mailstatus'); if (!el || !m) return;
-    el.innerHTML = 'Email status: sending with <strong class="text-slate-200">'+(m.effective === 'brevo' ? 'Brevo' : 'Google (MailApp)')+'</strong> · Brevo key '+(m.brevoKeySet ? '<span class="text-emerald-300">set</span>' : '<span class="text-amber-200">missing</span>')+' · sender '+esc(m.brevoSender||'')+(m.lastWarning ? '<br><span class="text-amber-200">Last warning: '+esc(m.lastWarning)+'</span>' : ''); };
-  api('getSuperDashboard', {}).then(function(r){ const hl = r && r.success && r.data && r.data.health; if (hl && hl.mail) paintMail(hl.mail); else if (hl) paintMail({ effective: hl.mailProvider, brevoKeySet: !!hl.brevoKeySet, brevoSender: hl.mailFrom||'' }); }).catch(function(){});
-  try { await renderAdminFeaturesTab(); } catch (e) {}
-}
 /* ============ 3.2.0: admin Overview + System tools (admins and superadmins) · About image (superadmin) ============ */
-function a34Back(){ return v3IsSuper() && state._a34From === 'manage' ? v3Back('manage','Manage') : v3Back('adminhub','Admin Settings'); }
-async function a34RenderOverview(){
-  const tab = state.tab;
-  $('#main-content').innerHTML = v3Page(a34Back() + '<div id="ov-body" class="space-y-4">'+v3Card(v3Loading())+'</div>', 'adminoverview-root');
-  let r = null; try { r = await v3ApiShared('getSuperDashboard', {}); } catch (e) {}
-  const box = $('#ov-body'); if (!box || state.tab !== tab) return;
-  if (!r || !r.success) { box.innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load the overview')+'</p>'); return; }
-  const sec = v3DashSections(r.data || {});
-  box.innerHTML = sec.pend + sec.meals + sec.boat + sec.people;
-}
-async function a34RenderTools(){
-  const tab = state.tab;
-  $('#main-content').innerHTML = v3Page(a34Back() +
-    v3Card(v3Title('fa-envelope','Alert emails')+'<p class="text-[11px] text-slate-400">Who gets the app’s alert emails (one per line).</p><button type="button" id="at-alerts" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Manage alert emails</button>', 'at-alerts-card')+
-    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="archive-card">'+v3Title('fa-box-archive','Archive old records')+
-      '<p class="text-[11px] text-slate-400">Moves rows older than 60 days from Dinner / Breakfast / Lunch Orders, Boat Bookings and Boat Runs into matching <strong>Archive_</strong> tabs (copy → check → delete). Check the counts first; the real move asks for your '+(v3IsSuper() ? 'superadmin' : 'admin')+' code.</p>'+
-      '<div class="flex gap-2 flex-wrap"><button type="button" id="arch-dry" class="rounded-xl px-3 py-2 text-xs border border-slate-600 text-slate-200">Check counts (dry run)</button>'+
-      '<button type="button" id="arch-run" class="rounded-xl px-3 py-2 text-xs bg-rose-700/80 text-white hidden">Archive now…</button></div><div id="arch-out" class="text-[11px] text-slate-300"></div></section>'+
-    v3Card(v3Title('fa-file-pdf','Kitchen summaries')+'<p class="text-[11px] text-slate-400">Saved dinner summaries (the 8pm snapshot + PDF). Check the automatic save and the Drive folder, or back-fill the last days.</p>'+
-      '<div class="flex gap-2 flex-wrap"><button type="button" id="ks-status" class="rounded-xl px-3 py-2 text-xs border border-slate-600 text-slate-200">Check status</button><button type="button" id="ks-backfill" class="rounded-xl px-3 py-2 text-xs border border-teal-500/40 text-teal-200">Back-fill last days</button></div><div id="ks-out" class="text-[11px] text-slate-300 break-words"></div>', 'ks-card'),
-    'admintools-root');
-  if (state.tab !== tab) return;
-  $('#at-alerts').onclick = function(){ openAlertEmails(); };
-  bindArchiveCard();
-  const out = $('#ks-out');
-  $('#ks-status').onclick = async function(){
-    out.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Checking…';
-    const r = await api('dinnerSummaryStatus', {}).catch(function(){ return null; });
-    if (!r || !r.success) { out.innerHTML = '<span class="text-rose-300">'+esc((r && r.error) || 'Failed')+'</span>'; return; }
-    const d = r.data || {}, tr = d.triggers;
-    out.innerHTML = '<p>Server time '+esc(d.fijiNow||'')+'</p>'+
-      '<p>Automatic save: '+(d.triggersError ? '<span class="text-amber-200">'+esc(d.triggersError)+'</span>' : (tr && (tr.length || tr.count) ? '<span class="text-emerald-300">on</span>' : '<span class="text-amber-200">not set</span>'))+'</p>'+
-      '<p>Drive folder: '+(d.driveError ? '<span class="text-amber-200">'+esc(d.driveError)+'</span>' : (d.folder ? '<a class="text-teal-300 underline" target="_blank" rel="noopener" href="'+esc(d.folder)+'">open</a>' : '—'))+'</p>'+
-      (Array.isArray(d.days) ? '<p>'+d.days.map(function(x){ return esc(x.serviceDate||x.date||'')+(x.saved||x.snapshot ? ' ✓' : ' –'); }).join(' · ')+'</p>' : '');
-  };
-  $('#ks-backfill').onclick = async function(){
-    if (!confirm('Save any missing dinner summaries for the last days? Existing ones are kept.')) return;
-    out.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Saving…';
-    const r = await api('backfillDinnerSummaries', {}).catch(function(){ return null; });
-    if (!r || !r.success) { out.innerHTML = '<span class="text-rose-300">'+esc((r && r.error) || 'Failed')+'</span>'; return; }
-    out.innerHTML = (r.data.backfill||[]).map(function(x){ return '<p>'+esc(x.serviceDate)+': '+(x.saved ? 'saved' : x.kept ? 'already saved' : esc(x.error || 'skipped'))+'</p>'; }).join('') || 'Nothing to do.';
-    toast('Summaries checked','ok');
-  };
-}
 /* ---- footer credit + About (3.2.1: About button only) ---- */
 const A34_ABOUT_DEFAULT = 'assets/about-default.jpg';
 function a34AboutUrl(){ const s = state.appSettings || {}; return String(s.about_image_url || '') || A34_ABOUT_DEFAULT; }
@@ -2449,7 +2007,7 @@ function a34EnsureCredit(){
   const last = mc.lastElementChild;
   if (last && last.id === 'pcr-credit') return;
   const old = document.getElementById('pcr-credit'); if (old && old.parentNode === mc) old.remove();
-  mc.insertAdjacentHTML('beforeend', a34CreditHtml(!mc.querySelector('#home-ver')));
+  mc.insertAdjacentHTML('beforeend', a34CreditHtml(true)); // 3.5.0: one version line on every page (+ About)
 }
 (function(){
   let t = null;
@@ -2462,7 +2020,7 @@ function a34EnsureCredit(){
 })();
 async function a34RenderAboutImage(){
   const cur = String((state.appSettings||{}).about_image_url || '');
-  $('#main-content').innerHTML = v3Page(v3Back('manage','Manage') +
+  $('#main-content').innerHTML = v3Page(v3Back('system','System') +
     v3Card(v3Title('fa-image','About image')+'<p class="text-[11px] text-slate-400">Shown when anyone taps “About” at the bottom of a page. The picture is made smaller on this phone, then saved to Drive (like report screenshots).</p>'+
       '<img id="ai-prev" src="'+esc(cur || A34_ABOUT_DEFAULT)+'" alt="About image preview" class="w-full rounded-xl border border-amber-400/40 object-contain max-h-80 bg-slate-900"/>'+
       '<p class="text-[11px] text-slate-400" id="ai-state">'+(cur ? 'Custom image' : 'Default poster')+'</p>'+
@@ -2492,19 +2050,19 @@ async function a34RenderAboutImage(){
 /** 3.2.0: dashboard sections (superadmin Home and Admin Settings → Overview). */
 function v3DashSections(sd){
     const m = sd.meals || { today:{}, tomorrow:{} }, p = sd.pending || {};
-    const stat = function(label, val, sub, tab){ return '<button type="button" '+(tab?'onclick="navigate(\''+tab+'\')"':'')+' class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-2.5 text-left min-w-0"><p class="text-[10px] text-slate-400 truncate">'+label+'</p><p class="text-xl font-semibold text-slate-100">'+val+'</p>'+(sub?'<p class="text-[10px] text-slate-500 truncate">'+sub+'</p>':'')+'</button>'; };
+    const stat = function(label, val, sub, tab){ return '<button type="button" '+(tab?'onclick="v35Go(\''+tab+'\')"':'')+' class="rounded-xl bg-slate-900/50 border border-slate-700/60 p-2.5 text-left min-w-0"><p class="text-[10px] text-slate-400 truncate">'+label+'</p><p class="text-xl font-semibold text-slate-100">'+val+'</p>'+(sub?'<p class="text-[10px] text-slate-500 truncate">'+sub+'</p>':'')+'</button>'; };
     const totalPending = (p.leaveHod||0)+(p.leaveMgmt||0)+(p.late||0)+(p.special||0);
     const meals = '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="sa-meals">'+v3Title('fa-utensils','Meals')+
-      '<div class="grid grid-cols-3 gap-2">'+V3_MEALS.map(function(k){ return stat(V3_MEAL_LABEL[k], m.tomorrow[k]||0, 'tomorrow · today '+(m.today[k]||0), 'kitchen'); }).join('')+'</div>'+v3WeeklyChart(sd.weekly)+'</section>';
+      '<div class="grid grid-cols-3 gap-2">'+V3_MEALS.map(function(k){ return stat(V3_MEAL_LABEL[k], m.tomorrow[k]||0, 'tomorrow · today '+(m.today[k]||0), 'kitchenlists'); }).join('')+'</div>'+v3WeeklyChart(sd.weekly)+'</section>';
     const pend = '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="sa-pending">'+v3Title('fa-inbox','Waiting for approval', v3Chip(String(totalPending), totalPending?'warn':'mute'))+
-      '<div class="grid grid-cols-3 gap-2">'+stat('Leave · HOD', p.leaveHod||0, '', 'approvals')+stat('Leave · final', p.leaveMgmt||0, '', 'approvals')+stat('Off-menu dinners', p.offMenu||0, 'tomorrow', 'offmenu')+
-      stat('Late meals', p.late||0, '', 'approvals')+stat('Special meals', p.special||0, '', 'approvals')+stat('Food comments', p.feedback||0, 'new', 'chefcomments')+'</div></section>';
+      '<div class="grid grid-cols-3 gap-2">'+stat('Leave · HOD', p.leaveHod||0, '', 'approvals:leave')+stat('Leave · final', p.leaveMgmt||0, '', 'approvals:leave')+stat('Off-menu dinners', p.offMenu||0, 'tomorrow', 'offmenu')+
+      stat('Late meals', p.late||0, '', 'approvals:late')+stat('Special meals', p.special||0, '', 'approvals:special')+stat('Food comments', p.feedback||0, 'new', 'chefcomments')+'</div></section>';
     const boat = '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="sa-boat">'+v3Title('fa-ship','Boat load · today & tomorrow')+
       ((sd.boat||[]).length ? sd.boat.map(function(b){ const pct = b.capacity ? Math.min(100, Math.round(b.pax*100/b.capacity)) : 0;
         return '<div class="space-y-1"><div class="v3-row text-xs"><span class="truncate min-w-0 text-slate-200">'+esc(v3DateLabel(b.date))+' '+esc(b.time)+' · '+esc(b.route)+'</span><span class="text-slate-300">'+b.pax+(b.capacity?'/'+b.capacity:'')+'</span></div><div class="v3-bar"><span style="width:'+pct+'%'+(pct>=90?';background:#f59e0b':'')+'"></span></div></div>'; }).join('') : v3Empty('No runs today or tomorrow.'))+'</section>';
     const users = sd.users || {}, hl = sd.health || {};
     const people = '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="sa-users">'+v3Title('fa-users','People & app health')+
-      '<div class="grid grid-cols-3 gap-2">'+stat('Users', users.total||0, (users.active||0)+' active', 'usersv3')+stat('New this week', users.newThisWeek||0, '', 'usersv3')+stat('Version', esc(String(hl.version||APP_VERSION).replace('-demo','')), state.demo?'demo':'live', 'settings')+'</div>'+
+      '<div class="grid grid-cols-2 gap-2">'+stat('Users', users.total||0, (users.active||0)+' active', 'people')+stat('New this week', users.newThisWeek||0, '', 'people')+'</div>'+
       '<p class="text-[11px] text-slate-400">'+Object.keys(users.byRole||{}).map(function(r){ return esc(V3_ROLE_LABEL[r]||r)+' '+users.byRole[r]; }).join(' · ')+'</p>'+
       '<p class="text-[11px] text-slate-400">Codes: sent by email · '+(hl.mailProvider === 'brevo' ? 'Brevo' : 'Google'+(hl.mailFrom?' ('+esc(hl.mailFrom)+')':''))+' · server time '+esc(v3Ts(hl.fijiNow))+'</p></section>';
     return { pend: pend, meals: meals, boat: boat, people: people };
@@ -2516,7 +2074,7 @@ async function v3RenderSuperHome(){
       '<p class="text-[11px] text-slate-400">Superadmin · <span id="v3-clock" class="v3-countdown">'+formatFiji()+'</span></p></div></div></section>';
     if (!sd) { $('#main-content').innerHTML = v3Page(head + v3Card(v3Loading()), 'home'); return; }
     const sec = v3DashSections(sd), pend = sec.pend, meals = sec.meals, boat = sec.boat, people = sec.people;
-    $('#main-content').innerHTML = v3Page(head + a31SuperNoteHtml() + pend + meals + boat + people + '<p class="text-center text-[10px] text-slate-500" id="home-ver">UI '+APP_VERSION+(state.backendVersion?' · API '+esc(state.backendVersion):'')+(state.demo?' · demo':'')+'</p>', 'home');
+    $('#main-content').innerHTML = v3Page(head + a31SuperNoteHtml() + pend + meals + boat + people, 'home');
     v3StartTicker();
   };
   paint(v3Home().superDash);
@@ -2527,31 +2085,19 @@ async function v3RenderSuperHome(){
 
 
 /* ============ O. Boat Admin (boat manager / captain / admin) ============ */
-async function v3LoadEmergencyInbox(sel){
-  let r = null; try { r = await api('getEmergencyTravel', { status:'pending' }); } catch (e) {}
-  const box = $(sel); if (!box || !r || !r.success) return;
-  const list = ((r.data && r.data.requests) || []).filter(function(x){ return x.status === 'pending'; });
-  box.innerHTML = v3Card(v3Title('fa-triangle-exclamation','Emergency travel', v3Chip(String(list.length), list.length?'warn':'mute'))+(list.length ? list.map(function(x){
-    return '<div class="rounded-xl border border-slate-700/60 p-2 text-xs space-y-1 min-w-0"><p class="text-slate-100">'+esc(x.userName)+' <span class="text-slate-400">· '+esc(x.department)+'</span></p><p class="text-slate-300">'+esc(x.seats)+' seat(s) · '+esc(x.preferredTime||'—')+'</p><p class="text-slate-400 break-words">'+esc(x.reason)+'</p>'+
-      '<div class="grid grid-cols-2 gap-2"><button type="button" class="v3-em rounded-lg py-1.5 btn-primary text-white" data-id="'+esc(x.id)+'" data-s="confirmed">Confirm</button><button type="button" class="v3-em rounded-lg py-1.5 border border-rose-500/40 text-rose-200" data-id="'+esc(x.id)+'" data-s="rejected">Reject</button></div></div>';
-  }).join('') : v3Empty('Nothing waiting.')), 'emerg-card');
-  $$(sel+' .v3-em').forEach(function(b){ b.onclick = async function(){ const d = await v3Call('reviewEmergencyTravel', { id: b.dataset.id, status: b.dataset.s }, b.dataset.s === 'confirmed' ? 'Confirmed' : 'Rejected'); if (d) v3LoadEmergencyInbox(sel); }; });
-}
 
 /** Boat page: today's + upcoming bookings, passenger lists, PDF / Dive PDF, boat tools. */
 async function v3RenderBoatAdmin(){
   const from = fijiDateString(), to = fijiDateString(addFijiDays(getFijiNow(), 7));
   const mgr = v3IsBoatManager();
-  $('#main-content').innerHTML = v3Page(v3Back('more','More') +
+  const tk = V35.tok;
+  $('#main-content').innerHTML = v3Page(
     '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="stb-tools">'+v3Title('fa-toolbox','Boat tools')+
     '<div class="grid grid-cols-2 gap-2">'+(mgr ? '<button type="button" id="stb-add" class="btn-primary rounded-xl py-2 text-xs text-white font-semibold"><i class="fa-solid fa-plus mr-1"></i>Add run</button>'+
     '<button type="button" id="stb-dedupe" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-clone mr-1"></i>Remove duplicate runs</button>' : '')+
     '<button type="button" id="stb-copy" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-copy mr-1"></i>Copy today\u2019s pax</button>'+
-    '<button type="button" onclick="navigate(\'boatruns\')" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-ship mr-1"></i>Runs & timetable (admin)</button>'+
-    '<button type="button" onclick="navigate(\'resortboat\')" id="stb-resort" class="col-span-2 rounded-xl py-2 text-xs border border-sky-500/40 text-sky-200"><i class="fa-solid fa-anchor mr-1"></i>Resort boat (PCE) — confirm requests & manifest'+(((v3Home().resortBoat||{}).admin) ? ' ('+v3Home().resortBoat.admin+')' : '')+'</button>'+
-    '<button type="button" onclick="navigate(\'emergency\')" class="col-span-2 rounded-xl py-2 text-xs border border-amber-500/40 text-amber-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Emergency travel requests</button>'+
     '<button type="button" onclick="'+a31LogNav('boat')+'" id="stb-log" class="col-span-2 rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-clock-rotate-left mr-1"></i>Activity log — who changed what</button></div></section>'+
-    '<div id="stb-list" class="space-y-3">'+v3Loading()+'</div><div id="stb-emerg"></div>', 'boat-station');
+    '<div id="stb-list" class="space-y-3">'+v3Loading()+'</div>', 'boat-station');
   const add = $('#stb-add'); if (add) add.onclick = function(){ openEditBoatRunModal(null); };
   const dd = $('#stb-dedupe'); if (dd) dd.onclick = async function(){ if (!confirm('Hide duplicate runs (same date, time and route)? Bookings stay.')) return; const d = await v3Call('dedupeBoatRuns', {}); if (d) { toast(d.message || 'Done', 'ok'); cacheInvalidate(['boatRuns']); v3RenderBoatAdmin(); } };
   let runs = [], bookings = [];
@@ -2560,7 +2106,7 @@ async function v3RenderBoatAdmin(){
     runs = (r1 && r1.success && r1.data && r1.data.runs) || []; bookings = (r2 && r2.success && r2.data && r2.data.bookings) || [];
     if (r1 && !r1.success) toast(r1.error || 'Could not load runs','error');
   } catch (e) { toast('Couldn\u2019t reach the server — try again','error'); }
-  if (state.tab !== 'boatadmin') return;
+  if (state.tab !== 'boatadmin' || V35.tok !== tk) return;
   runs = runs.filter(function(r){ return r.active !== false; }).sort(function(a, b){ return (String(a.date)+String(a.time)).localeCompare(String(b.date)+String(b.time)); });
   $('#stb-copy').onclick = function(){
     const lines = ['PCR boat pax — '+from+' Fiji'];
@@ -2580,37 +2126,24 @@ async function v3RenderBoatAdmin(){
         return '<details class="rounded-xl border border-slate-700/60 bg-slate-900/40 min-w-0" data-run="'+esc(r.id)+'"'+(d === from ? ' open' : '')+'><summary class="px-3 py-2 cursor-pointer space-y-1"><div class="v3-row text-sm"><span class="truncate min-w-0 text-slate-100">'+esc(r.time||'')+' · '+esc(r.route||'')+'</span><span class="text-xs text-slate-300 shrink-0">'+used+'/'+cap+'</span></div><div class="v3-bar"><span style="width:'+pct+'%'+(pct>=90?';background:#f59e0b':'')+'"></span></div>'+(r.notes?'<p class="text-[10px] text-slate-400">'+esc(r.notes)+'</p>':'')+'</summary>'+
           '<div class="px-3 pb-3 space-y-1.5"><p class="text-[10px] uppercase tracking-wide text-slate-500">Passengers ('+pax.length+' booking'+(pax.length===1?'':'s')+' · '+used+' seat'+(used===1?'':'s')+')</p>'+
           (pax.length ? pax.map(function(b){ return '<div class="v3-row text-xs py-1 border-t border-slate-700/40 min-w-0"><span class="truncate min-w-0 text-slate-100">'+esc(b.userName||b.userEmail)+' <span class="text-slate-400">· '+esc(b.seats||1)+' seat'+(Number(b.seats||1)===1?'':'s')+'</span></span><button type="button" class="v3-bk-cancel shrink-0 text-[11px] text-rose-300" data-id="'+esc(b.id)+'">Cancel</button></div>'; }).join('') : v3Empty('No bookings yet.'))+
-          '<div class="grid grid-cols-3 gap-2 pt-1"><button type="button" class="v3-pax-pdf rounded-lg py-1.5 text-[11px] btn-primary text-white" data-id="'+esc(r.id)+'"><i class="fa-solid fa-file-pdf mr-1"></i>Passengers</button><button type="button" class="v3-dive-pdf rounded-lg py-1.5 text-[11px] border border-sky-500/40 text-sky-200" data-id="'+esc(r.id)+'"><i class="fa-solid fa-person-swimming mr-1"></i>Dive PDF</button>'+(mgr ? '<button type="button" class="v3-run-edit rounded-lg py-1.5 text-[11px] border border-slate-600 text-slate-200" data-id="'+esc(r.id)+'">Edit run</button>' : '')+'</div></div></details>';
+          '<div class="flex flex-wrap gap-2 items-center text-[11px] pt-1 border-t border-slate-700/40 stb-captain" data-id="'+esc(r.id)+'"><span class="text-slate-400">Captain</span><label class="flex items-center gap-1">Seats <input type="number" min="1" max="99" class="w-16 ui-input py-1 stb-cap" value="'+esc(r.capacity||cap)+'" aria-label="Seats on this run"/></label><label class="flex items-center gap-1"><input type="checkbox" class="stb-full"'+(r.fullNotification?' checked':'')+'/> Mark full / tell staff</label><button type="button" class="stb-cap-save rounded-lg px-2 py-1 border border-teal-500/40 text-teal-200" data-id="'+esc(r.id)+'">Save</button></div>'+
+          '<div class="grid grid-cols-3 gap-2 pt-1"><button type="button" class="v3-pax-pdf rounded-lg py-1.5 text-[11px] btn-primary text-white" data-id="'+esc(r.id)+'"><i class="fa-solid fa-file-pdf mr-1"></i>Passengers</button><button type="button" class="v3-dive-pdf rounded-lg py-1.5 text-[11px] border border-sky-500/40 text-sky-200" data-id="'+esc(r.id)+'"><i class="fa-solid fa-person-swimming mr-1"></i>Dive PDF</button>'+(mgr ? '<button type="button" class="v3-run-edit rounded-lg py-1.5 text-[11px] border border-slate-600 text-slate-200" data-id="'+esc(r.id)+'">Edit run</button>' : '')+'</div>'+(mgr ? '<button type="button" class="v3-run-rm text-[11px] text-rose-300" data-id="'+esc(r.id)+'"><i class="fa-solid fa-ban mr-1"></i>Remove run (e.g. weather)</button>' : '')+'</div></details>';
       }).join('')+'</section>';
   }).join('') : v3Card(v3Empty('No boat runs in the next 7 days.'));
   $$('.v3-pax-pdf').forEach(function(b){ b.onclick = function(){ v3BoatPdf(b.dataset.id, 'Passenger list'); }; });
   $$('.v3-dive-pdf').forEach(function(b){ b.onclick = function(){ v3BoatPdf(b.dataset.id, 'Boat Trip Summary — Dive'); }; });
   $$('.v3-run-edit').forEach(function(b){ b.onclick = function(){ openEditBoatRunModal(runs.find(function(r){ return String(r.id) === b.dataset.id; })); }; });
   $$('.v3-bk-cancel').forEach(function(b){ b.onclick = async function(){ if (!confirm('Cancel this booking?')) return; const d = await v3Call('cancelBoatBooking', { id: b.dataset.id }, 'Booking cancelled'); if (d) { cacheInvalidate(['boatRuns']); v3RenderBoatAdmin(); } }; });
-  v3LoadEmergencyInbox('#stb-emerg');
-}
-const v3RenderBoatStation = v3RenderBoatAdmin;
-/** Boat Admin → runs editor: the 2.x Boat screen with the manager / captain tools (only in role mode). */
-async function v3RenderBoatRuns(){
-  state.tab = 'boat'; // the 2.x screen paints only while the tab is 'boat'; role mode stays 'boat'
-  state._roleMode = 'boat';
-  const ht = $('#header-title'); if (ht) ht.textContent = 'Boat runs (admin)';
-  await renderBoat();
-}
-async function v3RenderEmergency(){
-  $('#main-content').innerHTML = v3Page(v3RoleBack('boat') + '<div id="em-box">'+v3Card(v3Loading())+'</div>', 'emergency-root');
-  await v3LoadEmergencyInbox('#em-box');
+  $$('.stb-cap-save').forEach(function(b){ b.onclick = async function(){ const box = b.closest('.stb-captain'); const cap = Number(box.querySelector('.stb-cap').value); if (!(cap > 0)) { toast('Enter the number of seats','error'); return; }
+    b.disabled = true; const d = await v3Call('saveBoatRun', { id: b.dataset.id, captainUpdate: true, capacity: cap, fullNotification: box.querySelector('.stb-full').checked }, 'Run updated'); b.disabled = false; if (d) { cacheInvalidate(['boatRuns']); v3RenderBoatAdmin(); } }; });
+  $$('.v3-run-rm').forEach(function(b){ b.onclick = async function(){ if (!confirm('Deactivate this run (e.g. weather)? Bookings stay but the run is hidden.')) return; const d = await v3Call('deleteBoatRun', { id: b.dataset.id }, 'Run removed'); if (d) { cacheInvalidate(['boatRuns']); v3RenderBoatAdmin(); } }; });
 }
 const _v2RenderBoat = renderBoat;
 renderBoat = async function(){
-  if (state.tab === 'boat' && state._roleMode !== 'boat' && r33BoatTab() === 'resort') return r33RenderResort(); // 3.3.0 Resort boat sub-tab
-  const out = await _v2RenderBoat.apply(this, arguments);
-  if (state.tab === 'boat' && state._roleMode === 'boat' && $('#boat-root') && !$('#boat-role-back')) {
-    const bar = document.createElement('div'); bar.id = 'boat-role-back'; bar.className = 'space-y-2';
-    bar.innerHTML = v3RoleBack('boat') + '<p class="text-[11px] text-teal-200 px-1"><i class="fa-solid fa-anchor mr-1"></i>Boat Admin mode — run and passenger tools are shown. Tap Boat in the bar below for your normal staff view.</p>';
-    $('#boat-root').prepend(bar);
-  }
-  return out;
+  if (state.tab === 'boatadmin') return v3RenderBoatAdmin(); // 3.5.0: the run editor (Add / Edit run) repaints Boat Admin
+  if (state.tab !== 'boat') return;
+  if (r33BoatTab() === 'resort') return r33RenderResort(); // 3.3.0 Resort boat sub-tab
+  return _v2RenderBoat.apply(this, arguments); // 3.5.0: the staff Boat tab is for booking only
 };
 async function v3BoatPdf(runId, title){
   try {
@@ -2629,7 +2162,7 @@ async function v3BoatPdf(runId, title){
 const A31_SUPER_NO_TABS = { meals:1, boat:1, bookings:1, history:1, schedule:1 };
 const A31_SUPER_TOAST = "Superadmin accounts can't place orders or bookings. Use a staff account.";
 const A31_NOTICE = 'Superadmin is now an admin-only account. To order meals, book the boat or apply for leave, please register a separate staff account with a different email.';
-const A31_AREA_LABEL = { kitchen:'Kitchen Admin', boat:'Boat Admin', dept:'Department Admin', admin:'Admin Settings', super:'Superadmin' };
+const A31_AREA_LABEL = { kitchen:'Kitchen Admin', boat:'Boat Admin', dept:'Department', admin:'Admin', super:'Superadmin' };
 const A31_ACTION_LABEL = { setMealTimes:'Meal times changed', saveDinnerMenuItem:'Dinner menu item saved', deleteDinnerMenuItem:'Dinner menu item removed',
   adminCancelMealOrder:'Meal order cancelled', markOrderStatus:'Order status changed', approveLateDinnerOrder:'Late dinner decided', approveLateBreakfastOrder:'Late breakfast decided',
   approveAllLateBreakfast:'Late breakfasts approved', decideMealRequest:'Meal request decided', decideAllMealRequests:'Meal requests decided (all)', markChefFeedback:'Food feedback handled',
@@ -2693,9 +2226,12 @@ async function a31RenderLogPage(area){
   const tab = state.tab;
   state.a31Off = state.a31Off || {};
   const off = state.a31Off[area] || 0;
-  const back = (area === 'super' || v3IsSuper()) ? v3Back(v3IsSuper() ? 'manage' : 'more', v3IsSuper() ? 'Manage' : 'More') : v3RoleBack(area);
-  $('#main-content').innerHTML = v3Page(back + '<div id="al-body" class="space-y-2">'+v3Card(v3Loading())+'</div>', 'adminlog-root');
-  const ht = $('#header-title'); if (ht) ht.textContent = area === 'super' ? 'Superadmin log' : 'Activity log · '+(A31_AREA_LABEL[area] || area);
+  const back = v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack(area === 'super' ? 'admin' : area);
+  const areas = ['admin','kitchen','boat','dept','super'].filter(a31CanArea); // 3.5.0: one Activity log page with an area filter
+  const chips = areas.length > 1 ? '<div class="flex gap-1 flex-wrap" id="al-areas" role="tablist">'+areas.map(function(a){ return '<button type="button" role="tab" class="al-area rounded-full px-3 py-1.5 text-[11px] border '+(a===area?'bg-teal-600 text-white border-teal-500':'border-slate-600 text-slate-300')+'" data-area="'+a+'" aria-selected="'+(a===area)+'">'+esc(a === 'super' ? 'Superadmin' : (A31_AREA_LABEL[a]||a))+'</button>'; }).join('')+'</div>' : '';
+  $('#main-content').innerHTML = v3Page(back + chips + '<div id="al-body" class="space-y-2">'+v3Card(v3Loading())+'</div>', 'adminlog-root');
+  $$('.al-area').forEach(function(b){ b.onclick = function(){ state.logArea = b.dataset.area; a31RenderLogPage(b.dataset.area); }; });
+  const ht = $('#header-title'); if (ht) ht.textContent = area === 'super' ? 'Activity log · Superadmin' : 'Activity log · '+(A31_AREA_LABEL[area] || area);
   let r = null; try { r = await api('getAdminLog', { area: area, offset: off, limit: 50 }); } catch (e) {}
   const box = $('#al-body'); if (!box || state.tab !== tab) return;
   if (!r || !r.success) { box.innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load the log')+'</p>'); return; }
@@ -2720,39 +2256,47 @@ async function a31RenderLogPage(area){
   }; });
 }
 /* ============ 3.1.0: first-time role page guides · Report a problem · superadmin Reports inbox ============ */
-const A32_GUIDE_TABS = { kitchenadmin:'kitchen', boatadmin:'boat', deptadmin:'dept', adminhub:'admin', manage:'manage' };
-const A32_GUIDES = {
+const A32_GUIDE_TABS = { kitchenadmin:'kitchen', kitchenlists:'kitchen', kitchenapprovals:'kitchen', chefmenu:'kitchen', mealstats:'kitchen', chefcomments:'kitchen', offmenu:'kitchen', boatadmin:'boat', resortboat:'boat', boatemergency:'boat', deptadmin:'dept', adminhub:'admin', system:'admin', manage:'manage', approvals:'approvals', people:'people', peoplelinks:'people' }; // 3.5.0: every hub tab has its guide
+const A32_GUIDES = { // 3.5.0: texts follow the new layout
   kitchen: { title:'Kitchen Admin', steps: [
-    { icon:'fa-list-check', title:'Order lists & PDFs', body:'Today and tomorrow: who ordered what for breakfast, lunch and dinner. Open “Lists & summaries” for the printable prep list and the saved dinner summary PDF.' },
-    { icon:'fa-book-open', title:'Dinner menus', body:'Edit the 7-day dinner menu per weekday: add, rename, reorder, hide or delete dishes. Staff only see the menu of the dinner date.' },
-    { icon:'fa-hourglass-half', title:'Late & special requests', body:'Late meal and special meal requests wait here. Approve or decline them; the staff member is told right away.' },
-    { icon:'fa-ban', title:'Cancel with a reason', body:'Tap Cancel on an order and give a reason. The reason is saved on the order and the staff member gets a notification.' },
-    { icon:'fa-clock', title:'Meal times & cutoffs', body:'Dinner orders close 11:55pm the day before and late requests at 8:00am (editable in Meal times). At the late close pending late requests are approved automatically.' },
-    { icon:'fa-clock-rotate-left', title:'Activity log', body:'Every change made here is logged with who and when. Open “Activity log” to see it.' } ] },
+    { icon:'fa-fire-burner', title:'Today', body:'Who ordered what today and tomorrow, with Served and Cancel, and the allergies list. Meal times, Order for someone and the Activity log are at the bottom.' },
+    { icon:'fa-list-ol', title:'Lists', body:'One date picker and one Dinner prep list (Print, PDF, CSV, saved or live), the breakfast & lunch headcount and the island estimate. Generate makes the summary to print or share.' },
+    { icon:'fa-inbox', title:'Approvals', body:'Late meal requests and orders for someone wait here. Accept or decline one by one or all at once; print or download the list.' },
+    { icon:'fa-book-open', title:'Menu', body:'The 7-day dinner menu: add, rename, reorder, hide or delete dishes. Staff only see the menu of the dinner date.' },
+    { icon:'fa-chart-column', title:'Reports', body:'Meal statistics (compare with the uploaded rosters), staff food feedback and dinner orders not on the menu.' } ] },
   boat: { title:'Boat Admin', steps: [
-    { icon:'fa-ship', title:'Runs', body:'Add, edit or remove boat runs (date, time, route, seats). Staff book seats from the Boat tab.' },
-    { icon:'fa-users', title:'Passengers', body:'See who is booked on each run, download the passenger PDF and cancel a booking if needed.' },
-    { icon:'fa-triangle-exclamation', title:'Emergency travel', body:'Emergency travel requests arrive here. Approve or decline them — the staff member is told straight away.' },
+    { icon:'fa-ship', title:'Village runs', body:'Add, edit or remove runs, change seats or mark a run full, see passengers, cancel a booking, download the passenger PDF or Dive PDF and copy today’s pax.' },
+    { icon:'fa-anchor', title:'Resort boat', body:'Resort boat (PCE) requests after the HOD step: confirm or decline and print the manifest.' },
+    { icon:'fa-triangle-exclamation', title:'Emergency', body:'Emergency travel requests. Confirm or reject — the staff member is told straight away.' },
     { icon:'fa-clock-rotate-left', title:'Activity log', body:'Every change on runs, passengers and emergencies is logged with who and when.' } ] },
-  dept: { title:'Department Admin', steps: [
-    { icon:'fa-inbox', title:'Approvals', body:'Leave requests and late meal requests from your department wait here. Approve or decline; big leave goes on to management for the final OK.' },
-    { icon:'fa-people-group', title:'Staff', body:'Your department list: edit details, see who is on leave, remove someone who moved.' },
-    { icon:'fa-bullhorn', title:'Updates', body:'Post a short update for everyone in your department. They see it under More → Department updates.' },
-    { icon:'fa-utensils', title:'Meal on behalf', body:'Order a meal for a staff member who can’t use the app (for example no phone).' },
-    { icon:'fa-clock-rotate-left', title:'Activity log', body:'Every approval and change here is logged with who and when.' } ] },
-  admin: { title:'Admin Settings', steps: [
-    { icon:'fa-users-gear', title:'Users & roles', body:'Find any account, edit details and give or remove roles (chef, HOD, boat, admin…). One person can hold several roles.' },
-    { icon:'fa-stamp', title:'Leave — final approval', body:'Leave that passed the HOD step waits here for the final management decision.' },
-    { icon:'fa-bell', title:'Reminders & suggestions', body:'Post reminders for all staff and approve or reject staff suggestions.' },
-    { icon:'fa-file-arrow-down', title:'Reports & downloads', body:'Meal and leave reports and CSV downloads.' },
-    { icon:'fa-clock-rotate-left', title:'Activity log', body:'Every admin change is logged with who changed what and when.' } ] },
+  dept: { title:'Department', steps: [
+    { icon:'fa-inbox', title:'Approvals', body:'Leave, late meals, meals while away, resort boat and GL links from your department wait in More → Approvals. The numbers at the top open it.' },
+    { icon:'fa-users', title:'People', body:'Your department’s accounts: edit details, link GL numbers, remove someone who moved, and the roster links.' },
+    { icon:'fa-calendar-days', title:'Leave overview', body:'Calendar and list of approved and waiting leave, with a CSV download.' },
+    { icon:'fa-bullhorn', title:'Announcements', body:'Post an update for your department. Staff see it in Inbox → Announcements and on Home.' },
+    { icon:'fa-star', title:'Order for someone', body:'Order a meal for a staff member who can’t use the app (for example no phone).' } ] },
+  admin: { title:'Admin', steps: [
+    { icon:'fa-chart-line', title:'Overview', body:'Meals, approvals waiting, boat load and people at the top of the Admin page.' },
+    { icon:'fa-users-gear', title:'People', body:'All users by department: roles, codes, active, add user, import CSV, sign-ups, CSV export and roster links.' },
+    { icon:'fa-inbox', title:'Approvals', body:'One inbox (More → Approvals) for leave (HOD step on behalf of the HOD, and final), meals, resort boat, emergency travel and GL links.' },
+    { icon:'fa-bullhorn', title:'Announcements', body:'Post to the whole resort or one department from Inbox → Announcements.' },
+    { icon:'fa-gear', title:'System', body:'Alert emails, archive, saved kitchen summaries and API health.' } ] },
   manage: { title:'Manage (superadmin)', steps: [
     { icon:'fa-shield-halved', title:'Admin-only account', body:'This superadmin account has no staff features (no meal orders, boat bookings or leave). Use a separate staff account for those.' },
-    { icon:'fa-users-gear', title:'Users & roles', body:'Give or remove any role, including Admin and Superadmin (asks for the superadmin code). Delete users if needed.' },
-    { icon:'fa-eye', title:'Role pages', body:'Open Kitchen, Boat, Department and Admin pages to oversee and manage them.' },
-    { icon:'fa-gear', title:'App settings', body:'Email (Brevo), alert emails, meal times, feature switches and the revert owner.' },
+    { icon:'fa-users-gear', title:'People', body:'Give or remove any role, including Admin and Superadmin (asks for the superadmin code). Delete users if needed.' },
+    { icon:'fa-eye', title:'Role pages', body:'Kitchen Admin, Boat Admin and Department are under Manage to oversee and manage them.' },
+    { icon:'fa-gear', title:'System', body:'Email sender, features, revert owner, About image, role migration and the roster archive (superadmin only), plus the admin system tools.' },
     { icon:'fa-bug', title:'Reports', body:'Problems and requests sent with “Report a problem”. Set a status or reply — the sender is notified.' },
-    { icon:'fa-rotate-left', title:'Logs & revert', body:'Activity logs per area, and the Superadmin log. Only the revert owner can undo a superadmin change.' } ] }
+    { icon:'fa-rotate-left', title:'Activity log & revert', body:'One Activity log with an area filter, including the Superadmin log. Only the revert owner can undo a superadmin change.' } ] },
+  approvals: { title:'Approvals', steps: [
+    { icon:'fa-inbox', title:'One inbox', body:'Everything waiting for you is here. Use the chips at the top: Leave, Late meals, Special meals, Resort boat, Emergency travel and GL links (you only see the ones for your role).' },
+    { icon:'fa-check-double', title:'One by one or all at once', body:'Approve or decline each request, or use Approve all / Decline all on a chip. Declining asks for one reason.' },
+    { icon:'fa-print', title:'Print & CSV', body:'Every chip can be printed or downloaded as CSV.' },
+    { icon:'fa-user-shield', title:'On behalf of the HOD', body:'Admins can decide HOD-step requests for the HOD. It is logged as “on behalf of the HOD” and the HOD is told.' } ] },
+  people: { title:'People', steps: [
+    { icon:'fa-users', title:'Users', body:'Tap a department, search or filter by role. Tap a person to edit roles, code, details or active.' },
+    { icon:'fa-id-badge', title:'GL numbers', body:'Type a GL number and press Enter: it is checked against the staff listing and the roster before it is saved.' },
+    { icon:'fa-people-roof', title:'Roster links', body:'Roster vs app accounts: pending, roster-only and unmatched names, plus the employee-code import.' } ] }
 };
 function a32GuideKey(g){ return 'pcr_guide_'+String((state.user && state.user.email) || '').toLowerCase()+'_'+g; }
 async function a32MaybeGuide(g){
@@ -2764,7 +2308,7 @@ async function a32MaybeGuide(g){
     if (!state._a32Seen) return; // offline: try again next time
   }
   if (state._a32Seen.indexOf(g) >= 0) { try { localStorage.setItem(a32GuideKey(g), '1'); } catch (e) {} return; }
-  if (A32_GUIDE_TABS[state.tab] !== g) return;
+  if (v35GuideOf(state.tab) !== g) return;
   const m = $('#modal'); if (m && !m.classList.contains('hidden')) return; // something else is open (e.g. the superadmin notice)
   a32ShowGuide(g);
 }
@@ -2801,7 +2345,7 @@ function a32HeaderButtons(){
   const lo = $('#btn-logout'); if (!lo || $('#btn-report')) return;
   const mk = function(id, icon, title){ const b = document.createElement('button'); b.type = 'button'; b.id = id; b.title = title; b.setAttribute('aria-label', title);
     b.className = 'text-sand-200/60 hover:text-teal-400 text-sm px-2 py-1'; b.innerHTML = '<i class="fa-solid '+icon+'"></i>'; lo.parentNode.insertBefore(b, lo); return b; };
-  mk('btn-guide', 'fa-circle-question', 'Page guide').onclick = function(){ const g = A32_GUIDE_TABS[state.tab]; if (g) a32ShowGuide(g); };
+  mk('btn-guide', 'fa-circle-question', 'Page guide').onclick = function(){ const g = v35GuideOf(state.tab); if (g) a32ShowGuide(g); };
   mk('btn-report', 'fa-flag', 'Report a problem').onclick = function(){ a32OpenReport(); };
 }
 /** 3.2.0: only the report owner (App setting revert_owner_email, else it@) gets the Reports inbox. The server decides (getReportCount.owner); remembered per account. */
@@ -2817,12 +2361,12 @@ function a32SetOwner(o){ state._a32Owner = !!o; state._a32OwnerFor = a32OwnerKey
 function a32AfterNav(tab){
   a32HeaderButtons();
   if (tab === 'home') a33MaybePrompt(); // 3.2.0 phone notifications
-  const g = A32_GUIDE_TABS[tab];
+  const g = v35GuideOf(tab);
   const gb = $('#btn-guide'); if (gb) gb.classList.toggle('hidden', !g);
   if (g) setTimeout(function(){ a32MaybeGuide(g); }, 900);
   if (v3IsSuper() && (!state._a32RepAt || Date.now() - state._a32RepAt > 60000)) {
     state._a32RepAt = Date.now();
-    setTimeout(function(){ api('getReportCount', {}).then(function(r){ if (r && r.success) { const n = r.data['new'] || 0, o = r.data.owner !== false, was = a32Owner(); a32SetOwner(o); if (n !== state._a32RepNew || o !== was) { state._a32RepNew = n; renderNav('#bottom-nav'); if (o !== was && (state.tab === 'more' || state.tab === 'adminhub' || state.tab === 'manage')) navigate(state.tab); } } }).catch(function(){}); }, 1200);
+    setTimeout(function(){ api('getReportCount', {}).then(function(r){ if (r && r.success) { const n = r.data['new'] || 0, o = r.data.owner !== false, was = a32Owner(); a32SetOwner(o); if (n !== state._a32RepNew || o !== was) { state._a32RepNew = n; renderNav('#bottom-nav'); if (o !== was && (state.tab === 'more' || state.tab === 'manage')) navigate(state.tab); } } }).catch(function(){}); }, 1200);
   }
 }
 /* ---- Report a problem ---- */
@@ -3029,7 +2573,7 @@ async function a33MaybePrompt(){
 }
 async function a33RenderSettings(){
   const tab = state.tab;
-  $('#main-content').innerHTML = v3Page(v3Back('more','More') + '<div id="ps-body" class="space-y-3">'+v3Card(v3Loading())+'</div>', 'push-root');
+  $('#main-content').innerHTML = v3Page('<div id="ps-body" class="space-y-3">'+v3Card(v3Loading())+'</div>', 'push-root');
   const cfg = state.demo ? { success: true, data: { on: true, devices: 0 } } : await api('getPushConfig', {}).catch(function(){ return null; });
   const dev = await a33DeviceOn();
   const box = $('#ps-body'); if (!box || state.tab !== tab) return;
@@ -3072,8 +2616,8 @@ doLogout = function(){
 /* tapping a notification while the app is open: go to that page */
 if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function(e){
   if (!e.data || e.data.type !== 'PCR_OPEN' || !state.user) return;
-  let t = 'notifications'; try { t = (new URL(e.data.url).hash || '').replace('#', '') || 'notifications'; } catch (x) {}
-  navigate(V3_TITLES[t] ? t : 'notifications');
+  let t = 'inbox'; try { t = (new URL(e.data.url).hash || '').replace('#', '') || 'inbox'; } catch (x) {}
+  navigate(t); // 3.5.0: old page names redirect in navigate (unknown → home)
 });
 /* demo mode: the same Admin31.gs rules run around every demo action (block · snapshot · log) */
 const _v30DemoApiCore = demoApiCore;
@@ -3334,7 +2878,7 @@ function r33ApprovalsSection(r){
 }
 /* Resort boat admin page (admin / boat manager confirm; captains see the manifest) */
 async function r33RenderResortAdmin(){
-  const back = v3IsBoatManager() && !v3Has('boat_manager') && !v3Has('boat_captain') ? v3Back('adminhub','Admin Settings') : v3RoleBack('boat');
+  const back = ''; // 3.5.0: Boat Admin › Resort boat tab (the hub bar has the way back)
   const date = state._rbManDate || v3Tom();
   $('#main-content').innerHTML = v3Page(back + r33TimetableMini() +
     '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="rba-pending">'+v3Title('fa-clipboard-check','To confirm (HOD approved)')+v3Loading()+'</section>'+
@@ -3420,20 +2964,13 @@ Object.assign(V3_ROLE_TABS, { rostermonthly:'admin', empcodes:'admin', leaveallo
 (function(){ try { const st = document.createElement('style'); st.textContent = '#bottom-nav.r34-five .nav-item{padding-left:2px;padding-right:2px;flex:1 1 0;min-width:0}#bottom-nav.r34-five .nav-item span:not(.v3-count){max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'+
   '.r34-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}.r34-cell{border-radius:8px;min-height:46px;padding:3px;font-size:10px;line-height:1.15;min-width:0;overflow:hidden;border:1px solid rgba(100,116,139,.35)}'+
   '.r34-work{background:rgba(20,184,166,.16)}.r34-off{background:rgba(245,158,11,.16)}.r34-leave{background:rgba(56,189,248,.18)}.r34-today{outline:2px solid #2dd4bf}.r34-bar{height:6px;border-radius:9px;background:rgba(100,116,139,.35);overflow:hidden}.r34-bar>i{display:block;height:100%;background:#14b8a6}'; document.head.appendChild(st); } catch (e) {} })();
+/* 3.5.0: employee codes, roster-only / pending staff and unmatched names are under People › Roster links */
 function r34AdminGroup(g){
   if (!featureOn('feature_my_schedule')) return '';
   return g('Rosters', v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Rosters (whole resort)','Weekly workbooks for all departments · or a monthly grid') +
-    v3Row(v3Nav('empcodes'),'fa-id-badge','Employee codes','Import the staff listing (GL codes) · matched first on rosters') +
-    v3Row(v3Nav('deptstaff'),'fa-people-roof','Department staff','Active · pending · roster-only, by department · register staff', state._s34Req||0) +
-    v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','Link roster names to staff', state._r34Unm||0) +
     v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & codes','Days per year, leave types, roster codes, reminders'));
 }
-function r34ManageGroup(g){
-  return g('Rosters', v3Row(v3Nav('rosterarchive'),'fa-box-archive','Roster archive','Past monthly rosters (Jan 2026 →) · leave used · patterns') +
-    v3Row(v3Nav('empcodes'),'fa-id-badge','Employee codes','Import the staff listing') +
-    v3Row(v3Nav('deptstaff'),'fa-people-roof','Department staff','Active · pending · roster-only · register staff') +
-    (featureOn('feature_my_schedule') ? v3Row(v3Nav('rostermonthly'),'fa-calendar-days','Rosters (whole resort)','Weekly workbooks · monthly grid') + v3Row(v3Nav('rosterunmatched'),'fa-user-tag','Unmatched names','') + v3Row(v3Nav('leaveallow'),'fa-scale-balanced','Leave allowances & codes','') : ''));
-}
+function r34ManageGroup(g){ return r34AdminGroup(g); }
 /* ---------- employee codes: import the staff listing (New Code · Name · Date Started · Department) ---------- */
 /** workbook → [{ code, name, department, started, sheet }] from every sheet whose header row has "New Code"/"Code" and "Name" */
 function r34ListingRows(t){
@@ -3918,7 +3455,7 @@ async function r34Template(kind, key, dept, fmt){
 const R34_KIND = { monthly:{ title:'Monthly roster', icon:'fa-calendar-days', tab:'rostermonthly', who:'Admins upload the resort roster (all departments) before the 1st of each month.' },
   weekly:{ title:'Weekly roster', icon:'fa-calendar-week', tab:'rosterweekly', who:'HODs and assistant HODs upload Monday–Sunday for their department before the week starts (by Saturday 6pm). It replaces the monthly roster for the people on it, for that week.' },
   archive:{ title:'Roster archive', icon:'fa-box-archive', tab:'rosterarchive', who:'Past monthly rosters (January 2026 onwards), kept for the record. Never shown as a current schedule; used for leave used and the department patterns below. Upload again to replace a month.' } };
-function r34BackFor(kind){ return kind === 'weekly' ? (v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('dept')) : (v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('admin')); }
+function r34BackFor(kind){ return kind === 'archive' ? v3Back('system','System') : (kind === 'weekly' ? v3RoleBack('dept') : v3RoleBack('admin')); }
 async function r34RenderUpload(kind){
   const K = R34_KIND[kind];
   state._roleMode = kind === 'weekly' ? 'dept' : 'admin';
@@ -4331,16 +3868,19 @@ const G341_KIND_ICON = { link:'fa-id-badge', leave:'fa-plane-departure', resortb
 /** Admin Settings → People & roles: department grid → department users (search, roles, GL link) · pending HOD-step requests · global search */
 async function v3RenderUsers(){
   const f = state.uf || { q:'', role:'', dept:'', view:'' }; state.uf = f; if (!state._ufKeep) { f.view = ''; f.q = ''; f.role = ''; } state._ufKeep = false; // opening the page = the department grid
-  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack('admin')) +
+  if (!v3IsAdmin()) return v35RenderHodPeople(); // 3.5.0: HOD = the same page locked to their department
+  $('#main-content').innerHTML = v3Page(
     '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="uf-top"><label for="uf-q" class="text-[11px] text-slate-400">Search all users</label><input id="uf-q" class="ui-input w-full" type="search" placeholder="Name, email or GL number" value="'+esc(f.q)+'"/>'+
-    '<button type="button" id="uf-pend" class="w-full rounded-xl py-2.5 px-3 text-sm border border-amber-400/50 text-amber-100 flex items-center justify-between gap-2 min-w-0"><span class="min-w-0 text-left leading-tight"><i class="fa-solid fa-inbox mr-1"></i>Pending department requests</span><span class="v3-count shrink-0 rounded-full bg-amber-500/30 px-2 text-xs" id="uf-pend-n">…</span></button></section>'+
+    v35PeopleToolbar()+
+    '<button type="button" id="uf-pend" class="w-full rounded-xl py-2.5 px-3 text-sm border border-amber-400/50 text-amber-100 flex items-center justify-between gap-2 min-w-0"><span class="min-w-0 text-left leading-tight"><i class="fa-solid fa-inbox mr-1"></i>Waiting for the HOD step · open Approvals</span><span class="v3-count shrink-0 rounded-full bg-amber-500/30 px-2 text-xs" id="uf-pend-n">…</span></button></section>'+
     '<div id="uf-list" class="space-y-2 min-w-0">'+v3Loading()+'</div>', 'users-root');
   const [ru, rd] = await Promise.all([api('getUsers', { activeOnly:false }).catch(function(){ return null; }), state.demo ? Promise.resolve(null) : api('getPeopleDepartments', {}).catch(function(){ return null; })]);
-  if (state.tab !== 'usersv3') return;
+  if (state.tab !== 'people') return;
   if (!ru || !ru.success) { $('#uf-list').innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((ru && ru.error) || 'Could not load users')+'</p>'); return; }
   const all = ru.data.users || [];
   const dd = (rd && rd.success) ? rd.data : null;
   state._g341 = { all: all, dd: dd, roleCounts: ru.data.roleCounts };
+  v35BindPeopleToolbar(all);
   const findUser = function(em){ return all.find(function(u){ return u.email === em; }); };
   const host = $('#uf-list');
   g341Bind(host, findUser, function(){ });
@@ -4355,7 +3895,6 @@ async function v3RenderUsers(){
       host.innerHTML = '<p class="text-[11px] text-slate-400 px-1" id="uf-search-n">'+hit.length+' of '+all.length+' users match “'+esc(f.q.trim())+'” (all departments)</p>'+(hit.length ? listOf(hit) : v3Empty('Nobody matches.'));
       return;
     }
-    if (f.view === 'pending') return g341PaintPending(host, f, paint);
     if (f.view === 'dept') {
       const d = f.dept, row = deptList.find(function(x){ return x.department === d; }) || { onRoster: 0, registered: 0, pending: 0 };
       const inD = all.filter(function(u){ return d === '—' ? !String(u.department||'').trim() : g341DeptEq(u.department, d) && g341DK(u.department) === g341DK(d); });
@@ -4373,7 +3912,7 @@ async function v3RenderUsers(){
         '<p class="text-[11px] text-slate-400 px-1">'+list.length+' of '+inD.length+' users</p>'+(list.length ? listOf(list) : v3Empty('No users here.'));
       $('#uf-back').onclick = function(){ f.view = ''; f.role = ''; paint(); };
       $('#uf-role').onchange = function(){ f.role = this.value; paint(); };
-      const dp = $('#uf-dept-pend'); if (dp) dp.onclick = function(){ f.view = 'pending'; f.pdept = d; paint(); };
+      const dp = $('#uf-dept-pend'); if (dp) dp.onclick = function(){ state._apChip = ''; state._apDept = d; navigate('approvals'); };
       return;
     }
     host.innerHTML = '<div class="grid grid-cols-2 gap-2 min-w-0" id="uf-depts">'+deptList.filter(function(x){ return x.department !== 'Other' || x.registered || x.onRoster || x.pending; }).map(function(x){
@@ -4390,58 +3929,9 @@ async function v3RenderUsers(){
   const qi = $('#uf-q'); if (qi) f.q = qi.value; // typed while the list was loading
   paint();
   $('#uf-q').oninput = function(){ f.q = this.value; paint(); };
-  $('#uf-pend').onclick = function(){ f.q = ''; $('#uf-q').value = ''; f.view = 'pending'; f.pdept = ''; paint(); };
-}
-async function g341PaintPending(host, f, back){
-  host.innerHTML = '<button type="button" id="uf-back" class="text-xs text-teal-300 px-1"><i class="fa-solid fa-chevron-left mr-1"></i>All departments</button>'+v3Card(v3Loading());
-  $('#uf-back').onclick = function(){ f.view = f.pdept ? 'dept' : ''; if (f.pdept) f.dept = f.pdept; back(); };
-  const d = await v3Call('getDeptPending', { department: f.pdept || '' });
-  if (!d || state.tab !== 'usersv3' || f.view !== 'pending') return;
-  const items = d.items || [];
-  const card = function(it){
-    return '<div class="glass rounded-xl p-2.5 space-y-1 text-xs min-w-0 uf-pi" data-kind="'+esc(it.kind)+'" data-id="'+esc(it.id)+'"><div class="v3-row min-w-0 gap-2"><p class="text-slate-100 min-w-0 break-words"><i class="fa-solid '+(G341_KIND_ICON[it.kind]||'fa-inbox')+' mr-1 text-amber-300"></i><strong>'+esc(it.title)+'</strong> · '+esc(it.userName||it.userEmail)+'</p><span class="text-[10px] text-slate-500 shrink-0">'+esc(it.department||'—')+'</span></div>'+
-      '<p class="text-[11px] text-slate-300 break-words">'+esc(it.detail||'')+'</p>'+
-      (it.kind === 'link' ? '<input class="ui-input w-full uf-pi-code" maxlength="12" value="'+esc(it.code||'')+'" placeholder="GL number" aria-label="GL number"/>' : '')+
-      '<div class="grid grid-cols-2 gap-2"><button type="button" class="glass rounded-lg py-2 uf-pi-no min-h-[40px]">Decline</button><button type="button" class="btn-primary rounded-lg py-2 text-white font-semibold uf-pi-ok min-h-[40px]">Approve</button></div></div>';
-  };
-  host.innerHTML = '<button type="button" id="uf-back" class="text-xs text-teal-300 px-1"><i class="fa-solid fa-chevron-left mr-1"></i>'+(f.pdept ? esc(f.pdept) : 'All departments')+'</button>'+
-    '<section class="glass rounded-2xl p-3 min-w-0" id="uf-pend-head"><h3 class="text-sm font-semibold text-slate-100">Pending department requests '+v3Chip(String(items.length), items.length ? 'warn' : 'mute')+'</h3><p class="text-[11px] text-slate-400">Waiting for the HOD step'+(f.pdept ? ' in '+esc(f.pdept) : ' in every department')+'. Approving here is logged as “approved by admin on behalf of HOD”, and the HOD is told.</p></section>'+
-    '<div class="space-y-2" id="uf-pend-list">'+(items.length ? items.map(card).join('') : v3Empty('Nothing waiting.'))+'</div>';
-  $('#uf-back').onclick = function(){ f.view = f.pdept ? 'dept' : ''; if (f.pdept) f.dept = f.pdept; back(); };
-  $$('.uf-pi-ok,.uf-pi-no').forEach(function(b){ b.onclick = async function(){
-    const c = b.closest('.uf-pi'), ok = b.classList.contains('uf-pi-ok'), ci = c.querySelector('.uf-pi-code');
-    if (ok && c.dataset.kind === 'link' && ci && !ci.value.trim()) { toast('Enter the GL number','error'); ci.focus(); return; }
-    c.querySelectorAll('button').forEach(function(x){ x.disabled = true; });
-    const r = await v3Call('decideOnBehalf', { kind: c.dataset.kind, id: c.dataset.id, decision: ok ? 'approve' : 'decline', code: ci ? ci.value.trim() : '' }, ok ? 'Approved on behalf of the HOD' : 'Declined on behalf of the HOD');
-    if (!r) { c.querySelectorAll('button').forEach(function(x){ x.disabled = false; }); return; }
-    c.outerHTML = '<p class="text-[11px] text-teal-200 px-1 uf-pi-done">'+(ok ? 'Approved' : 'Declined')+' on behalf of the HOD.</p>';
-    const g = state._g341; if (g && g.dd) { g.dd.pendingTotal = Math.max(0, g.dd.pendingTotal - 1); const pn = $('#uf-pend-n'); if (pn) pn.textContent = String(g.dd.pendingTotal); }
-  }; });
-}
-/** HOD / assistant HOD (and admin): Department Admin → Link GL numbers — the department's accounts with the same GL link + verify panel (no role editing) */
-async function g341RenderGlLink(){
-  state._roleMode = v3IsAdmin() ? 'admin' : 'dept';
-  const f = state.glf || { q:'' }; state.glf = f;
-  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack(v3IsAdmin() ? 'admin' : 'dept'))+
-    '<section class="glass rounded-2xl p-3 space-y-2 min-w-0"><p class="text-xs text-slate-300">'+esc(v3IsAdmin() ? 'All departments' : (state.user.department||''))+' · type a GL number and press Enter. The number is checked against the staff listing and the roster before anything is saved.</p><input id="gl-q" class="ui-input w-full" type="search" placeholder="Search name or email" value="'+esc(f.q)+'"/></section>'+
-    '<div id="gl-list" class="space-y-2 min-w-0">'+v3Loading()+'</div>', 'gllink-root');
-  if (state.demo) { $('#gl-list').innerHTML = v3Card('<p class="text-xs text-slate-300">Needs the real server (not in the demo).</p>'); return; }
-  const r = await api('getUsers', { activeOnly: true }).catch(function(){ return null; });
-  if (state.tab !== 'gllink') return;
-  if (!r || !r.success) { $('#gl-list').innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load')+'</p>'); return; }
-  const mine = v3IsAdmin() ? null : (state.user.department || '');
-  const all = (r.data.users || []).filter(function(u){ return u.active && (!mine || g341DeptEq(u.department, mine)) && v3Perms(u).indexOf('super_admin') < 0; });
-  const host = $('#gl-list'), find = function(em){ return all.find(function(u){ return u.email === em; }); };
-  g341Bind(host, find, null);
-  const paint = function(){ const q = f.q.toLowerCase(); const l = all.filter(function(u){ return !q || (u.email+' '+u.firstName+' '+u.lastName+' '+(u.employeeCode||'')).toLowerCase().indexOf(q) >= 0; });
-    host.innerHTML = '<p class="text-[11px] text-slate-400 px-1">'+l.length+' accounts · '+l.filter(function(u){ return u.employeeCode; }).length+' with a GL number</p>'+l.slice(0, 300).map(function(u){ return g341UserCard(u, false); }).join(''); };
-  paint();
-  $('#gl-q').oninput = function(){ f.q = this.value; paint(); };
+  $('#uf-pend').onclick = function(){ state._apChip = ''; state._apDept = ''; navigate('approvals'); };
 }
 Object.assign(V3_TITLES, { gllink:'Link GL numbers' });
-Object.assign(V3_ROLE_TABS, { gllink:'dept' });
-(function(){ const base = canPrivilegedTab; canPrivilegedTab = function(tab){ if (tab === 'gllink') return v3CanDept() || v3IsAdmin(); return base(tab); }; })();
-boot();
 
 /* ============ 3.4.0 Schedule lock · link requests · department staff · registration · special meal approvals ============ */
 function s34LockedHtml(d){
@@ -4471,11 +3961,10 @@ function s34BindLocked(d){
 async function s34RenderDeptStaff(){
   state._roleMode = v3IsAdmin() ? 'admin' : 'dept';
   const f = state._s34Dept != null ? state._s34Dept : (v3IsAdmin() ? '' : ((state.user && state.user.department) || ''));
-  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3RoleBack(v3IsAdmin() ? 'admin' : 'dept'))+
-    '<div id="ds-body">'+v3Card(v3Loading())+'</div>', 'deptstaff-root');
+  $('#main-content').innerHTML = v3Page('<div id="ds-body">'+v3Card(v3Loading())+'</div>', 'deptstaff-root');
   if (state.demo) { $('#ds-body').innerHTML = v3Card('<p class="text-xs text-slate-300">Needs the real server (not in the demo).</p>'); return; }
   const r = await v3Call('getDeptRosterStaff', { department: f });
-  if (!r || state.tab !== 'deptstaff') return;
+  if (!r || state.tab !== 'peoplelinks') return;
   state._s34Req = r.counts.requests; state._s34DS = r;
   s34PaintDeptStaff(r);
 }
@@ -4497,11 +3986,13 @@ function s34PaintDeptStaff(d){
       (pending ? '<div class="grid grid-cols-3 gap-1 mt-1"><input class="ui-input col-span-2 ds-code" maxlength="12" placeholder="'+(u.code ? 'Change number' : 'Employee number')+'"/><button type="button" class="btn-primary rounded-lg text-white ds-link" data-email="'+esc(u.email)+'">Link</button></div>'+rosterPick('ds-rn-'+u.email.replace(/[^a-z0-9]/gi,''), u.department) : '')+'</div>';
   };
   const sec = function(id, title, n, body, open){ return '<details class="rounded-xl border border-slate-700/60 p-2" id="'+id+'"'+(open?' open':'')+'><summary class="text-xs text-slate-100 font-semibold cursor-pointer">'+title+' '+v3Chip(String(n), n ? 'info' : 'mute')+'</summary><div class="mt-1">'+(body||'<p class="text-[11px] text-slate-500">None</p>')+'</div></details>'; };
-  box.innerHTML = '<div class="space-y-3"><div id="ds-spm"></div>'+
+  box.innerHTML = '<div class="space-y-3">'+
+    '<div class="grid grid-cols-2 gap-2" id="ds-links"><button type="button" onclick="navigate(\'rosterunmatched\')" class="glass rounded-xl p-2.5 text-left text-xs min-w-0"><i class="fa-solid fa-user-tag text-teal-400 mr-1"></i>Unmatched names'+(state._r34Unm?' <span class="v3-count">'+state._r34Unm+'</span>':'')+'</button>'+
+      (v3IsAdmin() ? '<button type="button" onclick="navigate(\'empcodes\')" class="glass rounded-xl p-2.5 text-left text-xs min-w-0"><i class="fa-solid fa-id-badge text-teal-400 mr-1"></i>Employee codes (staff listing)</button>' : '')+'</div>'+
     (d.isAdmin ? v3Card('<label for="ds-dept" class="text-[11px] text-slate-400">Department</label><select id="ds-dept" class="ui-input w-full"><option value="">All departments</option>'+depts.map(function(x){ return '<option'+(x===d.department?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select>') : '')+
     v3Card(v3Title('fa-people-roof', esc(d.department || 'All departments'))+'<div class="flex flex-wrap gap-1" id="ds-counts">'+pill('Active', d.counts.active, 'border-teal-400/50 text-teal-100')+pill('Pending', d.counts.pending, 'border-amber-400/50 text-amber-100')+pill('Roster-only', d.counts.rosterOnly, 'border-slate-500 text-slate-200')+pill('Requests', d.counts.requests, 'border-sky-400/50 text-sky-100')+'</div>'+
       '<p class="text-[10px] text-slate-500 mt-1">Roster weeks '+esc(d.window.from)+' → '+esc(d.window.to)+'. Active = account with an employee number and on the roster.</p>')+
-    ((d.requests||[]).length ? v3Card(v3Title('fa-inbox','Schedule link requests')+'<div class="space-y-2" id="ds-reqs">'+reqHtml+'</div>') : '')+
+    ((d.requests||[]).length ? '<button type="button" id="ds-reqs" onclick="state._apChip=\'gl\';navigate(\'approvals\')" class="w-full rounded-xl p-3 text-left text-xs border border-amber-400/40 bg-amber-500/10 text-amber-100"><i class="fa-solid fa-inbox mr-1"></i>'+(d.requests.length)+' schedule link request'+(d.requests.length===1?'':'s')+' waiting — decide them in Approvals › GL links <i class="fa-solid fa-chevron-right ml-1"></i></button>' : '')+
     sec('ds-active', 'Active', d.active.length, d.active.map(function(u){ return person(u, false); }).join(''), false)+
     sec('ds-pending', 'Pending (account, not linked)', d.pending.length, d.pending.map(function(u){ return person(u, true); }).join(''), true)+
     sec('ds-ronly', 'Roster-only (no app account)', ronly.length, ronly.map(function(x){ return '<div class="py-1.5 border-b border-slate-700/40 last:border-0 text-xs ds-ro"><div class="v3-row"><span class="text-slate-100 truncate">'+esc(x.rosterName)+'</span><span class="text-[10px] text-slate-500 shrink-0">'+esc(x.department)+' · '+x.shifts+' days</span></div><button type="button" class="text-[11px] text-teal-300 underline ds-reg-from" data-name="'+esc(x.rosterName)+'" data-dept="'+esc(x.department)+'">Register this person</button></div>'; }).join(''), false)+
@@ -4513,7 +4004,6 @@ function s34PaintDeptStaff(d){
       '<p class="text-[10px] text-slate-500">A one-time password is emailed; they choose their own at first sign-in.</p>'+
       '<button type="button" id="ds-reg" class="btn-primary w-full rounded-xl py-3 text-sm text-white font-semibold"><i class="fa-solid fa-paper-plane mr-1"></i>Create account &amp; email login</button><div id="ds-reg-out"></div>', 'ds-register')+'</div>';
   const reload = function(){ state._s34DS = null; s34RenderDeptStaff(); };
-  s34RenderSpecialApprovals('#ds-spm');
   const dd = $('#ds-dept'); if (dd) dd.onchange = function(){ state._s34Dept = this.value; reload(); };
   const rnOf = function(sel){ const o = sel && sel.selectedOptions && sel.selectedOptions[0]; return o && o.value ? { rosterName: o.value, rosterDept: o.dataset.dept || '' } : {}; };
   $$('.ds-req-ok').forEach(function(b){ b.onclick = async function(){ const card = b.closest('.ds-req'); const code = card.querySelector('.ds-req-code').value.trim();
@@ -4532,14 +4022,769 @@ function s34PaintDeptStaff(d){
     if (r) $('#ds-reg-out').innerHTML = '<div class="rounded-xl bg-teal-500/10 border border-teal-400/30 p-3 text-xs mt-2" id="ds-reg-done"><p class="text-teal-100 font-semibold">'+esc(r.name)+' registered ('+esc(r.department)+')'+(r.code?' · '+esc(r.code):'')+'</p><p class="text-slate-300">'+(r.emailed ? 'Login emailed to '+esc(r.email)+'.' : 'The login email could not be sent'+(r.error?': '+esc(r.error):'')+'.')+'</p></div>';
   };
 }
-/* HOD: approve special meal requests (Department Admin → leave approvals card area) */
-async function s34RenderSpecialApprovals(host){
-  const el = typeof host === 'string' ? $(host) : host; if (!el || state.demo) return;
-  const r = await api('getSpecialMeals', {}).catch(function(){ return null; });
-  if (!r || !r.success) return;
-  const pend = (r.data.requests||[]).filter(function(x){ return x.status === 'pending'; });
-  el.innerHTML = pend.length ? v3Card(v3Title('fa-utensils','Special meal requests')+'<div class="space-y-2" id="spm-list">'+pend.map(function(x){
-    return '<div class="rounded-xl border border-slate-700/60 p-2 text-xs spm-row" data-id="'+esc(x.id)+'"><p class="text-slate-100"><strong>'+esc(x.userName)+'</strong> · '+esc(V3_MEAL_LABEL[x.meal]||x.meal)+' · '+esc(v3DateLabel(x.serviceDate))+'</p><p class="text-slate-400">'+esc(x.reason)+'</p>'+
-      '<div class="grid grid-cols-2 gap-2 mt-1"><button type="button" class="glass rounded-lg py-2 spm-no" data-id="'+esc(x.id)+'">Decline</button><button type="button" class="btn-primary rounded-lg py-2 text-white spm-ok" data-id="'+esc(x.id)+'">Approve</button></div></div>'; }).join('')+'</div>', 'spm-card') : '';
-  $$('.spm-ok,.spm-no').forEach(function(b){ b.onclick = async function(){ const ok = b.classList.contains('spm-ok'); const rr = await v3Call('decideSpecialMeal', { id: b.dataset.id, decision: ok ? 'approve' : 'decline' }, ok ? 'Approved — the chef will see it' : 'Declined'); if (rr) s34RenderSpecialApprovals(el); }; });
+
+/* ============ 3.5.0 clean-up: one page per job ============ */
+
+/* ============ 3.5.0 clean-up: hubs with tabs · one Approvals inbox · Inbox · People · System · old page names redirect ============ */
+const V35 = { tok: 0 };
+/** Hubs: one header + tab bar. "under" = pages that live inside a tab (the tab stays highlighted). */
+const V35_HUBS = {
+  kitchen: { title:'Kitchen Admin', tabs:[['kitchenadmin','Today','fa-fire-burner'],['kitchenlists','Lists','fa-list-ol'],['kitchenapprovals','Approvals','fa-inbox'],['chefmenu','Menu','fa-book-open'],['mealstats','Reports','fa-chart-column']], under:{ chefcomments:'mealstats', offmenu:'mealstats' } },
+  boat:    { title:'Boat Admin', tabs:[['boatadmin','Village runs','fa-ship'],['resortboat','Resort boat','fa-anchor'],['boatemergency','Emergency','fa-triangle-exclamation']], under:{} },
+  people:  { title:'People', tabs:[['people','Users','fa-users'],['peoplelinks','Roster links','fa-people-roof']], under:{ empcodes:'peoplelinks', rosterunmatched:'peoplelinks' } },
+  leaveov: { title:'Leave overview', tabs:[['leavecal','Calendar','fa-calendar-days'],['leavelist','List','fa-table']], under:{} },
+  inbox:   { title:'Inbox', tabs:[['inbox','For me','fa-bell'],['announcements','Announcements','fa-bullhorn']], under:{ pushsettings:'inbox' } }
+};
+function v35HubOf(tab){
+  for (const k in V35_HUBS) { const h = V35_HUBS[k]; if (h.tabs.some(function(t){ return t[0] === tab; }) || h.under[tab]) return k; }
+  return '';
 }
+function v35HubTabOf(tab){ const k = v35HubOf(tab); return k ? (V35_HUBS[k].under[tab] || tab) : ''; }
+/** Where the hub's back button goes. */
+function v35HubBack(k){
+  if (v3IsSuper()) return k === 'inbox' ? ['more','More'] : ['manage','Manage'];
+  if (k === 'people' || k === 'leaveov') return v3IsAdmin() ? ['adminhub','Admin'] : ['deptadmin','Department'];
+  return ['more','More'];
+}
+function v35HubCount(t){
+  const h = v3Home(), c = h.chef, rb = h.resortBoat || {};
+  if (t === 'kitchenapprovals') return c && c.pending ? (c.pending.late||0) + (c.pending.special||0) : 0;
+  if (t === 'mealstats') return c ? (c.feedbackNew||0) : 0;
+  if (t === 'boatemergency') return (h.boat && h.boat.emergencyPending) || 0;
+  if (t === 'resortboat') return v3IsBoatManager() ? (rb.admin||0) : 0;
+  if (t === 'inbox') return state._v3Unread || 0;
+  if (t === 'peoplelinks') return state._s34Req || 0;
+  return 0;
+}
+const _v35Back = v3Back, _v35Page = v3Page;
+function v35HubBar(){
+  const k = v35HubOf(state.tab); if (!k) return '';
+  const H = V35_HUBS[k], cur = v35HubTabOf(state.tab), bk = v35HubBack(k);
+  const tabs = H.tabs.filter(function(t){ return canPrivilegedTab(t[0]); }).map(function(t){ return [t[0], t[1], t[2], v35HubCount(t[0])]; });
+  return '<div class="space-y-2 min-w-0" id="v35-hubbar" data-hub="'+k+'"><div class="flex items-center justify-between gap-2">'+_v35Back(bk[0], bk[1])+
+    (k === 'inbox' ? '<button type="button" id="inbox-gear" onclick="navigate(\'pushsettings\')" class="rounded-lg px-3 min-h-[36px] text-sm border '+(state.tab==='pushsettings'?'border-teal-400 text-teal-200':'border-slate-600 text-slate-300')+'" aria-label="Phone notification settings" title="Phone notification settings"><i class="fa-solid fa-gear"></i></button>' : '')+'</div>'+
+    (tabs.length > 1 ? r33Tabs('v35-hub', tabs, cur, 'v35PickHub') : '')+'</div>';
+}
+function v35PickHub(t){ navigate(t); }
+v3Page = function(inner, id){ return _v35Page(v35HubBar() + inner, id); };
+/** inside a hub the hub bar is the way back; admins never land on Manage, the superadmin never on the Admin page */
+v3Back = function(tab, label){
+  if (v35HubOf(state.tab)) return '';
+  if (tab === 'manage' && !v3IsSuper()) { tab = 'adminhub'; label = 'Admin'; }
+  else if (tab === 'adminhub' && v3IsSuper()) { tab = 'manage'; label = 'Manage'; }
+  return _v35Back(tab, label);
+};
+/** Old page names / hashes → their new home (notification deep links, activity-log area keys and guide keys use them). */
+const V35_REDIRECT = { kitchen:'kitchenlists', chefreq:'kitchenapprovals', chef:'kitchenadmin', special:'mealbehalf', kitchenreports:'mealstats',
+  boatruns:'boatadmin', stboat:'boatadmin', emergency:'boatemergency', usersv3:'people', users:'people', gllink:'people', deptstaff:'peoplelinks',
+  notifications:'inbox', deptupdates:'announcements', deptupdatespost:'announcements', reminders:'announcements', leavesummary:'leavelist',
+  admintools:'system', settings:'system', admin:'system', myorders:'history', bookings:'boat', dept:'deptadmin', super:'manage', kitchenreports:'mealstats', overview:'adminoverview' };
+function v35Target(raw){
+  let t = String(raw == null || raw === '' ? 'home' : raw).replace(/^#/, ''), chip = null;
+  const i = t.indexOf(':'); if (i > 0) { chip = t.slice(i + 1); t = t.slice(0, i); }
+  const extra = {};
+  if (t === 'bookings') extra.boatTab = 'village';
+  if (V35_REDIRECT[t]) t = V35_REDIRECT[t];
+  if (t === 'superlog') { t = 'adminlog'; extra.logArea = 'super'; }
+  if (t === 'adminoverview') t = v3IsSuper() ? 'home' : 'adminhub';
+  if (t === 'manage' && !v3IsSuper()) t = 'adminhub';
+  if (t === 'adminhub' && v3IsSuper()) t = 'manage';
+  if (t === 'breakfast' || t === 'lunch' || t === 'dinner') { extra.mealFocus = t; t = 'meals'; }
+  if (V35_PAGES.indexOf(t) < 0) t = 'home';
+  return { tab: t, chip: chip, extra: extra };
+}
+function v35Go(t){ navigate(t); }
+const V35_LOG_AREAS = ['admin','kitchen','boat','dept','super'];
+function v35Navigate(tab){
+  const T = v35Target(tab); tab = T.tab;
+  if (T.chip != null) state._apChip = T.chip;
+  if (T.extra.logArea) state.logArea = T.extra.logArea;
+  if (T.extra.mealFocus) state.mealFocus = T.extra.mealFocus;
+  if (T.extra.boatTab) { state._boatTab = 'village'; r33Put('pcr_boat_tab', 'village'); }
+  if (tab === 'leave') { // own leave lives in Schedule › Leave; team decisions in Approvals
+    if (state.leaveTabForce === 'dept' || state.leaveTabForce === 'final') { state._apChip = 'leave'; tab = 'approvals'; }
+    else if (v3IsSuper()) tab = 'leavecal';
+    else if (r34On()) { state._schTab = 'leave'; tab = 'schedule'; }
+    state.leaveTabForce = null;
+  }
+  if (v3IsSuper() && A31_SUPER_NO_TABS[tab]) { toast(A31_SUPER_TOAST,'error'); tab = 'home'; }
+  if (tab === 'adminlog' && !a31CanArea(state.logArea || 'admin')) { const a = V35_LOG_AREAS.find(a31CanArea); if (a) state.logArea = a; }
+  if (!canPrivilegedTab(tab)) { toast('That area is not part of your role','error'); tab = 'home'; }
+  if (tab === 'schedule' && !featureOn('feature_my_schedule')) { toast('My Schedule is off for now.','error'); tab = 'more'; }
+  if (state._v3Timer) { clearInterval(state._v3Timer); state._v3Timer = null; }
+  if (state._homeRemTimer) { clearInterval(state._homeRemTimer); state._homeRemTimer = null; }
+  V35.tok++; // stale renders compare their token and never paint over the next page
+  state.tab = tab;
+  state._roleMode = V3_ROLE_TABS[tab] || '';
+  if (tab === 'approvals') state._roleMode = v3IsSuper() || v3IsAdmin() ? 'admin' : (v3CanDept() ? 'dept' : (v3CanChef() ? 'kitchen' : 'boat'));
+  if (tab === 'adminlog') state._roleMode = state.logArea || 'admin';
+  if (tab !== 'mealbehalf' && tab !== 'mealtimes') state._mbBackKeep = false;
+  const hub = v35HubOf(tab);
+  const ht = $('#header-title'); if (ht) ht.textContent = hub ? V35_HUBS[hub].title : (V3_TITLES[tab] || tab);
+  const sticky = $('#app-sticky'); if (sticky) sticky.classList.remove('hidden');
+  const map = {
+    home: renderHome, meals: renderMeals, boat: renderBoat, more: renderMore, profile: renderMyProfile, schedule: r34RenderSchedule,
+    history: v3RenderHistory, leave: v3RenderLeave, inbox: v3RenderNotifications, announcements: v35RenderAnnouncements, pushsettings: a33RenderSettings, myreports: a32RenderMyReports,
+    approvals: function(){ return v35RenderApprovals('all'); },
+    kitchenadmin: v3RenderKitchenAdmin, kitchenlists: v35RenderKitchenLists, kitchenapprovals: function(){ return v35RenderApprovals('kitchen'); }, chefmenu: v3RenderMenuEditor,
+    mealstats: v3RenderMealStats, chefcomments: v3RenderChefComments, offmenu: v3RenderOffMenu, mealtimes: v3RenderMealTimes, mealbehalf: v3RenderSpecialPage,
+    boatadmin: v3RenderBoatAdmin, resortboat: r33RenderResortAdmin, boatemergency: function(){ return v35RenderApprovals('boat'); },
+    deptadmin: v35RenderDeptPage, adminhub: v35RenderAdminPage, manage: v35RenderManage, system: v35RenderSystem,
+    people: v3RenderUsers, peoplelinks: s34RenderDeptStaff, empcodes: r34RenderEmpCodes, rosterunmatched: r34RenderUnmatched,
+    leavecal: v3RenderLeaveCalendar, leavelist: v3RenderLeaveSummary,
+    suggestions: v35RenderSuggestions, adminstatus: v3RenderAdminStatus, migrate: v3RenderMigrate, aboutimage: a34RenderAboutImage,
+    adminlog: a31RenderLog, reports: a32RenderReports,
+    rostermonthly: function(){ return r34RenderUpload('monthly'); }, rosterweekly: function(){ return r34RenderUpload('weekly'); }, rosterarchive: function(){ return r34RenderUpload('archive'); },
+    leaveallow: r34RenderAllowances
+  };
+  if (['home','meals','boat'].includes(tab)) paintSkeleton({ cards: 3 });
+  try { history.replaceState(null, '', location.pathname + location.search + (tab === 'home' ? '' : '#'+tab)); } catch (e) {}
+  const fn = map[tab] || renderHome;
+  Promise.resolve().then(fn).catch(function(e){ console.error(e); toast('Could not open '+(V3_TITLES[tab]||tab),'error'); });
+  renderNav('#bottom-nav');
+  renderDataStatus();
+  const mc = $('#main-content'); if (mc) mc.scrollTop = 0;
+  try { window.scrollTo(0, 0); } catch (e) {}
+  if (tab === 'home') setTimeout(prefetchNextTabByRole, 400);
+  v3PollNotifications();
+  a32AfterNav(tab);
+}
+/** every page key that has a renderer (used by the hash check on start) */
+const V35_PAGES = ['home','meals','boat','more','profile','schedule','history','leave','inbox','announcements','pushsettings','myreports','approvals','kitchenadmin','kitchenlists','kitchenapprovals','chefmenu','mealstats','chefcomments','offmenu','mealtimes','mealbehalf',
+  'boatadmin','resortboat','boatemergency','deptadmin','adminhub','manage','system','people','peoplelinks','empcodes','rosterunmatched','leavecal','leavelist','suggestions','adminstatus','migrate','aboutimage','adminlog','reports','rostermonthly','rosterweekly','rosterarchive','leaveallow'];
+Object.assign(V3_TITLES, { approvals:'Approvals', kitchenlists:'Kitchen Admin', kitchenapprovals:'Kitchen Admin', boatemergency:'Boat Admin', people:'People', peoplelinks:'People',
+  inbox:'Inbox', announcements:'Inbox', leavelist:'Leave overview', leavecal:'Leave overview', system:'System', adminhub:'Admin', deptadmin:'Department', manage:'Manage',
+  mealbehalf:'Order for someone', special:'Order for someone', history:'My history', adminlog:'Activity log', kitchenadmin:'Kitchen Admin', boatadmin:'Boat Admin', resortboat:'Boat Admin',
+  chefmenu:'Kitchen Admin', mealstats:'Kitchen Admin', chefcomments:'Kitchen Admin', offmenu:'Kitchen Admin', pushsettings:'Inbox', empcodes:'People', rosterunmatched:'People' });
+(function(){
+  const base = canPrivilegedTab;
+  canPrivilegedTab = function(tab){
+    const t = v35Target(tab).tab;
+    if (t === 'approvals') return v3IsSuper() || v3CanDept() || v3CanChef() || v3HasBoat();
+    if (t === 'mealbehalf') return v3CanDept() || v3CanChef();
+    if (t === 'people' || t === 'peoplelinks' || t === 'rosterunmatched' || t === 'leavecal' || t === 'leavelist') return v3CanDept();
+    if (t === 'empcodes' || t === 'system') return v3IsAdmin();
+    if (t === 'kitchenlists' || t === 'kitchenapprovals') return v3CanChef();
+    if (t === 'boatemergency') return v3HasBoat();
+    if (t === 'inbox' || t === 'announcements' || t === 'pushsettings' || t === 'myreports' || t === 'profile') return true;
+    if (t === 'adminlog') return V35_LOG_AREAS.some(a31CanArea);
+    if (t === 'deptadmin') return v3IsLead() || v3IsSuper();
+    return base(t);
+  };
+})();
+roleLandingTab = function(){
+  try { const h = (location.hash||'').replace(/^#/, ''); if (h) { const t = v35Target(h).tab; if (V35_PAGES.indexOf(t) >= 0 && canPrivilegedTab(h)) return h; } } catch (e) {}
+  return 'home';
+};
+function v35GuideOf(tab){
+  if (tab === 'people' || tab === 'peoplelinks') return 'people';
+  if (tab === 'approvals') return v3IsSuper() ? '' : 'approvals';
+  return A32_GUIDE_TABS[tab] || '';
+}
+/** Notification kind → page (chip after ":"). */
+function v35NotifyTargets(){
+  return { leave: v3CanDept() ? 'approvals:leave' : (r34On() ? 'schedule' : 'leave'), late_meal: v3CanChef() ? 'kitchenapprovals:late' : (v3CanDept() ? 'approvals:late' : 'meals'),
+    special_meal: v3CanChef() ? 'kitchenapprovals:special' : (v3CanDept() ? 'approvals:special' : 'meals'), meal_request:'meals', meal_cancelled:'meals', order_cancelled:'meals', admin_message:'inbox',
+    chef_feedback: v3CanChef() ? 'chefcomments' : 'history', dept_update:'announcements', reminder:'announcements', role:'more', dept_join: v3CanDept() ? 'people' : 'more',
+    resort_boat:'boat', resort_boat_hod: v3CanDept() ? 'approvals:resort' : 'boat', resort_boat_admin: v3IsBoatManager() ? 'resortboat' : 'boat', emergency: v3HasBoat() ? 'boatemergency' : 'boat',
+    roster:'schedule', roster_hod:'rosterweekly', roster_admin:'rostermonthly', roster_link: v3CanDept() ? 'approvals:gl' : 'schedule', admin_behalf: v3CanDept() ? 'approvals' : 'more',
+    report: a32Owner() ? 'reports' : 'myreports' };
+}
+
+/* ---------- More ---------- */
+function v35ApCount(){
+  if (state._v35ApN != null && Date.now() - (state._v35ApAt||0) < 120000) return state._v35ApN;
+  const h = v3Home(), hb = h.hodBar || {}, rb = h.resortBoat || {};
+  let n = 0;
+  if (v3CanDept()) n += (hb.leave||0) + (v3IsAdmin() ? (hb.leaveMgmt||0) : 0) + (hb.late||0) + (rb.hod||0) + (state._s34Req||0);
+  if (v3IsBoatManager() && v3CanDept()) n += (rb.admin||0);
+  return n;
+}
+function renderMore(){
+  const u = state.user, h = v3Home(), unread = state._v3Unread || 0;
+  const group = function(id, title, rows){ return rows ? '<section class="space-y-1.5 min-w-0" id="more-g-'+id+'"><h3 class="v3-section-title px-1">'+title+'</h3><div class="glass rounded-2xl overflow-hidden">'+rows+'</div></section>' : ''; };
+  let html = '<section class="glass rounded-2xl p-4 min-w-0" id="more-profile"><div class="flex items-center gap-3 min-w-0">'+homeAvatarHtml(u)+'<div class="min-w-0 flex-1">'+
+    '<p class="font-semibold text-slate-100 truncate">'+esc(fullDisplayName(u))+'</p><p class="text-[11px] text-slate-400 truncate">'+esc(u.email)+'</p>'+
+    '<p class="text-[11px] text-slate-300 mt-0.5" id="more-roles">'+esc(v3RoleLabel(u))+' · '+esc(u.department||'—')+'</p></div>'+
+    '<button type="button" onclick="navigate(\'profile\')" class="rounded-lg px-3 py-2 text-xs border border-teal-500/40 text-teal-200 shrink-0" id="more-profile-btn">Profile</button></div></section>';
+  const inbox = v3Row(v3Nav('inbox'),'fa-bell','Inbox','Notifications · announcements', unread);
+  const reports = v3Row(v3Nav('myreports'),'fa-flag','My reports','Problems you reported · replies');
+  if (v3IsSuper()) {
+    html += group('me', 'Me', inbox + reports) + a31SuperNoteHtml();
+  } else {
+    const leaveRow = (state._flagsKnown && !featureOn('feature_my_schedule')) ? v3Row(v3Nav('leave'),'fa-plane-departure','Leave','Request, track or cancel') : ''; // only when Schedule is off (after the flags load)
+    html += group('me', 'Me', inbox + v3Row(v3Nav('history'),'fa-clock-rotate-left','My history','Orders, boats, leave, requests, feedback') + reports + leaveRow);
+    const btns = v3Buttons(u), ap = v3Row(v3Nav('approvals'),'fa-inbox','Approvals','Leave · meals · resort boat · GL links', v35ApCount());
+    let apShown = false;
+    if (btns.indexOf('dept') >= 0) { html += group('dept', 'Department', ap + v3Row(v3Nav('deptadmin'),'fa-people-group','Department','People, leave overview, announcements')); apShown = true; }
+    if (btns.indexOf('kitchen') >= 0) html += group('kitchen', 'Kitchen', v3Row(v3Nav('kitchenadmin'),'fa-fire-burner','Kitchen Admin','Today · lists · approvals · menu · reports', v35HubCount('kitchenapprovals')));
+    if (btns.indexOf('boat') >= 0) html += group('boat', 'Boat', v3Row(v3Nav('boatadmin'),'fa-anchor','Boat Admin','Village runs · resort boat · emergency', v35HubCount('boatemergency') + v35HubCount('resortboat')));
+    if (btns.indexOf('admin') >= 0) html += group('admin', 'Admin', (apShown ? '' : ap) + v3Row(v3Nav('adminhub'),'fa-user-shield','Admin','Overview · people · rosters · system'));
+    if (btns.length && state.rolesNeedSignIn && !state.demo) html += '<button type="button" onclick="v3AskReauth()" class="w-full text-[11px] text-sky-300 py-1"><i class="fa-solid fa-lock mr-1"></i>Sign in again to open role pages</button>';
+  }
+  html += '<section class="glass rounded-2xl overflow-hidden" id="more-signout">'+v3Row('doLogout()','fa-right-from-bracket','Sign out','')+'</section>';
+  $('#main-content').innerHTML = v3Page(html, 'more-root');
+  if (!state._v3UnreadAt || Date.now() - state._v3UnreadAt > 60000) {
+    state._v3UnreadAt = Date.now();
+    api('getMyNotifications', {}).then(function(res){ if (res && res.success) { state._v3Unread = res.data.unreadCount || 0; if (state.tab === 'more' && state._v3Unread !== unread) renderMore(); } }).catch(function(){});
+  }
+  if (!state._flagsKnown && typeof refreshFeatureFlags === 'function') refreshFeatureFlags().then(function(){ if (state.tab === 'more') renderMore(); }).catch(function(){}); // the More/Leave race: wait for the flags
+}
+repaintAfterBootstrap = function(){
+  if (!state.user) return;
+  if (state.tab === 'home') { if (!v3HomeTyping()) renderHome(); }
+  else if (state.tab === 'more') renderMore();
+  renderNav('#bottom-nav');
+};
+
+/* ---------- Department · Admin · Manage ---------- */
+function v35Group(id, title, rows){ return rows ? '<section class="space-y-1.5 min-w-0" id="'+id+'"><h3 class="v3-section-title px-1">'+title+'</h3><div class="glass rounded-2xl overflow-hidden">'+rows+'</div></section>' : ''; }
+function v35RenderDeptPage(){
+  const rows = v3Row(v3Nav('people'),'fa-users','People', (v3IsAdmin() ? 'All departments' : 'My department')+' · edit · GL numbers · roster links', state._s34Req||0) +
+    v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave overview','Calendar · list · CSV') +
+    v3Row(v3Nav('announcements'),'fa-bullhorn','Announcements','Post to your department') +
+    (featureOn('feature_my_schedule') ? v3Row(v3Nav('rosterweekly'),'fa-calendar-week','Weekly roster','Upload Mon–Sun, before the week') : '') +
+    v3Row("state._mbBack='deptadmin';navigate('mealbehalf')",'fa-star','Order for someone','Staff without a phone · contractors') +
+    v3Row(a31LogNav('dept'),'fa-clock-rotate-left','Activity log','Who changed what');
+  $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3Back('more','More')) +
+    '<p class="text-xs text-slate-400 px-1">'+(v3IsAdmin() ? 'All departments (admin)' : esc(state.user.department||''))+'</p>'+v3HodBar()+
+    '<section class="glass rounded-2xl overflow-hidden" id="dept-rows">'+rows+'</section>', 'deptadmin-root');
+  v3RefreshHome().then(function(){ if (state.tab === 'deptadmin') { const el = $('#v3-hodbar'); if (el) el.outerHTML = v3HodBar(); } }).catch(function(){});
+}
+function v35AdminGroups(sup){
+  const g = function(title, rows){ return v35Group('ag-'+title.toLowerCase().replace(/[^a-z]+/g,'-'), title, rows); };
+  let html = g('People', v3Row(v3Nav('people'),'fa-users-gear','People','Users · roles · codes · sign-ups · roster links', state._s34Req||0));
+  html += g('Leave', v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave overview','Calendar · list · CSV (decisions are in Approvals)'));
+  html += r34AdminGroup(g);
+  html += g('Communication', v3Row(v3Nav('announcements'),'fa-bullhorn','Announcements','Whole resort or one department') + v3Row(v3Nav('suggestions'),'fa-lightbulb','Suggestions','Approve / reject'));
+  const rp = (sup || !v3IsChef() ? v3Row(v3Nav('kitchenadmin'),'fa-fire-burner','Kitchen Admin','Today · lists · approvals · menu · reports') : '') +
+    (sup || !(v3Has('boat_manager') || v3Has('boat_captain')) ? v3Row(v3Nav('boatadmin'),'fa-anchor','Boat Admin','Village runs · resort boat (PCE) · emergency', v35HubCount('resortboat') + v35HubCount('boatemergency')) : '') +
+    (sup ? v3Row(v3Nav('deptadmin'),'fa-people-group','Department','Any department: people, leave, announcements') : '');
+  html += g('Role pages', rp);
+  html += g('Reports & system', v3Row(v3Nav('adminstatus'),'fa-file-arrow-down','Reports & downloads','Meals, boats, leave, users (CSV)') +
+    v3Row(a31LogNav(sup ? 'super' : 'admin'),'fa-clock-rotate-left','Activity log','Every area · filter by area') +
+    v3Row(v3Nav('system'),'fa-gear','System', sup ? 'Alerts, archive, summaries, API · email, features, revert owner…' : 'Alert emails, archive, saved summaries, API health'));
+  if (sup && a32Owner()) html += g('Superadmin', v3Row(v3Nav('reports'),'fa-bug','Reports inbox','Problems, change requests, ideas', state._a32RepNew||0));
+  return html;
+}
+async function v35RenderAdminPage(){ // Admin = Overview at the top + the admin sections
+  const tk = V35.tok, cached = cachePeek('v35overview');
+  const sec = function(d){ const s = v3DashSections(d || {}); return s.pend + s.meals + s.boat + s.people; };
+  $('#main-content').innerHTML = v3Page(v3Back('more','More') + '<div id="ov-body" class="space-y-4">'+(cached ? sec(cached) : v3Card(v3Loading()))+'</div>' + v35AdminGroups(false), 'adminhub-root');
+  let r = null; try { r = await v3ApiShared('getSuperDashboard', {}); } catch (e) {}
+  const box = $('#ov-body'); if (!box || V35.tok !== tk) return;
+  if (!r || !r.success) { box.innerHTML = v3Card('<p class="text-sm text-rose-300">'+esc((r && r.error) || 'Could not load the overview')+'</p>'); return; }
+  cacheSet('v35overview', r.data || {}); box.innerHTML = sec(r.data);
+}
+function v35RenderManage(){ $('#main-content').innerHTML = v3Page(v35AdminGroups(true), 'manage-root'); }
+
+/* ---------- System (one page) ---------- */
+function v35SummariesHtml(pfx){
+  return '<div class="flex gap-2 flex-wrap"><button type="button" id="'+pfx+'-status" class="rounded-xl px-3 py-2 text-xs border border-slate-600 text-slate-200">Check status</button><button type="button" id="'+pfx+'-backfill" class="rounded-xl px-3 py-2 text-xs border border-teal-500/40 text-teal-200">Back-fill last days</button></div><div id="'+pfx+'-out" class="text-[11px] text-slate-300 break-words"></div>';
+}
+function v35BindSummaries(pfx){
+  const out = $('#'+pfx+'-out'), st = $('#'+pfx+'-status'), bf = $('#'+pfx+'-backfill'); if (!out || !st) return;
+  st.onclick = async function(){
+    out.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Checking…';
+    const r = await api('dinnerSummaryStatus', {}).catch(function(){ return null; });
+    if (!r || !r.success) { out.innerHTML = '<span class="text-rose-300">'+esc((r && r.error) || 'Failed')+'</span>'; return; }
+    const d = r.data || {}, tr = d.triggers;
+    out.innerHTML = '<p>Server time '+esc(d.fijiNow||'')+'</p>'+
+      '<p>Automatic save: '+(d.triggersError ? '<span class="text-amber-200">'+esc(d.triggersError)+'</span>' : (tr && (tr.length || tr.count) ? '<span class="text-emerald-300">on</span>' : '<span class="text-amber-200">not set</span>'))+'</p>'+
+      '<p>Drive folder: '+(d.driveError ? '<span class="text-amber-200">'+esc(d.driveError)+'</span>' : (d.folder ? '<a class="text-teal-300 underline" target="_blank" rel="noopener" href="'+esc(d.folder)+'">open</a>' : '—'))+'</p>'+
+      (Array.isArray(d.days) ? '<p>'+d.days.map(function(x){ return esc(x.serviceDate||x.date||'')+(x.saved||x.snapshot ? ' ✓' : ' –'); }).join(' · ')+'</p>' : '');
+  };
+  bf.onclick = async function(){
+    if (!confirm('Save any missing dinner summaries for the last days? Existing ones are kept.')) return;
+    out.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Saving…';
+    const r = await api('backfillDinnerSummaries', {}).catch(function(){ return null; });
+    if (!r || !r.success) { out.innerHTML = '<span class="text-rose-300">'+esc((r && r.error) || 'Failed')+'</span>'; return; }
+    out.innerHTML = (r.data.backfill||[]).map(function(x){ return '<p>'+esc(x.serviceDate)+': '+(x.saved ? 'saved' : x.kept ? 'already saved' : esc(x.error || 'skipped'))+'</p>'; }).join('') || 'Nothing to do.';
+    toast('Summaries checked','ok');
+  };
+}
+const V35_FLAGS = [['feature_my_schedule','My Schedule','Schedule tab, rosters, own leave in Schedule'],['feature_live_roster','Live roster','External roster sheet (read-only)'],['feature_leave_escalation','Leave escalation','HOD → managers by email']];
+async function v35RenderSystem(){
+  const tk = V35.tok, sup = v3IsSuper(), s = state.appSettings || {};
+  const prov = s.mail_provider === 'brevo' ? 'brevo' : 'mailapp';
+  let html = (sup ? v3Back('manage','Manage') : v3Back('adminhub','Admin')) +
+    v3Card(v3Title('fa-envelope','Alert emails')+'<p class="text-[11px] text-slate-400">Who gets the app’s alert emails (one per line).</p><button type="button" id="at-alerts" class="w-full rounded-xl py-2.5 text-sm border border-slate-600 text-slate-200">Manage alert emails</button>', 'at-alerts-card')+
+    '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="archive-card">'+v3Title('fa-box-archive','Archive old records')+
+      '<p class="text-[11px] text-slate-400">Moves rows older than 60 days from Dinner / Breakfast / Lunch Orders, Boat Bookings and Boat Runs into matching <strong>Archive_</strong> tabs (copy → check → delete). Check the counts first; the real move asks for your '+(sup ? 'superadmin' : 'admin')+' code.</p>'+
+      '<div class="flex gap-2 flex-wrap"><button type="button" id="arch-dry" class="rounded-xl px-3 py-2 text-xs border border-slate-600 text-slate-200">Check counts (dry run)</button>'+
+      '<button type="button" id="arch-run" class="rounded-xl px-3 py-2 text-xs bg-rose-700/80 text-white hidden">Archive now…</button></div><div id="arch-out" class="text-[11px] text-slate-300"></div></section>'+
+    v3Card(v3Title('fa-file-pdf','Saved kitchen summaries')+'<p class="text-[11px] text-slate-400">The 8pm dinner snapshot + PDF. Check the automatic save and the Drive folder, or back-fill the last days.</p>'+v35SummariesHtml('ks'), 'ks-card')+
+    v3Card(v3Title('fa-heart-pulse','API health')+'<p class="text-[11px] text-slate-300" id="sys-health">App '+esc(APP_VERSION)+' · API '+esc(state.backendVersion||'…')+'</p><button type="button" id="sys-ping" class="rounded-xl px-3 py-2 text-xs border border-slate-600 text-slate-200">Check the server now</button>', 'sys-health-card');
+  if (sup) {
+    html += '<h3 class="v3-section-title px-1 pt-2" id="sys-super-h">Superadmin</h3>'+
+    v3Card(v3Title('fa-key','Email sender · verification & reset codes')+
+      '<p class="text-xs text-slate-300"><i class="fa-solid fa-envelope text-teal-300 mr-1"></i>Sign-up and forgot-password codes are <strong>sent by email</strong> to the registered address only — never shown on screen.</p>'+
+      '<div class="space-y-1"><label for="st-prov" class="text-[11px] text-slate-400">Send with</label><select id="st-prov" class="ui-input w-full"><option value="mailapp"'+(prov==='mailapp'?' selected':'')+'>Google (the account that runs the script) — default</option><option value="brevo"'+(prov==='brevo'?' selected':'')+'>Brevo email service (API key in Script Properties)</option></select></div>'+
+      '<div id="st-g" class="space-y-2'+(prov==='brevo'?' hidden':'')+'"><div class="space-y-1"><label for="st-from" class="text-[11px] text-slate-400">Send from (Gmail “send as” alias · blank = the script account)</label><input id="st-from" type="email" class="ui-input w-full" placeholder="blank = script account" value="'+esc(s.mail_from||'')+'"/></div></div>'+
+      '<div id="st-b" class="space-y-2'+(prov==='brevo'?'':' hidden')+'"><div class="space-y-1"><label for="st-bmail" class="text-[11px] text-slate-400">Brevo sender address (verified in Brevo)</label><input id="st-bmail" type="email" class="ui-input w-full" value="'+esc(s.brevo_sender_email||'')+'"/></div>'+
+      '<p class="text-[11px] '+(s.brevo_key_set?'text-emerald-300':'text-amber-200')+'"><i class="fa-solid '+(s.brevo_key_set?'fa-check':'fa-triangle-exclamation')+' mr-1"></i>'+(s.brevo_key_set?'Brevo API key is set (Script Properties → BREVO_API_KEY)':'No Brevo API key yet — until then mail falls back to Google.')+'</p></div>'+
+      '<div class="space-y-1"><label for="st-name" class="text-[11px] text-slate-400">Sender name</label><input id="st-name" class="ui-input w-full" maxlength="60" value="'+esc(s.mail_sender_name||'PCR Staff App')+'"/></div>'+
+      '<button type="button" id="st-save" class="btn-primary w-full rounded-xl py-2.5 text-sm text-white font-semibold">Save sender</button>'+
+      '<div class="pt-2 space-y-2 border-t border-slate-700/60" id="st-test"><p class="text-[11px] text-slate-400" id="st-mailstatus">Email status: checking…</p><div class="flex gap-2"><input id="st-testto" type="email" class="ui-input flex-1 min-w-0" placeholder="Send a test to (blank = me)"/><button type="button" id="st-testgo" class="rounded-xl px-3 text-xs border border-teal-500/40 text-teal-200">Send test</button></div></div>', 'st-mail-card')+
+    v3Card(v3Title('fa-toggle-on','Features')+'<div class="space-y-2" id="sys-flags">'+V35_FLAGS.map(function(f){ const on = featureOn(f[0]);
+      return '<div class="flex items-center justify-between gap-2 min-w-0"><div class="min-w-0"><p class="text-sm text-slate-100">'+esc(f[1])+'</p><p class="text-[10px] text-slate-500">'+esc(f[0])+' · '+esc(f[2])+'</p></div><button type="button" class="sys-flag shrink-0 rounded-lg px-3 py-1.5 text-xs '+(on?'bg-teal-600 text-white':'bg-slate-700 text-slate-200')+'" data-key="'+f[0]+'" data-on="'+(on?'1':'0')+'">'+(on?'ON':'OFF')+'</button></div>'; }).join('')+'</div>', 'sys-flags-card')+
+    v3Card(v3Title('fa-rotate-left','Revert owner (Superadmin log)')+
+      '<p class="text-[11px] text-slate-400">Only this superadmin account can undo entries in the Superadmin log. Once set, only that account can change it.</p>'+
+      '<div class="flex gap-2"><input id="st-owner" type="email" class="ui-input flex-1 min-w-0" placeholder="owner email" value="'+esc(s.revert_owner_email||'')+'"/><button type="button" id="st-owner-save" class="rounded-xl px-3 text-xs border border-teal-500/40 text-teal-200">Save</button></div>', 'st-owner-card')+
+    '<section class="glass rounded-2xl overflow-hidden" id="sys-super-links">'+v3Row(v3Nav('aboutimage'),'fa-image','About image','The picture behind the footer “About” button')+
+      v3Row(v3Nav('migrate'),'fa-right-left','Role migration','Preview / apply the 3.0.0 roles list')+
+      v3Row(v3Nav('rosterarchive'),'fa-box-archive','Roster archive','Past monthly rosters · leave used · patterns')+'</section>';
+  }
+  $('#main-content').innerHTML = v3Page(html, 'system-root');
+  $('#at-alerts').onclick = function(){ openAlertEmails(); };
+  bindArchiveCard();
+  v35BindSummaries('ks');
+  const ping = async function(show){ const el = $('#sys-health'); let r = null; try { r = await api('getVersion', {}); } catch (e) {}
+    if (!el || V35.tok !== tk) return; const v = r && (r.version || (r.data && r.data.version));
+    if (v) state.backendVersion = v;
+    el.innerHTML = 'App '+esc(APP_VERSION)+' · API '+(v ? '<span class="text-emerald-300">'+esc(v)+' · OK</span>' : '<span class="text-rose-300">not reachable</span>')+' · '+esc(formatFiji());
+    if (show) toast(v ? 'API OK · v'+v : 'Server not reachable', v ? 'ok' : 'error'); };
+  $('#sys-ping').onclick = function(){ ping(true); };
+  ping(false);
+  if (!sup) return;
+  $('#st-owner-save').onclick = async function(){
+    const v = String($('#st-owner').value||'').trim().toLowerCase();
+    if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast('Enter a valid email','error'); return; }
+    const passcode = await askPasscode('super', true); if (!passcode) return;
+    const a = await v3Call('setAppSetting', { key: 'revert_owner_email', value: v, passcode: passcode }, 'Revert owner saved');
+    if (a) { state.appSettings = Object.assign({}, state.appSettings, { revert_owner_email: v }); state.a31CanRevert = !!v && v === String(state.user.email).toLowerCase(); state._a32RepAt = 0; }
+  };
+  $('#st-prov').onchange = function(){ const b = this.value === 'brevo'; $('#st-g').classList.toggle('hidden', b); $('#st-b').classList.toggle('hidden', !b); };
+  $('#st-save').onclick = async function(){
+    const pv = $('#st-prov').value, from = String($('#st-from').value||'').trim(), bm = String($('#st-bmail').value||'').trim(), name = String($('#st-name').value||'').trim() || 'PCR Staff App';
+    const okMail = function(x){ return !x || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); };
+    if (!okMail(from) || !okMail(bm)) { toast('Enter a valid email or leave it blank','error'); return; }
+    if (pv === 'brevo' && !bm) { toast('Brevo needs a sender address','error'); return; }
+    const passcode = await askPasscode('super', true); if (!passcode) return;
+    const sets = [['mail_provider', pv], ['mail_from', from], ['brevo_sender_email', bm], ['mail_sender_name', name], ['brevo_sender_name', name]];
+    for (let i = 0; i < sets.length; i++) { const a = await v3Call('setAppSetting', { key: sets[i][0], value: sets[i][1], passcode: passcode }, i === sets.length-1 ? 'Sender saved' : null); if (!a) return; }
+    state.appSettings = Object.assign({}, state.appSettings, { mail_provider: pv, mail_from: from, brevo_sender_email: bm, mail_sender_name: name, brevo_sender_name: name }); cacheInvalidate(['featureFlags','v3home']);
+  };
+  const paintMail = function(m){ const el = $('#st-mailstatus'); if (!el || !m) return;
+    el.innerHTML = 'Email status: sending with <strong class="text-slate-200">'+(m.effective === 'brevo' ? 'Brevo' : 'Google (MailApp)')+'</strong> · Brevo key '+(m.brevoKeySet ? '<span class="text-emerald-300">set</span>' : '<span class="text-amber-200">missing</span>')+' · sender '+esc(m.brevoSender||'')+(m.lastWarning ? '<br><span class="text-amber-200">Last warning: '+esc(m.lastWarning)+'</span>' : ''); };
+  $('#st-testgo').onclick = async function(){
+    this.disabled = true;
+    const r = await api('sendTestEmail', { to: String($('#st-testto').value||'').trim() }).catch(function(){ return null; });
+    this.disabled = false;
+    if (r && r.success) toast('Test email sent to '+r.data.to+' via '+(r.data.via === 'brevo' ? 'Brevo' : 'Google')+(r.data.warning ? ' · '+r.data.warning : ''),'ok');
+    else toast((r && r.error) || 'Test email failed','error');
+    if (r && r.data && r.data.mail) paintMail(r.data.mail);
+  };
+  api('getSuperDashboard', {}).then(function(r){ const hl = r && r.success && r.data && r.data.health; if (hl && hl.mail) paintMail(hl.mail); else if (hl) paintMail({ effective: hl.mailProvider, brevoKeySet: !!hl.brevoKeySet, brevoSender: hl.mailFrom||'' }); }).catch(function(){});
+  $$('.sys-flag').forEach(function(b){ b.onclick = async function(){
+    const key = b.dataset.key, cur = b.dataset.on === '1';
+    const passcode = await askPasscode('super', true); if (!passcode) return;
+    const res = await v3Call('setAppSetting', { key: key, value: !cur, passcode: passcode }, key+' → '+(!cur ? 'ON' : 'OFF'));
+    if (!res) return;
+    state.featureFlags = Object.assign({}, state.featureFlags || {}); state.featureFlags[key] = !cur; cacheInvalidate(['featureFlags']);
+    if (state.tab === 'system') v35RenderSystem(); renderNav('#bottom-nav');
+  }; });
+}
+
+/* ---------- Kitchen Admin › Lists ---------- */
+function v35RenderKitchenLists(){
+  const tk = V35.tok;
+  $('#main-content').innerHTML = v3Page(kitDaysCardHtml() +
+    (v3IsAdmin() ? '<details class="glass rounded-2xl min-w-0" id="kl-saved"><summary class="px-4 py-3 text-sm text-slate-100 cursor-pointer"><i class="fa-solid fa-box-archive text-teal-400 mr-2"></i>Saved copies (admin)</summary><div class="px-4 pb-4 space-y-2"><p class="text-[11px] text-slate-400">The 8pm snapshot is the saved copy of each dinner list. Check the automatic save or back-fill missing days.</p>'+v35SummariesHtml('kl')+'</div></details>' : ''),
+    'kitchenlists-root');
+  wireKitDays({ printPrep: kitPrintPrep, downloadPrepPdf: kitDownloadPrepPdf, viewPrepPdf: kitViewPrepPdf, buildPrepHtml: kitBuildPrepHtml, tok: function(){ return V35.tok === tk && state.tab === 'kitchenlists'; } });
+  v35BindSummaries('kl');
+}
+/* ---------- Kitchen Admin › Reports sub-pages ---------- */
+function v35ReportsSeg(cur){
+  const c = v3Home().chef || {};
+  const items = [['mealstats','Stats',0],['chefcomments','Feedback',c.feedbackNew||0],['offmenu','Not on menu',0]];
+  return '<div class="grid grid-cols-3 gap-1 rounded-xl bg-slate-900/60 p-1" id="v35-repseg" role="tablist">'+items.map(function(t){
+    return '<button type="button" role="tab" aria-selected="'+(t[0]===cur)+'" onclick="navigate(\''+t[0]+'\')" class="rounded-lg py-2 text-xs '+(t[0]===cur?'bg-teal-600 text-white font-semibold':'text-slate-300')+'" id="repseg-'+t[0]+'">'+t[1]+(t[2]?' <span class="v3-count">'+t[2]+'</span>':'')+'</button>'; }).join('')+'</div>';
+}
+/** Meal statistics: expected staff per meal from the rosters already uploaded (server getRosterExpected). */
+async function v35RosterCompare(d){
+  const st = state.rep || {};
+  if (!st.compare || !d) { state.repRoster = null; return; }
+  let r = null; try { r = await api('getRosterExpected', { from: d.from, to: d.to }); } catch (e) {}
+  const info = $('#rp-roster-info');
+  if (!r || !r.success) { state.repRoster = null; if (info) info.textContent = (r && r.error) || 'Roster compare is not available here (needs the real server).'; return; }
+  const exp = {}; let n = 0;
+  (r.data.days || []).forEach(function(x){ if (x.hasRoster) { exp[x.date] = x.meals || {}; n++; } });
+  state.repRoster = { name: 'uploaded rosters · '+n+' day'+(n===1?'':'s')+' with a roster', expected: exp };
+  if (info) info.textContent = 'Compared with the '+state.repRoster.name;
+}
+
+/* ---------- Inbox › Announcements (reminders + department updates) ---------- */
+function v35RemActive(list){ return (list||[]).filter(function(r){ return !(r.done === true || r.done === 'TRUE'); }); }
+function v35Imp(r){ return r.important === true || r.important === 'TRUE' || String(r.priority).toLowerCase() === 'high'; }
+async function v35LoadAnnouncements(force){
+  const had = JSON.stringify([cachePeek('reminders'), (state._v35Ann||{}).upd]);
+  if (!force && cachePeek('reminders') && state._v35Ann && Date.now() - state._v35Ann.at < 120000) return false;
+  const [a, b] = await Promise.all([api('getReminders', {}).catch(function(){ return null; }), api('getDeptUpdates', { limit: 10 }).catch(function(){ return null; })]);
+  if (a && a.success) cacheSet('reminders', a.data.reminders || []);
+  state._v35Ann = { at: Date.now(), upd: (b && b.success && b.data.updates) || ((state._v35Ann||{}).upd) || v3Home().deptUpdates || [] };
+  return had !== JSON.stringify([cachePeek('reminders'), state._v35Ann.upd]);
+}
+function v35AnnItems(){
+  const rem = v35RemActive(cachePeek('reminders')).map(function(r){ return { k:'resort', imp: v35Imp(r), title: r.title, body: r.body, at: String(r.createdAt || r.dueDate || ''), by:'Management' }; });
+  const upd = ((state._v35Ann && state._v35Ann.upd) || v3Home().deptUpdates || []).map(function(u){ return { k:'dept', imp:false, title: u.title || 'Update', body: u.body, at: String(u.createdAt||''), by: u.authorName }; });
+  return rem.concat(upd).sort(function(a, b){ return (b.imp?1:0) - (a.imp?1:0) || b.at.localeCompare(a.at); });
+}
+function v35HomeAnnouncements(){
+  const top = v35AnnItems().slice(0, 2);
+  if (!top.length) return '';
+  return '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="home-announce">'+v3Title('fa-bullhorn','Announcements','<button type="button" onclick="navigate(\'announcements\')" class="text-xs text-teal-300">All <i class="fa-solid fa-chevron-right"></i></button>')+
+    top.map(function(x){ return '<div class="rounded-xl border '+(x.imp?'border-amber-400/40 bg-amber-500/10':'border-slate-700/60 bg-slate-900/40')+' p-2.5 min-w-0 home-ann"><p class="text-xs font-semibold text-slate-100 break-words">'+(x.imp?'<i class="fa-solid fa-triangle-exclamation text-amber-300 mr-1"></i>':'')+esc(x.title)+'</p>'+
+      (x.body?'<p class="text-[11px] text-slate-300 break-words">'+esc(String(x.body).length > 140 ? String(x.body).slice(0, 140)+'…' : x.body)+'</p>':'')+'<p class="text-[10px] text-slate-500">'+esc(x.k === 'resort' ? 'Whole resort' : (state.user.department||'Department'))+' · '+esc(x.by||'')+'</p></div>'; }).join('')+'</section>';
+}
+async function v35RenderAnnouncements(){
+  const tk = V35.tok, adm = v3IsAdmin(), canPost = v3CanDept(), mine = state.user.department || '';
+  const view = adm ? (state._annDept != null ? state._annDept : mine) : mine;
+  const depts = PCR_DEPARTMENTS.slice();
+  const post = canPost ? '<section class="glass rounded-2xl p-4 space-y-2 min-w-0" id="ann-post">'+v3Title('fa-pen','Post an announcement')+
+    '<label for="ann-to" class="text-[11px] text-slate-400">Who sees it</label><select id="ann-to" class="ui-input w-full"'+(adm?'':' disabled')+'>'+(adm ? '<option value="__resort">Whole resort</option>'+depts.map(function(d){ return '<option value="'+esc(d)+'">'+esc(d)+' only</option>'; }).join('') : '<option value="'+esc(mine)+'">'+esc(mine)+' only</option>')+'</select>'+
+    '<input id="ann-title" class="ui-input w-full" maxlength="100" placeholder="Title"/><textarea id="ann-body" rows="3" maxlength="1500" class="ui-input w-full" placeholder="Message"></textarea>'+
+    (adm ? '<label class="flex items-center gap-2 text-xs text-slate-200" id="ann-imp-wrap"><input type="checkbox" id="ann-imp"/> Important (highlighted; whole resort only)</label><input type="date" id="ann-due" class="ui-input w-full" aria-label="Due date (optional, whole resort)"/>' : '')+
+    '<button type="button" id="ann-send" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white">Post</button></section>' : '';
+  $('#main-content').innerHTML = v3Page(post +
+    (adm ? '<div class="min-w-0"><label for="ann-view" class="text-[11px] text-slate-400 px-1">Department updates shown</label><select id="ann-view" class="ui-input w-full">'+depts.map(function(d){ return '<option'+(d===view?' selected':'')+'>'+esc(d)+'</option>'; }).join('')+'</select></div>' : '')+
+    '<div id="ann-list" class="space-y-3">'+v3Card(v3Loading())+'</div>', 'announcements-root');
+  const sync = function(){ const t = $('#ann-to'), w = $('#ann-imp-wrap'), dd = $('#ann-due'); if (!t || !w) return; const r = t.value === '__resort'; w.classList.toggle('hidden', !r); if (dd) dd.classList.toggle('hidden', !r); };
+  const to = $('#ann-to'); if (to) { to.onchange = sync; sync(); }
+  const vv = $('#ann-view'); if (vv) vv.onchange = function(){ state._annDept = this.value; v35RenderAnnouncements(); };
+  const sb = $('#ann-send');
+  if (sb) sb.onclick = async function(){
+    const t = $('#ann-title').value.trim(), bd = $('#ann-body').value.trim(), dest = $('#ann-to').value;
+    if (!t && !bd) { toast('Write something first','error'); return; }
+    sb.disabled = true;
+    let ok;
+    if (dest === '__resort') { const imp = $('#ann-imp') && $('#ann-imp').checked; ok = await v3Call('addReminder', { title: t || bd.slice(0, 60), body: bd, dueDate: ($('#ann-due')||{}).value || '', important: imp ? 'true' : 'false', priority: imp ? 'high' : 'normal' }, 'Posted to the whole resort'); }
+    else ok = await v3Call('postDeptUpdate', { title: t, body: bd, department: dest }, 'Posted to '+dest);
+    sb.disabled = false;
+    if (ok) { cacheInvalidate(['v3home','reminders']); state._v35Ann = null; v3RefreshHome(); v35RenderAnnouncements(); }
+  };
+  const [a, b] = await Promise.all([api('getReminders', {}).catch(function(){ return null; }), api('getDeptUpdates', { limit: 30, department: view }).catch(function(){ return null; })]);
+  if (V35.tok !== tk || state.tab !== 'announcements') return;
+  const rem = v35RemActive((a && a.success && a.data.reminders) || []);
+  if (a && a.success) cacheSet('reminders', a.data.reminders || []);
+  const upd = (b && b.success && b.data && !b.data.locked && b.data.updates) || (b && b.success ? [] : (view === mine ? (v3Home().deptUpdates || []) : []));
+  const remHtml = rem.map(function(r){ const imp = v35Imp(r);
+    return '<article class="rounded-xl border '+(imp?'border-amber-400/40 bg-amber-500/10':'border-slate-700/60 bg-slate-900/50')+' p-3 space-y-1.5 min-w-0 ann-rem" data-id="'+esc(r.id)+'"><div class="v3-row"><p class="text-sm font-semibold text-slate-100 break-words min-w-0">'+(imp?'<i class="fa-solid fa-triangle-exclamation text-amber-300 mr-1"></i>':'')+esc(r.title)+'</p>'+(r.dueDate?v3Chip('Due '+esc(String(r.dueDate).slice(0,10)),'mute'):'')+'</div>'+
+      (r.body?'<p class="text-xs text-slate-300 break-words whitespace-pre-line">'+esc(r.body)+'</p>':'')+'<p class="text-[10px] text-slate-500">Whole resort · management</p>'+
+      (adm ? '<div class="flex gap-2"><button type="button" class="v3-rm flex-1 rounded-lg py-1.5 text-xs border border-slate-600 text-slate-200" data-a="edit" data-id="'+esc(r.id)+'">Edit</button><button type="button" class="v3-rm flex-1 rounded-lg py-1.5 text-xs border border-teal-500/40 text-teal-200" data-a="done" data-id="'+esc(r.id)+'">Done</button><button type="button" class="v3-rm flex-1 rounded-lg py-1.5 text-xs border border-rose-500/40 text-rose-200" data-a="del" data-id="'+esc(r.id)+'">Remove</button></div>' : '')+'</article>'; }).join('');
+  const list = $('#ann-list'); if (!list) return;
+  list.innerHTML = '<section class="space-y-2 min-w-0" id="ann-resort">'+v3Title('fa-building','Whole resort', v3Chip(String(rem.length), rem.length?'info':'mute'))+(remHtml || v3Card(v3Empty('No announcements for the whole resort.')))+'</section>'+
+    '<section class="space-y-2 min-w-0" id="ann-dept">'+v3Title('fa-people-group', esc(view || 'My department'), v3Chip(String(upd.length), upd.length?'info':'mute'))+
+    (b && b.success && b.data && b.data.locked ? v3Card('<p class="text-xs text-slate-400"><i class="fa-solid fa-lock mr-1"></i>Department updates show once you are in a department.</p>') : (upd.length ? upd.map(function(u){ return v3UpdateCard(u, false); }).join('') : v3Card(v3Empty('No department updates yet.'))))+'</section>';
+  v3BindUpdateCards(list, v35RenderAnnouncements);
+  const form = function(r){
+    v3Form('Edit announcement', [
+      { id:'title', label:'Title', value: r && r.title, required:true, max:120 }, { id:'body', label:'Details', type:'textarea', value: r && r.body, max:1000 },
+      { id:'dueDate', label:'Due date', type:'date', value: r && String(r.dueDate||'').slice(0,10) }, { id:'important', label:'Important (shown highlighted to everyone)', type:'checkbox', value: r && v35Imp(r) }
+    ], 'Save', async function(v){
+      const d = await v3Call('updateReminder', { id: r.id, title: v.title, body: v.body, dueDate: v.dueDate, important: v.important ? 'true' : 'false', priority: v.important ? 'high' : 'normal' }, 'Saved');
+      if (d) { cacheInvalidate(['reminders']); v35RenderAnnouncements(); }
+      return !!d;
+    });
+  };
+  $$('#ann-list .v3-rm').forEach(function(btn){ btn.onclick = async function(){
+    const r = rem.find(function(x){ return String(x.id) === btn.dataset.id; });
+    if (btn.dataset.a === 'edit') return form(r);
+    if (btn.dataset.a === 'del' && !confirm('Remove this announcement?')) return;
+    const d2 = await v3Call(btn.dataset.a === 'done' ? 'completeReminder' : 'deleteReminder', { id: btn.dataset.id }, btn.dataset.a === 'done' ? 'Marked done' : 'Removed');
+    if (d2) { cacheInvalidate(['reminders']); v35RenderAnnouncements(); }
+  }; });
+}
+
+/* ---------- Boat tab: my bookings (with cancel) ---------- */
+async function v35LoadMyBookings(){
+  const box = $('#boat-mybookings'); if (!box || state.tab !== 'boat') return;
+  const tk = V35.tok;
+  let r = null; try { r = await api('myBoatBookings', {}); } catch (e) {}
+  if (V35.tok !== tk || !box.isConnected) return;
+  const list = ((r && r.success && r.data && r.data.bookings) || []).filter(function(b){ const d = String((b.run && b.run.date) || b.date || ''); return !d || d >= fijiDateString(addFijiDays(getFijiNow(), -1)); });
+  box.innerHTML = '<section class="glass rounded-xl p-3 space-y-2 min-w-0" id="boat-mine"><p class="text-sm font-semibold text-teal-200"><i class="fa-solid fa-ticket mr-1.5"></i>My bookings</p>'+
+    (list.length ? list.map(function(b){ return '<div class="v3-row text-xs py-1.5 border-t border-slate-700/40 min-w-0"><div class="min-w-0"><p class="text-slate-100 truncate">'+esc((b.run && b.run.route) || b.runId)+'</p><p class="text-[11px] text-slate-400">'+esc((b.run && b.run.date) || '')+' '+esc((b.run && b.run.time) || '')+' · '+esc(b.seats)+' seat(s) · '+esc(b.status)+'</p></div>'+
+      (b.status === 'confirmed' ? '<button type="button" class="mb-cancel shrink-0 rounded-lg px-2 py-1 text-[11px] border border-rose-500/40 text-rose-200" data-id="'+esc(b.id)+'">Cancel</button>' : '')+'</div>'; }).join('') : '<p class="text-xs text-slate-400">No upcoming bookings.</p>')+'</section>';
+  $$('#boat-mine .mb-cancel').forEach(function(b){ b.onclick = function(){ softConfirmCancel('Cancel this boat booking?', async function(){
+    const res = await sendOrQueue('cancelBoatBooking', { id: b.dataset.id }, { label: 'Cancel boat booking' });
+    if (res && res.success === false) { toast(res.error || 'Couldn\'t reach the server — try again','error'); return; }
+    if (res && res.queued) { toast('No connection — cancel saved, will send automatically','info'); return; }
+    cacheInvalidate(['boatRuns']); toastWithUndo('Booking cancelled', function(){ toast('Re-book from the list above if needed','info'); }); renderBoat();
+  }); }; });
+}
+
+/* ---------- People toolbar (admin) ---------- */
+function v35PeopleToolbar(){
+  return '<div class="grid grid-cols-2 gap-2 min-w-0" id="pp-tools">'+
+    '<button type="button" id="pp-add" class="rounded-xl py-2 text-xs border border-teal-500/40 text-teal-200"><i class="fa-solid fa-user-plus mr-1"></i>Add user</button>'+
+    '<button type="button" id="pp-import" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-file-import mr-1"></i>Quick Import CSV</button>'+
+    '<button type="button" id="pp-signups" class="rounded-xl py-2 text-xs border border-amber-400/40 text-amber-100"><i class="fa-solid fa-user-clock mr-1"></i>Sign-ups to approve</button>'+
+    '<button type="button" id="pp-csv" class="rounded-xl py-2 text-xs border border-slate-600 text-slate-200"><i class="fa-solid fa-file-csv mr-1"></i>Export CSV</button></div>';
+}
+function v35BindPeopleToolbar(all){
+  const again = function(){ cacheInvalidate(['users']); state._ufKeep = true; v3RenderUsers(); };
+  const a = $('#pp-add'); if (a) a.onclick = function(){
+    openModal('<h3 class="font-semibold mb-3 text-slate-100">Add user</h3><div class="space-y-2" id="au-form">'+
+      '<input id="au-email" type="email" class="ui-input w-full" placeholder="email" aria-label="Email"/><input id="au-pass" class="ui-input w-full" placeholder="password" aria-label="Password" autocomplete="new-password"/>'+
+      '<div class="grid grid-cols-2 gap-2"><input id="au-fn" class="ui-input min-w-0" placeholder="First" aria-label="First name"/><input id="au-ln" class="ui-input min-w-0" placeholder="Last" aria-label="Last name"/></div>'+
+      '<select id="au-dept" class="ui-input w-full" aria-label="Department">'+PCR_DEPARTMENTS.map(function(d){ return '<option>'+esc(d)+'</option>'; }).join('')+'</select>'+
+      '<input id="au-contact" class="ui-input w-full" placeholder="Contact" aria-label="Contact"/>'+
+      '<select id="au-role" class="ui-input w-full" aria-label="Role"><option value="staff">Staff</option><option value="kitchen">Kitchen</option><option value="boat">Boat</option><option value="hod">HOD</option><option value="admin">Admin</option>'+(v3IsSuper()?'<option value="super_admin">Super Admin</option>':'')+'</select>'+
+      '<label class="flex items-center gap-2 text-xs text-slate-200"><input type="checkbox" id="au-active" checked/> Active (can log in now)</label>'+
+      '<div class="flex gap-2"><button type="button" onclick="closeModal()" class="flex-1 rounded-xl py-2 text-sm border border-slate-600 text-slate-200">Cancel</button><button type="button" id="au-save" class="flex-1 btn-primary rounded-xl py-2 text-sm text-white">Create</button></div></div>');
+    $('#au-save').onclick = async function(){
+      const p = { email: $('#au-email').value.trim(), password: $('#au-pass').value, firstName: $('#au-fn').value.trim(), lastName: $('#au-ln').value.trim(), department: $('#au-dept').value, contact: $('#au-contact').value.trim(), role: $('#au-role').value, active: $('#au-active').checked };
+      if (!p.email || !p.password) { toast('Email and password are required','error'); return; }
+      closeModal();
+      const passcode = await askPasscode(); if (!passcode) return;
+      const d = await v3Call('addUser', Object.assign(p, { passcode: passcode }), 'User created'); if (d) again();
+    };
+  };
+  const im = $('#pp-import'); if (im) im.onclick = function(){
+    openModal('<h3 class="font-semibold mb-2 text-slate-100">Quick Import CSV</h3><p class="text-[11px] text-slate-400 mb-2">One per line: email,password,firstName,lastName,department,contact — accounts are active straight away.</p>'+
+      '<textarea id="csv-text" class="ui-input w-full text-xs font-mono h-40" placeholder="email,password,firstName,lastName,department,contact"></textarea>'+
+      '<div class="flex gap-2 mt-3"><button type="button" onclick="closeModal()" class="flex-1 rounded-xl py-2 text-sm border border-slate-600 text-slate-200">Cancel</button><button type="button" id="csv-go" class="flex-1 btn-primary rounded-xl py-2 text-sm text-white">Import</button></div>');
+    $('#csv-go').onclick = async function(){
+      const csv = $('#csv-text').value; if (!csv.trim()) { toast('Paste the CSV first','error'); return; }
+      closeModal();
+      const passcode = await askPasscode(); if (!passcode) return;
+      const d = await v3Call('importUsersCSV', { csv: csv, passcode: passcode });
+      if (d) { toast('Imported '+d.imported+', skipped '+((d.skipped && d.skipped.length) || 0),'ok'); again(); }
+    };
+  };
+  const su = $('#pp-signups'); if (su) su.onclick = async function(){
+    const passcode = await askPasscode(); if (!passcode) return;
+    const r = await api('getPendingApprovals', { passcode: passcode }).catch(function(){ return null; });
+    if (!r || !r.success) { toast((r && r.error) || 'Could not load sign-ups','error'); return; }
+    const users = r.data.users || [];
+    openModal('<h3 class="font-semibold mb-3 text-slate-100">Sign-ups waiting for approval</h3><div class="space-y-2" id="su-list">'+(users.length ? users.map(function(u){
+      return '<div class="glass rounded-xl p-3 v3-row text-sm min-w-0"><div class="min-w-0"><p class="text-slate-100 truncate">'+esc(u.firstName)+' '+esc(u.lastName)+'</p><p class="text-[10px] text-slate-400 truncate">'+esc(u.email)+' · '+esc(u.department)+'</p></div><button type="button" class="su-ok btn-primary text-xs px-3 py-1 rounded-lg text-white shrink-0" data-email="'+esc(u.email)+'">Approve</button></div>'; }).join('') : '<p class="text-xs text-slate-400">No sign-ups waiting.</p>')+'</div><button type="button" onclick="closeModal()" class="w-full mt-3 rounded-xl py-2 text-sm border border-slate-600 text-slate-200">Close</button>');
+    $$('.su-ok').forEach(function(b){ b.onclick = async function(){ b.disabled = true; const res = await api('approveUser', { targetEmail: b.dataset.email, passcode: passcode }).catch(function(){ return null; });
+      if (!res || !res.success) { b.disabled = false; toast((res && res.error) || 'Failed','error'); return; } toast('Approved','ok'); b.closest('.glass').remove(); }; });
+  };
+  const cv = $('#pp-csv'); if (cv) cv.onclick = function(){
+    const cols = ['email','firstName','lastName','department','contact','role','roles','employeeCode','roster','village','active'];
+    v3Download('pcr-users-'+fijiDateString()+'.csv', (all||[]).map(function(u){ return { email:u.email, firstName:u.firstName, lastName:u.lastName, department:u.department, contact:u.contact, role:u.role, roles: v3RoleLabel(u), employeeCode: u.employeeCode||'', roster:u.roster, village:u.village, active: u.active ? 'TRUE' : 'FALSE' }; }), cols);
+  };
+}
+/** Admin "Edit details" from the roles editor (name, contact, roster, village). */
+function v35EditDetails(u){
+  if (!u) return;
+  v3Form('Edit details · '+fullDisplayName(u), [
+    { id:'firstName', label:'First name', value:u.firstName, required:true }, { id:'lastName', label:'Last name', value:u.lastName },
+    { id:'contact', label:'Contact', value:u.contact }, { id:'roster', label:'Roster / shift pattern', value:u.roster },
+    { id:'village', label:'Mainland or Village', type:'select', options:['Mainland','Village'], value: u.village === 'Village' ? 'Village' : 'Mainland' }
+  ], 'Save', async function(v){
+    const passcode = await askPasscode(); if (!passcode) return false;
+    const r = await v3Call('updateUser', Object.assign({ targetEmail: u.email, passcode: passcode }, v), 'Details saved');
+    if (r) { cacheInvalidate(['users']); state._ufKeep = true; if (state.tab === 'people') v3RenderUsers(); }
+    return !!r;
+  }, esc(u.email)+' · '+esc(u.department||'—'));
+}
+/** HOD / assistant HOD: the same People page, locked to their department (GL link, edit details, remove). */
+async function v35RenderHodPeople(){
+  const tk = V35.tok, dept = state.user.department || '', me = String(state.user.email).toLowerCase();
+  const f = state.uf || { q:'' }; state.uf = f;
+  $('#main-content').innerHTML = v3Page(
+    '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="uf-top"><p class="text-sm font-semibold text-slate-100">'+esc(dept || 'My department')+'</p><label for="uf-q" class="text-[11px] text-slate-400">Search my department</label><input id="uf-q" class="ui-input w-full" type="search" placeholder="Name, email or GL number" value="'+esc(f.q||'')+'"/>'+
+    '<p class="text-[10px] text-slate-500">Type a GL number and press Enter (or Link) to check it. Only admin can change roles or department.</p></section>'+
+    '<div id="uf-list" class="space-y-2 min-w-0">'+v3Loading()+'</div>', 'users-root');
+  const [ru, rs] = await Promise.all([api('getUsers', { activeOnly:false, department: dept }).catch(function(){ return null; }), api('getDeptStaff', { department: dept }).catch(function(){ return null; })]);
+  if (V35.tok !== tk || state.tab !== 'people') return;
+  const staff = (rs && rs.success && rs.data && rs.data.staff) || [];
+  let all = ((ru && ru.success && ru.data.users) || []).filter(function(u){ return g341DeptEq(u.department, dept); });
+  if (!all.length && staff.length) all = staff.slice();
+  const host = $('#uf-list');
+  const findUser = function(em){ return all.find(function(u){ return u.email === em; }) || staff.find(function(u){ return u.email === em; }); };
+  g341Bind(host, findUser, function(){});
+  const canTouch = function(u){ return String(u.email).toLowerCase() !== me && v3RoleLabel(u) === 'Staff' && staff.some(function(s){ return s.email === u.email; }); };
+  const paint = function(){
+    const q = String(f.q||'').trim().toLowerCase();
+    const list = all.filter(function(u){ return !q || (u.email+' '+u.firstName+' '+u.lastName+' '+(u.preferredName||'')+' '+(u.employeeCode||'')).toLowerCase().indexOf(q) >= 0; });
+    host.innerHTML = '<p class="text-[11px] text-slate-400 px-1" id="uf-search-n">'+list.length+' of '+all.length+' people</p>'+(list.length ? list.map(function(u){
+      return g341UserCard(u, false).replace(/<\/div>$/, (canTouch(u) ? '<div class="flex gap-2 pt-2"><button type="button" class="v3-ds-edit flex-1 rounded-lg py-1.5 text-[11px] border border-slate-600 text-slate-200" data-email="'+esc(u.email)+'">Edit details</button><button type="button" class="v3-ds-rm flex-1 rounded-lg py-1.5 text-[11px] border border-rose-500/40 text-rose-200" data-email="'+esc(u.email)+'">Remove from department</button></div>' : '')+'</div>');
+    }).join('') : v3Empty('Nobody here yet.'))+
+    (((rs && rs.data && rs.data.declined) || []).length ? '<section class="glass rounded-2xl p-3 space-y-1 min-w-0">'+v3Title('fa-user-slash','Removed from the department')+rs.data.declined.map(function(u){ return '<p class="text-xs text-slate-400 truncate">'+esc(fullDisplayName(u))+'</p>'; }).join('')+'</section>' : '');
+    $$('#uf-list .v3-ds-edit').forEach(function(b){ b.onclick = function(){
+      const u = staff.find(function(x){ return x.email === b.dataset.email; }) || findUser(b.dataset.email); if (!u) return;
+      v3Form('Edit '+fullDisplayName(u), [
+        { id:'firstName', label:'First name', value:u.firstName }, { id:'lastName', label:'Last name', value:u.lastName },
+        { id:'preferredName', label:'Preferred name', value:u.preferredName, max:40 }, { id:'contact', label:'Contact', value:u.contact },
+        { id:'roster', label:'Roster / shift pattern', value:u.roster }, { id:'village', label:'Mainland or Village', type:'select', options:['Mainland','Village'], value: u.village === 'Village' ? 'Village' : 'Mainland' }
+      ], 'Save', async function(v){ const r = await v3Call('updateDeptStaff', Object.assign({ targetEmail: u.email }, v), 'Saved'); if (r) v35RenderHodPeople(); return !!r; }, 'Department: '+esc(u.department)+' (only admin can change it).');
+    }; });
+    $$('#uf-list .v3-ds-rm').forEach(function(b){ b.onclick = async function(){
+      const note = prompt('Remove this person from '+dept+'? They keep their account. Reason (optional):'); if (note === null) return;
+      const r = await v3Call('removeFromDept', { targetEmail: b.dataset.email, note: note }, 'Removed from the department'); if (r) v35RenderHodPeople();
+    }; });
+  };
+  paint();
+  $('#uf-q').oninput = function(){ f.q = this.value; paint(); };
+}
+
+/* ---------- Suggestions (admin) with a back button ---------- */
+async function v35RenderSuggestions(){
+  const tk = V35.tok;
+  const res = renderSuggestions();
+  const add = function(){ const r = $('#sug-root') || $('#main-content'); if (V35.tok === tk && r && !document.getElementById('sug-back')) r.insertAdjacentHTML('afterbegin', '<div id="sug-back">'+v3RoleBack('admin')+'</div>'); };
+  add(); if (res && res.then) { await res; add(); }
+}
+
+/* ---------- 3.5.0 One Approvals inbox (chips: leave · late · special · resort · emergency · gl) ---------- */
+const V35_AP_CHIPS = [['leave','Leave','fa-plane-departure'],['late','Late meals','fa-clock-rotate-left'],['special','Special meals','fa-star'],['resort','Resort boat','fa-anchor'],['emergency','Emergency travel','fa-triangle-exclamation'],['gl','GL links','fa-id-badge']];
+function v35ApChips(mode){
+  if (mode === 'kitchen') return ['late','special'];
+  if (mode === 'boat') return ['emergency'];
+  const out = [];
+  if (v3CanDept()) out.push('leave');
+  if (v3CanDept() || v3CanChef()) out.push('late', 'special');
+  if (v3CanDept() || v3IsBoatManager()) out.push('resort');
+  if (v3HasBoat()) out.push('emergency');
+  if (v3CanDept()) out.push('gl');
+  return out;
+}
+function v35Ok(r){ return r && r.success ? (r.data || {}) : null; }
+async function v35ApLoad(mode){
+  const adm = v3IsAdmin(), lead = v3CanDept(), chef = v3CanChef(), me = String(state.user.email).toLowerCase(), dept = state.user.department || '';
+  const chips = v35ApChips(mode), want = function(c){ return chips.indexOf(c) >= 0; };
+  const q = function(on, a, p){ return on ? api(a, p || {}).catch(function(){ return null; }) : Promise.resolve(null); };
+  const pend = adm && mode === 'all' ? await q(true, 'getDeptPending', {}) : null;
+  const viaPend = !!(pend && pend.success); // admin: one call lists every HOD-step item; if it is not available (demo / old server) use the HOD loaders
+  const hodPath = lead && !viaPend;
+  const [lv, mr, spm, rbh, rba, em, gl] = await Promise.all([
+    q(want('leave'), 'getLeave', { scope: adm ? 'all' : 'dept' }),
+    q(want('late') || (want('special') && chef), 'getMealRequests', { days: 3 }),
+    q(want('special') && hodPath, 'getSpecialMeals', {}),
+    q(want('resort') && hodPath, 'getResortBoat', { scope: 'hod' }),
+    q(want('resort') && v3IsBoatManager(), 'getResortBoat', { scope: 'admin' }),
+    q(want('emergency'), 'getEmergencyTravel', { status: 'pending' }),
+    q(want('gl') && hodPath, 'getLinkRequests', { department: adm ? '' : dept })
+  ]);
+  const items = [], errs = [];
+  const behalf = function(kind, x, extra){ return async function(dec, note, code){ return !!(await v3Call('decideOnBehalf', Object.assign({ kind: kind, id: x.id, decision: dec, note: note || '', code: code || '' }, extra || {}), dec === 'approve' ? 'Approved on behalf of the HOD' : 'Declined on behalf of the HOD')); }; };
+  // HOD step (admin: on behalf, logged) — one call lists leave, resort boat, special meals and GL links for every department
+  const P = v35Ok(pend);
+  (P && P.items || []).forEach(function(x){
+    if (String(x.userEmail).toLowerCase() === me) return;
+    const chip = { leave:'leave', resortboat:'resort', special:'special', link:'gl' }[x.kind]; if (!chip || !want(chip)) return;
+    items.push({ chip: chip, id: x.id, who: x.userName, dept: x.department, title: x.title + ' · HOD step', detail: x.detail, when: x.createdAt, behalf: true,
+      needCode: x.kind === 'link', code: x.code || '', act: behalf(x.kind, x) });
+  });
+  const L = v35Ok(lv);
+  ((L && L.requests) || []).forEach(function(l){
+    if (String(l.userEmail).toLowerCase() === me) return;
+    const range = v3DateLabel(l.startDate)+(l.endDate && l.endDate !== l.startDate ? ' → '+v3DateLabel(l.endDate) : '');
+    if (l.status === 'pending_manager' && adm) items.push({ chip:'leave', id:l.id, who:l.userName, dept:l.department, title:(l.leaveType||'Leave')+' · Final approval', detail: range+(l.reason?' · '+l.reason:''), when:l.createdAt, needNote:true,
+      act: async function(dec, note){ return !!(await v3Call('decideLeave', { id:l.id, decision:dec, note:note||'' }, dec === 'approve' ? 'Final approval given' : 'Declined')); } });
+    else if ((l.status === 'pending_hod' || l.status === 'pending') && !viaPend) items.push({ chip:'leave', id:l.id, who:l.userName, dept:l.department, title:(l.leaveType||'Leave')+' · HOD step', detail: range+(l.reason?' · '+l.reason:''), when:l.createdAt, needNote:true,
+      act: async function(dec, note){ return !!(await v3Call('decideLeave', { id:l.id, decision:dec, note:note||'' }, dec === 'approve' ? 'Approved → management' : 'Declined')); } });
+  });
+  const M = v35Ok(mr);
+  ((M && M.requests) || []).forEach(function(x){
+    if (!x.canDecide) return;
+    const chip = x.kind === 'special' ? 'special' : 'late'; if (!want(chip)) return;
+    items.push({ chip: chip, meal: true, id: x.id, who: x.userName, dept: x.department, title: (chip === 'special' ? 'Order for someone' : 'Late')+' · '+(V3_MEAL_LABEL[x.meal]||x.meal)+' · '+v3DateLabel(x.serviceDate),
+      detail: (x.meal === 'dinner' && x.mealChoice ? x.mealChoice+' · ' : '')+(x.reason||'')+(x.specialNote ? ' · Note: '+x.specialNote : ''), when: x.createdAt,
+      act: async function(dec){ return !!(await v3Call('decideMealRequest', { id:x.id, meal:x.meal, decision:dec }, dec === 'approve' ? 'Accepted — it is in the kitchen list' : 'Declined')); } });
+  });
+  const S = v35Ok(spm);
+  ((S && S.requests) || []).forEach(function(r){
+    if (String(r.status) !== 'pending' || String(r.userEmail).toLowerCase() === me) return;
+    items.push({ chip:'special', id:r.id, who:r.userName, dept:r.department, title:'Meal while away · '+(V3_MEAL_LABEL[r.meal]||r.meal||'')+' · '+v3DateLabel(r.serviceDate), detail: r.reason||'', when:r.createdAt,
+      act: async function(dec, note){ return !!(await v3Call('decideSpecialMeal', { id:r.id, decision:dec, note:note||'' }, dec === 'approve' ? 'Approved — the kitchen will see it' : 'Declined')); } });
+  });
+  const rbLine = function(x){ return [x.directionLabel, v3DateLabel(x.date), x.run, (x.pax||1)+' pax', x.purposeLabel, x.reason].filter(Boolean).join(' · '); };
+  const RH = v35Ok(rbh);
+  ((RH && RH.requests) || []).forEach(function(x){
+    if (x.status !== 'pending_hod' || !x.canDecide) return;
+    items.push({ chip:'resort', id:x.id, who:x.userName, dept:x.department, title:'Resort boat · HOD step', detail: rbLine(x), when:x.createdAt,
+      act: async function(dec, note){ return !!(await v3Call('hodDecideResortBoat', { id:x.id, decision: dec === 'approve' ? 'approve' : 'reject', note:note||'' }, dec === 'approve' ? 'Approved — sent to the boat manager' : 'Rejected')); } });
+  });
+  const RA = v35Ok(rba);
+  ((RA && RA.requests) || []).forEach(function(x){
+    if (x.status !== 'pending_admin') return;
+    items.push({ chip:'resort', id:x.id, who:x.userName, dept:x.department, title:'Resort boat · confirm (HOD approved)', detail: rbLine(x), when:x.createdAt, yes:'Confirm', no:'Reject',
+      act: async function(dec, note){ return !!(await v3Call('confirmResortBoat', { id:x.id, decision: dec === 'approve' ? 'confirm' : 'reject', note:note||'' }, dec === 'approve' ? 'Confirmed — added to the manifest' : 'Rejected')); } });
+  });
+  const E = v35Ok(em);
+  if (want('emergency') && !E) errs.push('emergency travel');
+  ((E && E.requests) || []).forEach(function(x){
+    if (x.status !== 'pending') return;
+    items.push({ chip:'emergency', id:x.id, who:x.userName, dept:x.department, title:'Emergency travel · '+(x.seats||1)+' seat(s)', detail: [x.preferredTime, x.reason].filter(Boolean).join(' · '), when:x.createdAt, yes:'Confirm', no:'Reject',
+      act: async function(dec, note){ return !!(await v3Call('reviewEmergencyTravel', { id:x.id, status: dec === 'approve' ? 'confirmed' : 'rejected', note:note||'' }, dec === 'approve' ? 'Confirmed' : 'Rejected')); } });
+  });
+  const G = v35Ok(gl);
+  ((G && G.requests) || []).forEach(function(r){
+    items.push({ chip:'gl', id:r.id, who:r.userName, dept:r.department, title: r.type === 'unknown' ? 'Number request' : 'GL link request', detail: r.type === 'unknown' ? "Doesn't know their GL number — enter it" : 'Entered GL number '+(r.code||''), when:r.createdAt, needCode:true, code:r.code||'',
+      act: async function(dec, note, code){ return !!(await v3Call('decideLinkRequest', { id:r.id, decision:dec, code:code||'', note:note||'' }, dec === 'approve' ? 'Linked — Schedule unlocked' : 'Declined')); } });
+  });
+  return { items: items, chips: chips, errs: errs };
+}
+async function v35RenderApprovals(mode){
+  mode = mode || 'all';
+  const tk = V35.tok, pageTab = state.tab, adm = v3IsAdmin();
+  const back = mode === 'all' && !v3IsSuper() ? v3Back('more','More') : '';
+  $('#main-content').innerHTML = v3Page(back+'<div id="ap-body" class="space-y-3 min-w-0">'+v3Card(v3Loading())+'</div>', 'approvals-root');
+  const data = await v35ApLoad(mode);
+  if (V35.tok !== tk || state.tab !== pageTab) return;
+  const deptF = adm && mode === 'all' ? (state._apDept || '') : '';
+  let items = data.items.filter(function(x){ return !deptF || g341DeptEq(x.dept, deptF); });
+  const n = {}; data.chips.forEach(function(c){ n[c] = 0; }); items.forEach(function(x){ n[x.chip] = (n[x.chip]||0) + 1; });
+  if (mode === 'all') { state._v35ApN = data.items.length; state._v35ApAt = Date.now(); try { renderNav('#bottom-nav'); } catch (e) {} }
+  let chip = state._apChip && n[state._apChip] != null ? state._apChip : '';
+  if (mode !== 'all' && !chip) chip = data.chips[0];
+  if (data.chips.length === 1) chip = data.chips[0];
+  const shown = items.filter(function(x){ return !chip || x.chip === chip; });
+  const L = {}; V35_AP_CHIPS.forEach(function(c){ L[c[0]] = c; });
+  const chipBtn = function(id, label, cnt){ const on = id === chip; return '<button type="button" class="ap-chip shrink-0 rounded-full px-3 py-1.5 text-xs border '+(on?'bg-teal-600 border-teal-500 text-white font-semibold':'border-slate-600 text-slate-200')+'" data-chip="'+id+'" aria-pressed="'+on+'">'+esc(label)+(cnt?' <span class="v3-count">'+cnt+'</span>':'')+'</button>'; };
+  const card = function(x, i){
+    return '<article class="ap-item rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-1.5 min-w-0" data-i="'+i+'" data-chip="'+x.chip+'">'+
+      '<div class="v3-row min-w-0"><p class="text-sm font-semibold text-slate-100 truncate min-w-0">'+esc(x.who||'—')+' <span class="text-[11px] text-slate-400 font-normal">· '+esc(x.dept||'—')+'</span></p>'+v3Chip(esc(L[x.chip][1]), 'warn')+'</div>'+
+      '<p class="text-xs text-slate-200 break-words">'+esc(x.title)+'</p>'+(x.detail?'<p class="text-[11px] text-slate-300 break-words">'+esc(x.detail)+'</p>':'')+
+      (x.behalf?'<p class="text-[10px] text-sky-300"><i class="fa-solid fa-user-shield mr-1"></i>You decide on behalf of the HOD · logged and the HOD is told</p>':'')+
+      (x.needCode?'<input class="ap-code ui-input w-full" placeholder="Employee / GL number" aria-label="Employee number" value="'+esc(x.code||'')+'"/>':'')+
+      '<div class="flex gap-2 pt-1"><button type="button" class="ap-no flex-1 rounded-lg py-2 text-xs border border-rose-500/40 text-rose-200" data-i="'+i+'">'+esc(x.no||'Decline')+'</button><button type="button" class="ap-yes flex-1 btn-primary rounded-lg py-2 text-xs text-white font-semibold" data-i="'+i+'">'+esc(x.yes||'Approve')+'</button></div></article>';
+  };
+  const depts = adm && mode === 'all' ? '<div class="min-w-0"><label for="ap-dept" class="text-[11px] text-slate-400 px-1">Department</label><select id="ap-dept" class="ui-input w-full"><option value="">All departments</option>'+PCR_DEPARTMENTS.map(function(d){ return '<option'+(d===deptF?' selected':'')+'>'+esc(d)+'</option>'; }).join('')+'</select></div>' : '';
+  const lateNote = chip === 'late' ? '<p class="text-[10px] text-slate-400 px-1">Late requests are approved automatically when the late window closes ('+esc(mtLabel(mealTimesNow().late_close_dinner))+' dinner · '+esc(mtLabel(mealTimesNow().late_close_breakfast))+' breakfast & lunch). Decline before then if needed.</p>' : '';
+  $('#ap-body').innerHTML =
+    '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="ap-head"><div class="v3-row"><p class="text-sm font-semibold text-slate-100" id="ap-total">'+items.length+' waiting'+(deptF?' · '+esc(deptF):'')+'</p>'+
+      '<span class="flex gap-1"><button type="button" id="ap-print" class="rounded-lg px-2 py-1 text-[11px] border border-slate-600 text-slate-200"><i class="fa-solid fa-print mr-1"></i>Print</button><button type="button" id="ap-csv" class="rounded-lg px-2 py-1 text-[11px] border border-slate-600 text-slate-200"><i class="fa-solid fa-file-csv mr-1"></i>CSV</button></span></div>'+
+      (data.chips.length > 1 ? '<div class="flex gap-1.5 overflow-x-auto pb-1 min-w-0" id="ap-chips" role="toolbar" aria-label="Filter">'+(mode === 'all' ? chipBtn('', 'All', items.length) : '')+data.chips.map(function(c){ return chipBtn(c, L[c][1], n[c]); }).join('')+'</div>' : '')+depts+
+      (shown.length > 1 ? '<div class="grid grid-cols-2 gap-2" id="ap-bulk"><button type="button" id="ap-all-no" class="rounded-xl py-2 text-xs border border-rose-500/40 text-rose-200"><i class="fa-solid fa-xmark mr-1"></i>Decline all ('+shown.length+')</button><button type="button" id="ap-all-yes" class="rounded-xl py-2 text-xs font-semibold border border-emerald-500/50 text-emerald-200 bg-emerald-500/10"><i class="fa-solid fa-check-double mr-1"></i>Approve all ('+shown.length+')</button></div>' : '')+
+      (data.errs.length ? '<p class="text-[10px] text-amber-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Could not load: '+esc(data.errs.join(', '))+'</p>' : '')+'</section>'+lateNote+
+    '<div id="ap-list" class="space-y-2 min-w-0">'+(shown.length ? shown.map(function(x){ return card(x, items.indexOf(x)); }).join('') : v3Card(v3Empty(chip ? 'Nothing waiting in '+L[chip][1]+'.' : 'Nothing needs your approval.')))+'</div>'+
+    (chip === 'late' || chip === 'special' ? '<details class="glass rounded-2xl min-w-0" id="ap-decided"><summary class="px-4 py-3 text-xs text-slate-300 cursor-pointer">Recently decided meal requests</summary><div id="ap-decided-body" class="px-4 pb-3 space-y-2"></div></details>' : '');
+  const again = function(){ state._v35ApAt = 0; cacheInvalidate(['v3home','mealRequests','kitchenDashboard']); v3RefreshHome().then(function(){ try { renderNav('#bottom-nav'); } catch (e) {} }).catch(function(){}); v35RenderApprovals(mode); };
+  $$('.ap-chip').forEach(function(b){ b.onclick = function(){ state._apChip = b.dataset.chip; v35RenderApprovals(mode); }; });
+  const ds = $('#ap-dept'); if (ds) ds.onchange = function(){ state._apDept = this.value; v35RenderApprovals(mode); };
+  const codeOf = function(i){ const el = document.querySelector('.ap-item[data-i="'+i+'"] .ap-code'); return el ? el.value.trim() : (items[i].code || ''); };
+  const decide = async function(i, dec, note){ const x = items[i]; if (x.needCode && dec === 'approve' && !codeOf(i)) { toast('Enter the employee number first','error'); return false; } return x.act(dec, note, codeOf(i)); };
+  $$('.ap-yes').forEach(function(b){ b.onclick = async function(){ b.disabled = true; const ok = await decide(+b.dataset.i, 'approve', ''); b.disabled = false; if (ok) again(); }; });
+  $$('.ap-no').forEach(function(b){ b.onclick = function(){ const x = items[+b.dataset.i];
+    v3Form((x.no||'Decline')+' · '+(x.who||''), [{ id:'note', label: x.needNote ? 'Reason for declining' : 'Reason (optional, they see it)', type:'textarea', required: !!x.needNote, max:300 }], x.no||'Decline', async function(v){ const ok = await decide(+b.dataset.i, 'decline', v.note); if (ok) again(); return ok; }); }; });
+  const bulk = async function(dec, note){
+    const kitchenFast = (chip === 'late' || chip === 'special') && v3CanChef() && shown.every(function(x){ return x.meal; });
+    if (kitchenFast) { const r = await v3Call('decideAllMealRequests', { decision: dec, kind: chip }, dec === 'approve' ? 'All accepted' : 'All declined'); if (r) again(); return !!r; }
+    let ok = 0, skip = 0;
+    for (let k = 0; k < shown.length; k++) { const i = items.indexOf(shown[k]); if (shown[k].needCode && dec === 'approve' && !codeOf(i)) { skip++; continue; } if (await decide(i, dec, note)) ok++; else skip++; }
+    toast((dec === 'approve' ? 'Approved ' : 'Declined ')+ok+(skip ? ' · '+skip+' skipped' : ''), ok ? 'ok' : 'error'); again(); return true;
+  };
+  const ay = $('#ap-all-yes'); if (ay) ay.onclick = function(){ if (confirm('Approve all '+shown.length+' shown?')) bulk('approve', ''); };
+  const an = $('#ap-all-no'); if (an) an.onclick = function(){ v3Form('Decline all '+shown.length, [{ id:'note', label:'One reason for all (they see it)', type:'textarea', required: shown.some(function(x){ return x.needNote; }), max:300 }], 'Decline all', function(v){ return bulk('decline', v.note); }); };
+  const rowsOf = function(){ return shown.map(function(x){ return { type: L[x.chip][1], name: x.who, department: x.dept, request: x.title, detail: x.detail, sent: x.when ? v3Ts(x.when) : '' }; }); };
+  $('#ap-print').onclick = function(){ const r = rowsOf(); if (!r.length) { toast('Nothing to print','error'); return; } v3Print('Approvals — '+(chip ? L[chip][1] : 'all')+' · '+formatFiji(), v3Table(['Type','Name','Department','Request','Detail','Sent'], r.map(function(o){ return [o.type, o.name, o.department, o.request, o.detail, o.sent]; }))); };
+  $('#ap-csv').onclick = function(){ v3Download('pcr-approvals-'+(chip||'all')+'-'+fijiDateString()+'.csv', rowsOf(), ['type','name','department','request','detail','sent']); };
+  const dec = $('#ap-decided');
+  if (dec) dec.addEventListener('toggle', async function(){
+    if (!dec.open || dec._done) return; dec._done = true;
+    const r = await api('getMealRequests', { days: 3 }).catch(function(){ return null; });
+    const box = $('#ap-decided-body'); if (!box) return;
+    const list = ((r && r.success && r.data.requests) || []).filter(function(x){ return !x.canDecide && (chip === 'special' ? x.kind === 'special' : x.kind !== 'special'); }).slice(-40).reverse();
+    box.innerHTML = list.length ? list.map(function(x){ return v3RequestCard(x, false); }).join('') : v3Empty('Nothing decided in the last 3 days.');
+  });
+}
+
+boot();
