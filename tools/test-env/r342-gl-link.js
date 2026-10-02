@@ -20,6 +20,7 @@ const add = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d
 const monday = iso => { const w = new Date(iso + 'T00:00:00Z').getUTCDay(); return add(iso, w === 0 ? -6 : 1 - w); };
 const hide = s => String(s).split(PW).join('***');
 
+let restoreListing = null; // 3.5.0: put the real staff listing back (also after a crash)
 (async () => {
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, serviceWorkers: 'block' });
@@ -90,6 +91,11 @@ const hide = s => String(s).split(PW).join('***');
   const up = await upload('weekly', mon, D, rows, 'gl-week.csv');
   check('HOD uploads a week with the new roster name', up && up.success, JSON.stringify(up).slice(0, 300));
   await login('admin');
+  const snap = await api('getStaffListingRows', {});
+  check('snapshot of the saved staff listing taken (restored at the end)', snap && snap.success, JSON.stringify(snap).slice(0, 200));
+  const SNAP = (snap && snap.success && snap.data.rows) || [];
+  console.log('  staff listing snapshot: ' + SNAP.length + ' rows');
+  restoreListing = async () => { if (!SNAP.length) return null; restoreListing = null; await login('admin'); return api('saveStaffListing', { rows: JSON.stringify(SNAP) }); };
   const sl = await api('saveStaffListing', { rows: JSON.stringify([
     { code: GLA, name: ('GLALPHA ' + sfx).toUpperCase(), department: D, started: '2022-05-09' },
     { code: GLB, name: 'Glbeta ' + sfx, department: D, started: '2023-01-02' },
@@ -235,8 +241,9 @@ const hide = s => String(s).split(PW).join('***');
   await until(() => page.isVisible('#kit-day-panel'), 60000); await page.waitForTimeout(1500);
   await shot('13-kitchen-summary-island');
 
+  if (restoreListing) { const rs = await restoreListing(); check('real staff listing restored (' + SNAP.length + ' rows)', !rs || (rs.success && rs.data.saved + rs.data.skippedBad + rs.data.skippedDept >= SNAP.length - 1), JSON.stringify(rs).slice(0, 200)); }
   check('no live backend calls', liveCalls === 0, liveCalls);
   check('no page errors', errors.length === 0, errors.join(' | '));
   console.log('\nRESULT pass=' + pass + ' fail=' + fail);
   await browser.close(); process.exit(fail ? 1 : 0);
-})().catch(e => { console.log('TEST CRASH', hide(e && e.stack || e)); process.exit(2); });
+})().catch(async e => { console.log('TEST CRASH', hide(e && e.stack || e)); try { if (restoreListing) { const rs = await restoreListing(); console.log('staff listing restored after crash: ' + JSON.stringify(rs && rs.data)); } } catch (e2) { console.log('RESTORE FAILED — re-import the staff listing', String(e2).slice(0, 200)); } process.exit(2); });

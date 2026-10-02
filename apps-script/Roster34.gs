@@ -1364,7 +1364,7 @@ function routeRoster34(action, p) {
     getRosterUnmatched: getRosterUnmatched, linkRosterName: linkRosterName, ignoreRosterName: ignoreRosterName, unlinkRosterName: unlinkRosterName,
     getRosterAdmin: getRosterAdmin, getRosterSettings: getRosterSettings, saveRosterSettings: saveRosterSettings,
     previewEmployeeCodes: previewEmployeeCodes, applyEmployeeCodes: applyEmployeeCodes, setEmployeeCode: setEmployeeCode,
-    saveStaffListing: function (q) { return routeG341('saveStaffListing', q); }, getStaffListingInfo: function (q) { return routeG341('getStaffListingInfo', q); },
+    saveStaffListing: function (q) { return routeG341('saveStaffListing', q); }, getStaffListingInfo: function (q) { return routeG341('getStaffListingInfo', q); }, getStaffListingRows: function (q) { return routeG341('getStaffListingRows', q); },
     glLookup: function (q) { return routeG341('glLookup', q); }, glLink: function (q) { return routeG341('glLink', q); }, getGlLinkLog: function (q) { return routeG341('getGlLinkLog', q); }, // 3.4.1 (GlLink341.gs)
     getPeopleDepartments: function (q) { return routeG341('getPeopleDepartments', q); }, getDeptPending: function (q) { return routeG341('getDeptPending', q); }, decideOnBehalf: function (q) { return routeG341('decideOnBehalf', q); },
     getLeaveAllowances: getLeaveAllowances, saveLeaveAllowance: saveLeaveAllowance, deleteLeaveAllowance: deleteLeaveAllowance

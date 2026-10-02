@@ -79,6 +79,17 @@ function saveStaffListing(p) {
   s34Log(me, 'admin', 'saveStaffListing', 'Staff Listing', 'Staff listing saved: ' + out.length + ' people' + (skippedDept ? ', ' + skippedDept + ' Band / Naisoso rows skipped' : '') + (bad ? ', ' + bad + ' rows without a code / name / duplicates' : ''));
   return { success: true, data: { saved: out.length, skippedDept: skippedDept, skippedBad: bad, importedAt: now } };
 }
+/* 3.5.0: admin-only export of the saved listing (code, name, listing department, date started) so an automated test
+   can snapshot it and put it back afterwards (tools/test-env/r342-gl-link.js) — the real listing is never left overwritten. */
+function getStaffListingRows(p) {
+  var me = v3Requester(p);
+  if (!isAdminPerm(me)) return { success: false, error: 'Admin only' };
+  g341Ensure();
+  var rows = sheetToObjects(G341.LISTING).filter(function (r) { return r34EmpCode(r.code); }).map(function (r) {
+    return { code: String(r.code), name: String(r.name || ''), department: String(r.listingDepartment || r.department || ''), started: String(r.dateStarted || '') };
+  });
+  return { success: true, data: { rows: rows, count: rows.length } };
+}
 function getStaffListingInfo(p) {
   var me = v3Requester(p);
   if (!isAdminPerm(me) && !isDeptLead(me)) return { success: false, error: 'HOD or admin only' };
@@ -414,7 +425,7 @@ function decideOnBehalf(p) {
 }
 
 function routeG341(action, p) {
-  var map = { saveStaffListing: saveStaffListing, getStaffListingInfo: getStaffListingInfo, glLookup: glLookup, glLink: glLink, getGlLinkLog: getGlLinkLog,
+  var map = { saveStaffListing: saveStaffListing, getStaffListingInfo: getStaffListingInfo, getStaffListingRows: getStaffListingRows, glLookup: glLookup, glLink: glLink, getGlLinkLog: getGlLinkLog,
     getPeopleDepartments: getPeopleDepartments, getDeptPending: getDeptPending, decideOnBehalf: decideOnBehalf };
   var fn = map[action];
   if (!fn) return null;

@@ -128,6 +128,14 @@ check('listing saved, Band + Naisoso skipped, bad rows skipped', r.success && r.
 check('HR listing row → Management (3.5.0)', store[R('G341.LISTING')].find(x => x.code === 'GL104').department === 'Management');
 r = api('getStaffListingInfo', { sessionToken: T.hod });
 check('listing info (HOD)', r.success && r.data.count === 4, JSON.stringify(r));
+r = api('getStaffListingRows', { sessionToken: T.hod });
+check('listing rows export: HOD refused (admin only)', !r.success);
+r = api('getStaffListingRows', { sessionToken: T.admin });
+check('listing rows export (admin): 4 rows with the listing department', r.success && r.data.count === 4 && r.data.rows.find(x => x.code === 'GL104').department === 'HR', JSON.stringify(r).slice(0, 300));
+const snapRows = r.data.rows;
+r = api('saveStaffListing', { sessionToken: T.admin, rows: JSON.stringify([{ code: 'GL999', name: 'Fake Test', department: 'Kitchen' }]) });
+r = api('saveStaffListing', { sessionToken: T.admin, rows: JSON.stringify(snapRows) });
+check('snapshot → restore gives the same listing back', r.success && r.data.saved === 4 && store[R('G341.LISTING')].find(x => x.code === 'GL104').department === 'Management' && !store[R('G341.LISTING')].some(x => x.code === 'GL999'), JSON.stringify(r));
 // ---------- lookup ----------
 r = api('glLookup', { sessionToken: T.admin, targetEmail: 'mele@x.com', code: 'gl 101' });
 check('lookup: listing found, exact roster name auto-picked', r.success && r.data.listing.name === 'MELE NAQA' && r.data.pick && r.data.candidates[0].rosterName === 'Mele Naqa', JSON.stringify(r).slice(0, 400));
