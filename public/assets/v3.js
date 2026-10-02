@@ -4374,63 +4374,6 @@ function v35BindSummaries(pfx){
     toast('Summaries checked','ok');
   };
 }
-/* 3.5.3: Email sender › Sender emails — Gmail "Send mail as" aliases of the script owner (MailSenders353.gs).
-   Google refuses alias creation through the API for a @gmail.com owner, so "Add" keeps the address on the list and shows
-   the one manual Gmail step; "Use this sender" sets mail_from only when Gmail reports it verified. */
-const V353_ST = { verified:['Verified','ok'], pending:['Pending · check inbox','warn'], not_added:['Not added in Gmail yet','warn'], unknown:['Status unknown','mute'] };
-function v353SendersHtml(){
-  return '<div class="space-y-2 rounded-xl border border-slate-700/60 p-3 min-w-0" id="ms-card">'+
-    '<div class="flex items-center justify-between gap-2"><p class="text-xs font-semibold text-slate-200"><i class="fa-solid fa-at text-teal-300 mr-1"></i>Sender emails</p>'+
-    '<button type="button" id="ms-refresh" class="shrink-0 rounded-lg px-2 py-1 text-[11px] border border-slate-600 text-slate-300"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button></div>'+
-    '<p class="text-[11px] text-slate-400" id="ms-owner">Checking Gmail aliases…</p>'+
-    '<div id="ms-list" class="space-y-2"></div>'+
-    '<div class="flex gap-2 min-w-0"><input id="ms-add-email" type="email" class="ui-input flex-1 min-w-0" placeholder="Add sender email, e.g. pcrstaffapp@gmail.com"/>'+
-    '<button type="button" id="ms-add" class="shrink-0 rounded-xl px-3 text-xs border border-teal-500/40 text-teal-200">Add</button></div>'+
-    '<p class="text-[11px] text-slate-300 hidden" id="ms-note"></p>'+
-    '<details class="text-[11px] text-slate-400" id="ms-howto"><summary class="cursor-pointer text-amber-200">One manual step in Gmail (why?)</summary>'+
-    '<p class="mt-1">Google only lets Workspace domains create a “Send mail as” address through its API (Gmail <code>sendAs.create</code> is limited to domain-wide service accounts), so for this @gmail.com script account it is done once by hand:</p>'+
-    '<ol class="list-decimal pl-4 mt-1 space-y-0.5"><li>Sign in to Gmail as the <strong>script account</strong> (shown above).</li><li>Settings › See all settings › <strong>Accounts</strong> › “Send mail as” › <strong>Add another email address</strong>.</li><li>Enter the sender address, keep “Treat as an alias” ticked › Next › <strong>Send verification</strong>.</li><li>Open the verification email in that sender’s inbox and click the link.</li><li>Come back here › Refresh › <strong>Use this sender</strong>.</li></ol></details></div>';
-}
-function v353PaintSenders(d){
-  const list = $('#ms-list'), own = $('#ms-owner'); if (!list || !own) return;
-  own.innerHTML = 'Script account: <span class="text-slate-200">'+esc(d.owner||'(the account that runs the script)')+'</span> · now sending from <span class="text-slate-200" id="ms-current">'+esc(d.current||'the script account')+'</span>'+
-    (d.gmailCheck ? '' : '<br><span class="text-amber-200"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Gmail aliases can’t be checked yet — the script owner has to re-authorise the app once (Gmail permission). Adding addresses still works.</span>');
-  list.innerHTML = (d.senders||[]).map(function(x){ const st = V353_ST[x.status] || V353_ST.unknown;
-    return '<div class="flex items-center justify-between gap-2 min-w-0 ms-row" data-email="'+esc(x.email)+'" data-status="'+esc(x.status)+'"><div class="min-w-0"><p class="text-sm text-slate-100 truncate">'+esc(x.email)+'</p><div class="flex gap-1 flex-wrap mt-0.5">'+v3Chip(st[0], st[1])+(x.current ? v3Chip('In use','ok') : '')+'</div></div>'+
-      '<div class="flex gap-1 shrink-0">'+(x.status==='verified' && !x.current ? '<button type="button" class="ms-use rounded-lg px-2 py-1 text-[11px] bg-teal-600 text-white" data-email="'+esc(x.email)+'">Use this sender</button>' : '')+
-      (!x.current ? '<button type="button" class="ms-del rounded-lg px-2 py-1 text-[11px] border border-slate-600 text-slate-300" data-email="'+esc(x.email)+'" aria-label="Remove '+esc(x.email)+'"><i class="fa-solid fa-xmark"></i></button>' : '')+'</div></div>'; }).join('') ||
-    '<p class="text-[11px] text-slate-500">No sender emails yet.</p>';
-  if (d.current) list.insertAdjacentHTML('beforeend','<button type="button" class="ms-use w-full rounded-lg py-1.5 text-[11px] border border-slate-600 text-slate-300" data-email="">Go back to the script account</button>');
-  const f = $('#st-from'); if (f) f.value = d.current || '';
-  state.appSettings = Object.assign({}, state.appSettings, { mail_from: d.current || '' });
-  $$('#ms-list .ms-use').forEach(function(b){ b.onclick = async function(){
-    const passcode = await askPasscode('super', true); if (!passcode) return;
-    v353Senders('useMailSender', { email: b.dataset.email, passcode: passcode }, b.dataset.email ? 'Sender set' : 'Back to the script account'); }; });
-  $$('#ms-list .ms-del').forEach(function(b){ b.onclick = function(){ v353Senders('removeMailSender', { email: b.dataset.email }, 'Removed'); }; });
-  const n = $('#ms-note'); if (n) { n.textContent = d.note || ''; n.classList.toggle('hidden', !d.note); }
-  if (d.note && /manual step/.test(d.note)) { const h = $('#ms-howto'); if (h) h.open = true; }
-}
-async function v353Senders(action, p, okMsg){
-  const tk = V35.tok;
-  let r = null; try { r = await api(action, p || {}); } catch (e) {}
-  if (V35.tok !== tk || !$('#ms-card')) return null;
-  if (r && r.success && r.data) { v353PaintSenders(r.data); if (okMsg) toast(okMsg,'ok'); return r; }
-  const err = (r && r.error) || 'Server not reachable';
-  if (/unknown action|not found|invalid action/i.test(err)) { // older backend: degrade to the plain "Send from" field
-    const own = $('#ms-owner'); if (own) own.innerHTML = '<span class="text-amber-200">Sender emails need the 3.5.3 server — use “Send from” above for now.</span>';
-    const h = $('#ms-howto'); if (h) h.open = true;
-  } else if (action !== 'listMailSenders') toast(err,'error');
-  else { const own = $('#ms-owner'); if (own) own.textContent = err; }
-  return r;
-}
-function v353BindSenders(){
-  if (!$('#ms-card')) return;
-  $('#ms-refresh').onclick = function(){ v353Senders('listMailSenders', {}, 'Refreshed'); };
-  $('#ms-add').onclick = function(){ const e = String($('#ms-add-email').value||'').trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { toast('Enter a valid email','error'); return; }
-    v353Senders('addMailSender', { email: e }, 'Added '+e).then(function(r){ if (r && r.success) $('#ms-add-email').value = ''; }); };
-  v353Senders('listMailSenders', {});
-}
 const V35_FLAGS = [['feature_my_schedule','My Schedule','Schedule tab, rosters, own leave in Schedule'],['feature_live_roster','Live roster','External roster sheet (read-only)'],['feature_leave_escalation','Leave escalation','HOD → managers by email']];
 async function v35RenderSystem(){
   const tk = V35.tok, sup = v3IsSuper(), s = state.appSettings || {};
@@ -4448,7 +4391,7 @@ async function v35RenderSystem(){
     v3Card(v3Title('fa-key','Email sender · verification & reset codes')+
       '<p class="text-xs text-slate-300"><i class="fa-solid fa-envelope text-teal-300 mr-1"></i>Sign-up and forgot-password codes are <strong>sent by email</strong> to the registered address only — never shown on screen.</p>'+
       '<div class="space-y-1"><label for="st-prov" class="text-[11px] text-slate-400">Send with</label><select id="st-prov" class="ui-input w-full"><option value="mailapp"'+(prov==='mailapp'?' selected':'')+'>Google (the account that runs the script) — default</option><option value="brevo"'+(prov==='brevo'?' selected':'')+'>Brevo email service (API key in Script Properties)</option></select></div>'+
-      '<div id="st-g" class="space-y-2'+(prov==='brevo'?' hidden':'')+'"><div class="space-y-1"><label for="st-from" class="text-[11px] text-slate-400">Send from (Gmail “send as” alias · blank = the script account)</label><input id="st-from" type="email" class="ui-input w-full" placeholder="blank = script account" value="'+esc(s.mail_from||'')+'"/></div>'+v353SendersHtml()+'</div>'+
+      '<div id="st-g" class="space-y-2'+(prov==='brevo'?' hidden':'')+'"><div class="space-y-1"><label for="st-from" class="text-[11px] text-slate-400">Send from (Gmail “send as” alias · blank = the script account)</label><input id="st-from" type="email" class="ui-input w-full" placeholder="blank = script account" value="'+esc(s.mail_from||'')+'"/></div></div>'+
       '<div id="st-b" class="space-y-2'+(prov==='brevo'?'':' hidden')+'"><div class="space-y-1"><label for="st-bmail" class="text-[11px] text-slate-400">Brevo sender address (verified in Brevo)</label><input id="st-bmail" type="email" class="ui-input w-full" value="'+esc(s.brevo_sender_email||'')+'"/></div>'+
       '<p class="text-[11px] '+(s.brevo_key_set?'text-emerald-300':'text-amber-200')+'"><i class="fa-solid '+(s.brevo_key_set?'fa-check':'fa-triangle-exclamation')+' mr-1"></i>'+(s.brevo_key_set?'Brevo API key is set (Script Properties → BREVO_API_KEY)':'No Brevo API key yet — until then mail falls back to Google.')+'</p></div>'+
       '<div class="space-y-1"><label for="st-name" class="text-[11px] text-slate-400">Sender name</label><input id="st-name" class="ui-input w-full" maxlength="60" value="'+esc(s.mail_sender_name||'PCR Staff App')+'"/></div>'+
@@ -4482,7 +4425,6 @@ async function v35RenderSystem(){
     const a = await v3Call('setAppSetting', { key: 'revert_owner_email', value: v, passcode: passcode }, 'Revert owner saved');
     if (a) { state.appSettings = Object.assign({}, state.appSettings, { revert_owner_email: v }); state.a31CanRevert = !!v && v === String((state.user||{}).email).toLowerCase(); state._a32RepAt = 0; }
   };
-  v353BindSenders();
   $('#st-prov').onchange = function(){ const b = this.value === 'brevo'; $('#st-g').classList.toggle('hidden', b); $('#st-b').classList.toggle('hidden', !b); };
   $('#st-save').onclick = async function(){
     const pv = $('#st-prov').value, from = String($('#st-from').value||'').trim(), bm = String($('#st-bmail').value||'').trim(), name = String($('#st-name').value||'').trim() || 'PCR Staff App';

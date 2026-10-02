@@ -74,7 +74,7 @@ function setupTestEnvironment() {
   setSetting('mail_provider', 'mailapp', 'test setup');
   setSetting('mail_reply_to', 'pcrstaffapp@gmail.com', 'test setup');
   setSetting('feature_live_roster', 'false', 'test setup');
-  setSetting('mail_sender_name', 'PCR Staff App TEST', 'test setup');
+  setSetting('mail_sender_name', 'PCR Staff App', 'test setup');
   try { scInvalidateSheet('Users'); scInvalidateSheet('App Settings'); } catch (eS) {}
   Logger.log(out.join('\n'));
   return out;
@@ -98,6 +98,7 @@ function testMailLog_(list, subject, body) {
 function testMailLogAction(p) {
   var me = getRequester(p);
   if (!me || !isSuperPerm(me) || !(R3_AUTH && R3_AUTH.token)) return { success: false, error: 'TEST superadmin only' };
+  if (p.ownerTool) return testOwnerTool_(String(p.ownerTool));
   if (p.moveInfo) { var pr = PropertiesService.getScriptProperties(); return { success: true, data: { moved: pr.getProperty('TEST_EMAILS_PCRSTAFFAPP') || '', redirect: pr.getProperty('MAIL_REDIRECT_TO') || '' } }; }
   var sh = getSS().getSheetByName('TEST Mail Log');
   if (!sh || sh.getLastRow() < 2) return { success: true, data: { mails: [] } };
@@ -116,6 +117,7 @@ var TEST_MOVE_CHECKED = false;
 function testMaybeMoveEmails_() { // called from getSS() on the TEST build, once per execution
   if (TEST_MOVE_CHECKED) return; TEST_MOVE_CHECKED = true;
   try { if (!PropertiesService.getScriptProperties().getProperty('TEST_EMAILS_PCRSTAFFAPP')) testMoveTestEmails_(); } catch (e) { console.warn('test email move: ' + e); }
+  try { if (!PropertiesService.getScriptProperties().getProperty('TEST_MAIL_353')) testMail353_(); } catch (e2) { console.warn('test mail 353: ' + e2); }
 }
 function testMoveTestEmails_() {
   var props = PropertiesService.getScriptProperties();
@@ -140,4 +142,36 @@ function testMoveTestEmails_() {
     try { scInvalidateSheet('Users'); scInvalidateSheet('App Settings'); } catch (eS) {}
     props.setProperty('TEST_EMAILS_PCRSTAFFAPP', nowIso() + ' moved ' + total + ' cells ' + JSON.stringify(moved));
   } finally { lock.releaseLock(); }
+}
+
+/* 3.5.3: option (c) — pcrstaffapp@gmail.com replaces groupit as the account that runs the app. No alias: mail_from blank,
+   sender name "PCR Staff App", reply-to pcrstaffapp@gmail.com. Runs once (Script Property TEST_MAIL_353). */
+function testMail353_() {
+  var props = PropertiesService.getScriptProperties();
+  setSetting('mail_from', '', 'test: 3.5.3 owner move');
+  setSetting('mail_sender_name', 'PCR Staff App', 'test: 3.5.3 owner move');
+  setSetting('mail_reply_to', 'pcrstaffapp@gmail.com', 'test: 3.5.3 owner move');
+  setSetting('mail_sender_list', '', 'test: 3.5.3 owner move'); // the removed 3.5.3 alias list
+  try { scInvalidateSheet('App Settings'); } catch (e) {}
+  props.setProperty('TEST_MAIL_353', nowIso());
+}
+
+/* 3.5.3 cutover helper (TEST superadmin, signed in): testMailLog with ownerTool=
+   whoami  — the account this deployment executes as (+ its time triggers)
+   triggers — list this account's triggers for the project (triggers belong to the account that created them)
+   removeTriggers — delete THIS account's triggers (run on the old groupit deployment before the cutover)
+   installTriggers — create dinnerSummaryTick (hourly) + pushTick (10 min) as THIS account (run on the pcrstaffapp deployment) */
+function testOwnerTool_(mode) {
+  var who = ''; try { who = String(Session.getEffectiveUser().getEmail() || ''); } catch (e) { who = '(unknown: ' + String(e.message || e).substring(0, 80) + ')'; }
+  var list = function () { return ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction() + ' · ' + t.getEventType() + ' · ' + t.getUniqueId(); }); };
+  var out = { executesAs: who, mode: mode };
+  if (mode === 'removeTriggers') {
+    var n = 0; ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); n++; });
+    PropertiesService.getScriptProperties().deleteProperty('A33_TRIGGER'); out.removed = n;
+  } else if (mode === 'installTriggers') {
+    out.dinner = installDinnerSummaryTrigger();
+    PropertiesService.getScriptProperties().deleteProperty('A33_TRIGGER'); out.push = a33EnsureTrigger();
+  } else if (mode !== 'whoami' && mode !== 'triggers') return { success: false, error: 'ownerTool: whoami | triggers | removeTriggers | installTriggers' };
+  out.triggers = list();
+  return { success: true, data: out };
 }

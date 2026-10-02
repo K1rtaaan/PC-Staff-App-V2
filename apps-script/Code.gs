@@ -269,8 +269,6 @@ function routeAction(action, p) {
       if (v3res) return v3res;
       var r3res = routeRelease3(action, p); // 3.0.0 meal times, mail test, role migration (Release3.gs)
       if (r3res) return r3res;
-      var ms3res = typeof routeMailSenders353 === 'function' ? routeMailSenders353(action, p) : null; // 3.5.3 sender emails (MailSenders353.gs)
-      if (ms3res) return ms3res;
       var a31res = routeAdmin31(action, p); // 3.1.0 admin log, revert, superadmin notice (Admin31.gs)
       if (a31res) return a31res;
       var r33res = typeof routeResort33 === 'function' ? routeResort33(action, p) : null; // 3.3.0 resort boat (Resort33.gs)

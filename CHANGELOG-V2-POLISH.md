@@ -3,14 +3,12 @@
 Version **3.5.3**. Revert any item later by asking for its ID (e.g. “revert C7”).
 
 
-## 3.5.3 — Email sender: sender emails (2026-10-03, TEST)
-- **Manage › App settings › Email sender › Sender emails** (superadmin): list of Gmail “Send mail as” aliases of the script account with status
-  (Verified / Pending / Not added in Gmail yet / unknown), **Add sender email**, remove, and **Use this sender** (superadmin code; only when
-  Gmail reports it verified — sets mail_from; the MailApp fallback stays). “Go back to the script account” clears mail_from.
-- Google limits Gmail API `sendAs.create` / `sendAs.verify` to Workspace service accounts with domain-wide delegation, so for the consumer
-  @gmail.com owner the alias itself is added once by hand in Gmail; the card explains the step. Status uses `GmailApp.getAliases()` +
-  `sendAs.list` (https://mail.google.com/ scope — held on feature-3.5-mail-scope until the owner re-authorises once).
-- Backend: MailSenders353.gs (listMailSenders, addMailSender, removeMailSender, useMailSender; App Setting mail_sender_list).
+## 3.5.3 — App Google account moves to pcrstaffapp@gmail.com (2026-10-03, TEST)
+- Direction change (Pranav): no Gmail alias. pcrstaffapp@gmail.com replaces groupit as the account that runs the app (option c).
+  The short-lived "Sender emails" alias box is removed again (mail_from stays blank; MailApp sends as the account running the script).
+- TEST mail settings: sender name "PCR Staff App", reply-to pcrstaffapp@gmail.com, mail_from blank (one-time step in TestEnv.gs).
+- TEST-only owner tools (superadmin, TestEnv.gs): who the backend runs as + list / remove / install its time triggers, for the cutover.
+  Plan: /workspace/v3-test-shots/353/OWNER-MOVE.md.
 
 ## 3.5.2 — Home: one combined top card (2026-10-03, TEST)
 
