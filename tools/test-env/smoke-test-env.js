@@ -101,6 +101,7 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
         check('dinner cancelled (order button back)', gone, (await txt('#meal-card-dinner')).slice(0, 200));
         await shot('22-staff-dinner-cancelled');
         // re-place so the kitchen summary has a row
+        await page.evaluate(() => { try { closeModal(); } catch (e) {} }); // a slow cancel can leave its form open
         await nav('meals'); if (await page.$('#btn-dinner')) { await page.click('#btn-dinner'); await until(() => page.$('#btn-dinner-cancel'), 30000); }
         await page.evaluate(() => { const o = document.getElementById('v3-order-overlay'); if (o) o.remove(); });
       }
