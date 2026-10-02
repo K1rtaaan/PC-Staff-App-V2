@@ -66,7 +66,7 @@ const hide = s => String(s).split(PW).join('***');
   await page.evaluate(() => { localStorage.setItem('pcrtest_v2_coach_done', '1'); }); await page.reload({ waitUntil: 'load' });
   cur = 'site';
   const ver = await api('getVersion', {});
-  check('backend 3.4.1-test', /^3\.4\.1-test/.test(ver.version || ''), JSON.stringify(ver));
+  check('backend 3.5.0-test', /^3\.5\.0-test/.test(ver.version || ''), JSON.stringify(ver));
   const ts = Date.now().toString(36).slice(-5);
   const NEW = 'groupit.paradisecoveresortfiji+t-n' + ts + '@gmail.com', NEWPW = PW + 'N1';
 

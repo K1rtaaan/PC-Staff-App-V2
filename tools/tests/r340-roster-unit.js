@@ -72,7 +72,7 @@ settings.schedule_link_required = 'false'; // the 3.4.0 lock is tested in its ow
 const T = { super: login('super@x.com', 'pw-Delai'), admin: login('admin@x.com', 'pw-Nicola'), hod: login('hod@x.com', 'pw-Praneel'), ahod: login('ahod@x.com', 'pw-Mere'),
   ana: login('ana@x.com', 'pw-Ana'), sami: login('sami@x.com', 'pw-Sami'), khod: login('khod@x.com', 'pw-Vicky') };
 check('logins work', Object.values(T).every(Boolean), JSON.stringify(T));
-check('APP_VERSION 3.4.1', R('APP_VERSION') === '3.4.1');
+check('APP_VERSION 3.5.0', R('APP_VERSION') === '3.5.0');
 
 // ---------- parsing ----------
 const P = (c) => run('r34ParseCell', c, run('r34Codes'));
