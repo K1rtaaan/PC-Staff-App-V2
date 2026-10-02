@@ -910,7 +910,7 @@ function v3HodBar(){
     '<p class="text-xl font-semibold '+(n?'text-amber-200':'text-slate-300')+'">'+n+'</p><p class="text-[10px] text-slate-400 leading-tight"><i class="fa-solid '+icon+' mr-1"></i>'+label+'</p></button>'; };
   const cells = cell('approvals:leave', hb.leave||0, 'Leave to review', 'fa-plane-departure') + cell('approvals:late', hb.late||0, 'Late meals', 'fa-clock') + cell('leavecal', hb.onLeaveToday||0, 'On leave today', 'fa-calendar-days') +
     (v3IsAdmin() ? cell('approvals:leave', hb.leaveMgmt||0, 'Final approval', 'fa-stamp') : '');
-  return '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="v3-hodbar">'+v3Title('fa-clipboard-check', v3IsAdmin() ? 'Waiting for you (all departments)' : 'Waiting for you · '+esc(state.user.department||''))+
+  return '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="v3-hodbar">'+v3Title('fa-clipboard-check', v3IsAdmin() ? 'Waiting for you (all departments)' : 'Waiting for you · '+esc((state.user||{}).department||''))+
     '<div class="grid '+(v3IsAdmin()?'grid-cols-4':'grid-cols-3')+' gap-2">'+cells+'</div></section>';
 }
 function v3WeeklyChart(byDay){
@@ -963,7 +963,7 @@ function v3DeptUpdatesBlock(list, compact){
   if (!v3DeptOk()) return '';
   list = list || [];
   const body = list.length ? list.map(function(u){ return v3UpdateCard(u, compact); }).join('') : v3Empty('No updates from your department yet.');
-  return '<section class="glass rounded-2xl p-4 space-y-3 min-w-0" id="home-deptupdates">'+v3Title('fa-bullhorn','Department updates · '+esc(state.user.department||''),'<button type="button" onclick="navigate(\'announcements\')" class="text-xs text-teal-300">All <i class="fa-solid fa-chevron-right"></i></button>')+body+'</section>';
+  return '<section class="glass rounded-2xl p-4 space-y-3 min-w-0" id="home-deptupdates">'+v3Title('fa-bullhorn','Department updates · '+esc((state.user||{}).department||''),'<button type="button" onclick="navigate(\'announcements\')" class="text-xs text-teal-300">All <i class="fa-solid fa-chevron-right"></i></button>')+body+'</section>';
 }
 function v3UpdateCard(u, compact){
   const r = u.myReaction;
@@ -1488,7 +1488,7 @@ async function v3OpenSpecialForm(){
     '<div class="space-y-1"><label class="text-[11px] text-slate-400" for="sp-name">Name *</label><input id="sp-name" class="ui-input w-full" maxlength="60" placeholder="Full name"/></div>'+
     '<div class="grid grid-cols-2 gap-2"><label class="flex items-center gap-2 text-xs text-slate-200 rounded-xl border border-slate-600 p-2"><input type="radio" name="sp-type" value="staff" checked/> Staff (no phone)</label>'+
     '<label class="flex items-center gap-2 text-xs text-slate-200 rounded-xl border border-slate-600 p-2"><input type="radio" name="sp-type" value="contractor"/> Contractor</label></div>'+
-    '<div id="sp-dept-wrap" class="space-y-1"><label class="text-[11px] text-slate-400" for="sp-dept">Department</label><select id="sp-dept" class="ui-input w-full"'+(lockDept?' disabled':'')+'>'+PCR_DEPARTMENTS.map(function(d){ return '<option'+(d===state.user.department?' selected':'')+'>'+esc(d)+'</option>'; }).join('')+'</select></div>'+
+    '<div id="sp-dept-wrap" class="space-y-1"><label class="text-[11px] text-slate-400" for="sp-dept">Department</label><select id="sp-dept" class="ui-input w-full"'+(lockDept?' disabled':'')+'>'+PCR_DEPARTMENTS.map(function(d){ return '<option'+(d===(state.user||{}).department?' selected':'')+'>'+esc(d)+'</option>'; }).join('')+'</select></div>'+
     '<div id="sp-co-wrap" class="space-y-1 hidden"><label class="text-[11px] text-slate-400" for="sp-co">Company name *</label><input id="sp-co" class="ui-input w-full" maxlength="60" placeholder="e.g. Fiji Power Co"/></div>'+
     '<div class="space-y-1"><label class="text-[11px] text-slate-400" for="sp-meal">Meal *</label><select id="sp-meal" class="ui-input w-full">'+open.map(function(m){ return '<option value="'+m+'">'+V3_MEAL_LABEL[m]+' · tomorrow</option>'; }).join('')+'</select></div>'+
     '<div id="sp-dish-wrap" class="space-y-1"><label class="text-[11px] text-slate-400" for="sp-dish">Dish (tomorrow\'s menu)</label><select id="sp-dish" class="ui-input w-full">'+items.map(function(n){ return '<option>'+esc(n)+'</option>'; }).join('')+'</select></div>'+
@@ -4517,9 +4517,11 @@ async function v35LoadMyBookings(){
 function v35PaintMyBookings(r){
   const box = $('#boat-mybookings'); if (!box || state.tab !== 'boat') return;
   const list = ((r && r.success && r.data && r.data.bookings) || []).filter(function(b){ return b.status !== 'cancelled'; }).filter(function(b){ const d = String((b.run && b.run.date) || b.date || ''); return !d || d >= fijiDateString(addFijiDays(getFijiNow(), -1)); });
-  box.innerHTML = '<section class="glass rounded-xl p-3 space-y-2 min-w-0" id="boat-mine"><p class="text-sm font-semibold text-teal-200"><i class="fa-solid fa-ticket mr-1.5"></i>My bookings</p>'+
+  const html = '<section class="glass rounded-xl p-3 space-y-2 min-w-0" id="boat-mine"><p class="text-sm font-semibold text-teal-200"><i class="fa-solid fa-ticket mr-1.5"></i>My bookings</p>'+
     (list.length ? list.map(function(b){ return '<div class="v3-row text-xs py-1.5 border-t border-slate-700/40 min-w-0"><div class="min-w-0"><p class="text-slate-100 truncate">'+esc((b.run && b.run.route) || b.runId)+'</p><p class="text-[11px] text-slate-400">'+esc((b.run && b.run.date) || '')+' '+esc((b.run && b.run.time) || '')+' · '+esc(b.seats)+' seat(s) · '+esc(b.status)+'</p></div>'+
       (b.status === 'confirmed' ? '<button type="button" class="mb-cancel shrink-0 rounded-lg px-2 py-1 text-[11px] border border-rose-500/40 text-rose-200" data-id="'+esc(b.id)+'">Cancel</button>' : '')+'</div>'; }).join('') : '<p class="text-xs text-slate-400">No upcoming bookings.</p>')+'</section>';
+  if (box.dataset.mbh === html && box.querySelector('#boat-mine')) return; // same list → keep the buttons under the finger
+  box.innerHTML = html; box.dataset.mbh = html;
   $$('#boat-mine .mb-cancel').forEach(function(b){ b.onclick = function(){ softConfirmCancel('Cancel this boat booking?', async function(){
     const res = await sendOrQueue('cancelBoatBooking', { id: b.dataset.id }, { label: 'Cancel boat booking' });
     if (res && res.success === false) { toast(res.error || 'Couldn\'t reach the server — try again','error'); return; }
