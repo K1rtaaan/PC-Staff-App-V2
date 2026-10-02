@@ -74,8 +74,15 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
     await nav('meals'); await until(() => page.$('#meal-card-dinner'), 20000); await page.waitForTimeout(1500);
     await shot('20-staff-meals');
     if (await page.$('#btn-dinner-cancel')) { await page.click('#btn-dinner-cancel'); await formOk(); await page.waitForTimeout(4000); await nav('meals'); }
-    const hasBtn = !!(await page.$('#btn-dinner'));
-    check('dinner order button present', hasBtn, (await txt('#meal-card-dinner')).slice(0, 200));
+    // 3.4.0+: if another suite (r341) rostered t-staff on leave for the dinner date, the server blocks normal orders —
+    // then the Meals tab must show the "rostered off" card instead, and the chef total is not checked.
+    const offNow = await page.evaluate(async () => { try { const d = v3Info('dinner').serviceDate; const r = await api('getIslandEstimate', { dates: d }); return !!(r && r.success && r.data.blockOn && r.data.estimates[0] && r.data.estimates[0].me === 'off'); } catch (e) { return false; } });
+    globalThis.__staffOff = offNow;
+    if (offNow) { console.log('  t-staff is rostered off for dinner (test data from r341) → checking the rostered-off card instead');
+      await page.evaluate(async () => { try { await s34FetchIsland(); v3PaintMeals(); } catch (e) {} });
+      check('rostered off: "You are rostered off" card instead of ordering', await until(async () => /You are rostered off/.test(await txt('#s34-off-dinner')), 30000)); }
+    const hasBtn = !offNow && !!(await page.$('#btn-dinner'));
+    if (!offNow) check('dinner order button present', hasBtn, (await txt('#meal-card-dinner')).slice(0, 200));
     if (hasBtn) {
       const opts = await page.evaluate(() => Array.from(document.querySelectorAll('#dinner-choice option')).map(o => o.value).filter(Boolean));
       if (opts.length) await page.selectOption('#dinner-choice', opts[0]);
@@ -113,7 +120,7 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
     const tm = await page.evaluate(() => { const c = document.querySelectorAll('.kit-day-chip'); return c.length ? c[c.length - 1].dataset.date : ''; });
     if (tm) { await page.click('.kit-day-chip[data-date="' + tm + '"]'); await until(() => page.evaluate(d => !!document.querySelector('[data-kit-day="' + d + '"]'), tm), 30000); }
     const total = (await txt('#kit-day-total')).trim();
-    check('tomorrow total shows the staff dinner (>=1)', Number(total) >= 1, total);
+    if (!globalThis.__staffOff) check('tomorrow total shows the staff dinner (>=1)', Number(total) >= 1, total);
     await shot('40-chef-kitchen');
     if (card) {
       const [pop] = await Promise.all([page.waitForEvent('popup', { timeout: 15000 }).catch(() => null), page.click('#kit-day-print')]);
