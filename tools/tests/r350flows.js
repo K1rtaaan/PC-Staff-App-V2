@@ -239,7 +239,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
   cap('G2', 'Suggestions (admin)', 'suggestions with a back button', await has('#sug-back'));
   // staff home / renames / flag
   await login('staff'); await nav('home', 2500);
-  cap('H1', 'Home', 'quick actions = Request leave + Report a problem', await ev(() => [...document.querySelectorAll('#home-dothisnow button')].map(b => b.innerText.split('\n')[0].trim()).join('|')) === 'Request leave|Report a problem', await ev(() => [...document.querySelectorAll('#home-dothisnow button')].map(b => b.innerText.split('\n')[0].trim()).join('|')));
+  cap('H1', 'Home', 'quick actions = Book village boat + Book resort boat + Request leave + Report a problem (3.5.1)', await ev(() => [...document.querySelectorAll('#home-dothisnow button')].map(b => b.innerText.split('\n')[0].trim()).join('|')) === 'Book village boat|Book resort boat|Request leave|Report a problem', await ev(() => [...document.querySelectorAll('#home-dothisnow button')].map(b => b.innerText.split('\n')[0].trim()).join('|')));
   cap('H2', 'Home', 'meal status shows once (My meals card)', (await cnt('#home-myorders')) === 1 && !(await has('#home-ver')));
   cap('H3', 'header', 'header flag (Report a problem)', await has('#btn-report'));
   await nav('meals', 2500);
