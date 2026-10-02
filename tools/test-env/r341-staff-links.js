@@ -114,7 +114,7 @@ const hide = s => String(s).split(PW).join('***');
   check('Schedule locked for an unlinked account', await page.isVisible('#s34-lock'));
   check('lock screen offers both options', await page.isVisible('#s34-send-code') && await page.isVisible('#s34-ask-code'));
   await shot('04-staff-schedule-locked');
-  const CODE1 = 'GLT9' + String(Date.now() % 90 + 10);
+  const CODE1 = 'GLT9' + String(Date.now() % 90000 + 10000); // 3.5.0: 5 digits — 2-digit codes collided with accounts left by earlier runs ("already used by another account")
   await page.fill('#s34-code', CODE1); await page.click('#s34-send-code');
   await until(() => page.isVisible('#s34-lock-pending'), 60000);
   check('request pending, shown on the lock screen', /Waiting for your HOD/.test(await txt('#s34-lock-pending')), await txt('#s34-lock'));
@@ -156,7 +156,7 @@ const hide = s => String(s).split(PW).join('***');
   check('"I don\'t know my number" request pending', /will enter your employee number/.test(await txt('#s34-lock-pending')));
   await login('hod');
   await apOpen('gl'); await until(() => page.isVisible(apSel('gl')), 90000);
-  const CODE2 = 'GLT8' + String(Date.now() % 90 + 10);
+  const CODE2 = 'GLT8' + String(Date.now() % 90000 + 10000);
   await page.fill(apSel('gl') + ' .ap-code', CODE2); await page.click(apSel('gl') + ' .ap-yes');
   await until(async () => !(await page.$(apSel('gl'))), 90000);
   await login('admin');
