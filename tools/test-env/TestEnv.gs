@@ -162,7 +162,7 @@ function testMail353_() {
    removeTriggers — delete THIS account's triggers (run on the old groupit deployment before the cutover)
    installTriggers — create dinnerSummaryTick (hourly) + pushTick (10 min) as THIS account (run on the pcrstaffapp deployment) */
 function testOwnerTool_(mode) {
-  var who = ''; try { who = String(Session.getEffectiveUser().getEmail() || ''); } catch (e) { who = '(unknown: ' + String(e.message || e).substring(0, 80) + ')'; }
+  var who = ''; try { who = String(DriveApp.getRootFolder().getOwner().getEmail() || ''); } catch (e) { who = '(unknown: ' + String(e.message || e).substring(0, 80) + ')'; } // drive scope (no userinfo.email scope)
   var list = function () { return ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction() + ' · ' + t.getEventType() + ' · ' + t.getUniqueId(); }); };
   var out = { executesAs: who, mode: mode };
   if (mode === 'removeTriggers') {
