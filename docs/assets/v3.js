@@ -4499,11 +4499,23 @@ async function v35RenderAnnouncements(){
 }
 
 /* ---------- Boat tab: my bookings (with cancel) ---------- */
+/* 3.5.0: My bookings on the Boat tab. The Boat tab repaints several times (saved runs, fresh runs, after a booking), and each
+   repaint makes a new empty box: paint the last known list at once, keep ONE request in flight, and paint its answer into
+   whatever box is on screen when it lands (not the box that asked). */
 async function v35LoadMyBookings(){
-  const box = $('#boat-mybookings'); if (!box || state.tab !== 'boat') return;
-  const tk = V35.tok;
+  if (!$('#boat-mybookings') || state.tab !== 'boat') return;
+  const who = String((state.user||{}).email || '').toLowerCase();
+  const C = state._v35MB;
+  if (C && C.who === who) v35PaintMyBookings(C.r);
+  if (state._v35MBp) { state._v35MBagain = true; return; }
+  state._v35MBp = true;
   let r = null; try { r = await api('myBoatBookings', {}); } catch (e) {}
-  if (!box.isConnected || state.tab !== 'boat') return; // a repaint makes a fresh box + call
+  state._v35MBp = false;
+  if (r && r.success && String((state.user||{}).email || '').toLowerCase() === who) { state._v35MB = { who: who, r: r }; v35PaintMyBookings(r); }
+  if (state._v35MBagain) { state._v35MBagain = false; v35LoadMyBookings(); } // a booking / cancel happened while this one was in flight
+}
+function v35PaintMyBookings(r){
+  const box = $('#boat-mybookings'); if (!box || state.tab !== 'boat') return;
   const list = ((r && r.success && r.data && r.data.bookings) || []).filter(function(b){ return b.status !== 'cancelled'; }).filter(function(b){ const d = String((b.run && b.run.date) || b.date || ''); return !d || d >= fijiDateString(addFijiDays(getFijiNow(), -1)); });
   box.innerHTML = '<section class="glass rounded-xl p-3 space-y-2 min-w-0" id="boat-mine"><p class="text-sm font-semibold text-teal-200"><i class="fa-solid fa-ticket mr-1.5"></i>My bookings</p>'+
     (list.length ? list.map(function(b){ return '<div class="v3-row text-xs py-1.5 border-t border-slate-700/40 min-w-0"><div class="min-w-0"><p class="text-slate-100 truncate">'+esc((b.run && b.run.route) || b.runId)+'</p><p class="text-[11px] text-slate-400">'+esc((b.run && b.run.date) || '')+' '+esc((b.run && b.run.time) || '')+' · '+esc(b.seats)+' seat(s) · '+esc(b.status)+'</p></div>'+
@@ -4512,7 +4524,7 @@ async function v35LoadMyBookings(){
     const res = await sendOrQueue('cancelBoatBooking', { id: b.dataset.id }, { label: 'Cancel boat booking' });
     if (res && res.success === false) { toast(res.error || 'Couldn\'t reach the server — try again','error'); return; }
     if (res && res.queued) { toast('No connection — cancel saved, will send automatically','info'); return; }
-    cacheInvalidate(['boatRuns']); toastWithUndo('Booking cancelled', function(){ toast('Re-book from the list above if needed','info'); }); renderBoat();
+    state._v35MB = null; cacheInvalidate(['boatRuns']); toastWithUndo('Booking cancelled', function(){ toast('Re-book from the list above if needed','info'); }); renderBoat();
   }); }; });
 }
 

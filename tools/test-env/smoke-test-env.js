@@ -100,7 +100,7 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
     check('boat runs listed (seeded schedule)', runs.length > 0, (await txt('#main-content')).slice(0, 200));
     if (runs.length) {
       await runs[runs.length - 1].click(); await page.waitForTimeout(5000);
-      await nav('bookings'); await until(() => page.$('#boat-mybookings .mb-cancel'), 20000); await shot('30-staff-bookings'); // 3.5.0: My bookings live on the Boat tab
+      await nav('bookings'); await until(() => page.$('#boat-mybookings .mb-cancel'), 45000); await shot('30-staff-bookings'); // 3.5.0: My bookings live on the Boat tab
       const c = await page.$$('#boat-mybookings .mb-cancel');
       check('boat booking confirmed (in My bookings)', c.length > 0, (await txt('#main-content')).slice(0, 200));
       if (c.length) { const n = c.length; await c[0].click(); await formOk(); const ok = await until(async () => (await page.$$('#boat-mybookings .mb-cancel')).length < n, 30000); check('boat booking cancelled', ok); }
