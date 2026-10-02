@@ -4679,8 +4679,8 @@ async function v35ApLoad(mode){
     const range = v3DateLabel(l.startDate)+(l.endDate && l.endDate !== l.startDate ? ' → '+v3DateLabel(l.endDate) : '');
     if (l.status === 'pending_manager' && adm) items.push({ chip:'leave', id:l.id, who:l.userName, dept:l.department, title:(l.leaveType||'Leave')+' · Final approval', detail: range+(l.reason?' · '+l.reason:''), when:l.createdAt, needNote:true,
       act: async function(dec, note){ return !!(await v3Call('decideLeave', { id:l.id, decision:dec, note:note||'' }, dec === 'approve' ? 'Final approval given' : 'Declined')); } });
-    else if ((l.status === 'pending_hod' || l.status === 'pending') && !viaPend) items.push({ chip:'leave', id:l.id, who:l.userName, dept:l.department, title:(l.leaveType||'Leave')+' · HOD step', detail: range+(l.reason?' · '+l.reason:''), when:l.createdAt, needNote:true,
-      act: async function(dec, note){ return !!(await v3Call('decideLeave', { id:l.id, decision:dec, note:note||'' }, dec === 'approve' ? 'Approved → management' : 'Declined')); } });
+    else if ((l.status === 'pending_hod' || l.status === 'pending') && !viaPend) items.push({ chip:'leave', id:l.id, who:l.userName, dept:l.department, title:(l.leaveType||'Leave')+' · HOD step', detail: range+(l.reason?' · '+l.reason:''), when:l.createdAt, needNote:true, behalf: adm,
+      act: adm ? behalf('leave', l) : async function(dec, note){ return !!(await v3Call('decideLeave', { id:l.id, decision:dec, note:note||'' }, dec === 'approve' ? 'Approved → management' : 'Declined')); } });
   });
   const M = v35Ok(mr);
   ((M && M.requests) || []).forEach(function(x){
@@ -4741,7 +4741,7 @@ async function v35RenderApprovals(mode){
   const L = {}; V35_AP_CHIPS.forEach(function(c){ L[c[0]] = c; });
   const chipBtn = function(id, label, cnt){ const on = id === chip; return '<button type="button" class="ap-chip shrink-0 rounded-full px-3 py-1.5 text-xs border '+(on?'bg-teal-600 border-teal-500 text-white font-semibold':'border-slate-600 text-slate-200')+'" data-chip="'+id+'" aria-pressed="'+on+'">'+esc(label)+(cnt?' <span class="v3-count">'+cnt+'</span>':'')+'</button>'; };
   const card = function(x, i){
-    return '<article class="ap-item rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-1.5 min-w-0" data-i="'+i+'" data-chip="'+x.chip+'">'+
+    return '<article class="ap-item rounded-xl bg-slate-900/50 border border-slate-700/60 p-3 space-y-1.5 min-w-0" data-i="'+i+'" data-chip="'+x.chip+'" data-id="'+esc(x.id)+'">'+
       '<div class="v3-row min-w-0"><p class="text-sm font-semibold text-slate-100 truncate min-w-0">'+esc(x.who||'—')+' <span class="text-[11px] text-slate-400 font-normal">· '+esc(x.dept||'—')+'</span></p>'+v3Chip(esc(L[x.chip][1]), 'warn')+'</div>'+
       '<p class="text-xs text-slate-200 break-words">'+esc(x.title)+'</p>'+(x.detail?'<p class="text-[11px] text-slate-300 break-words">'+esc(x.detail)+'</p>':'')+
       (x.behalf?'<p class="text-[10px] text-sky-300"><i class="fa-solid fa-user-shield mr-1"></i>You decide on behalf of the HOD · logged and the HOD is told</p>':'')+

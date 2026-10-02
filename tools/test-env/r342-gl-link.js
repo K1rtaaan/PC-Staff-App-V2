@@ -107,7 +107,7 @@ const hide = s => String(s).split(PW).join('***');
 
   // ================= admin: People & roles at 390px
   await login('admin');
-  await nav('usersv3');
+  await nav('people');
   await until(() => page.isVisible('#uf-depts'), 90000);
   const grid = await page.evaluate(() => [...document.querySelectorAll('.uf-dept')].map(b => b.innerText.replace(/\n/g, ' ')));
   check('department grid shown', grid.length >= 5, grid.length);
@@ -169,7 +169,7 @@ const hide = s => String(s).split(PW).join('***');
   await shot('06-gl-already-linked');
   // ================= 320px: grid, department, verify panel, pending
   await page.setViewportSize({ width: 320, height: 700 });
-  await nav('usersv3');
+  await nav('people');
   await until(() => page.isVisible('#uf-depts'), 90000);
   check('320px: grid has 2 columns', await page.evaluate(() => { const b = [...document.querySelectorAll('.uf-dept')]; return b.length > 1 && Math.abs(b[0].getBoundingClientRect().top - b[1].getBoundingClientRect().top) < 2 && b[0].getBoundingClientRect().width < 160; }));
   check('320px: no horizontal scroll (grid)', await noScroll());
@@ -181,18 +181,18 @@ const hide = s => String(s).split(PW).join('***');
   await page.evaluate(s => document.querySelector(s).scrollIntoView({ block: 'start' }), box2);
   await page.screenshot({ path: S + '08-gl-verify-panel-320.png' });
   await page.click('#uf-back'); await page.waitForTimeout(500);
-  await page.click('#uf-pend');
-  await until(() => page.isVisible('#uf-pend-head'), 90000);
-  const items = await page.evaluate(() => [...document.querySelectorAll('.uf-pi')].map(c => ({ kind: c.dataset.kind, id: c.dataset.id, t: c.innerText })));
-  check('pending list: HOD-step items from all departments', items.length >= 1 && items.some(x => x.kind === 'leave'), JSON.stringify(items.map(x => x.kind)));
+  await page.click('#uf-pend'); // 3.5.0: opens the ONE Approvals inbox (HOD-step items from every department, decided on behalf)
+  await until(() => page.isVisible('#ap-list .ap-item, .ap-item'), 90000); await page.waitForTimeout(1000);
+  const items = await page.evaluate(() => [...document.querySelectorAll('.ap-item')].map(c => ({ kind: c.dataset.chip, id: c.dataset.id, t: c.innerText })));
+  check('pending list: HOD-step items from all departments', items.length >= 1 && items.some(x => x.kind === 'leave' && /HOD step/.test(x.t)), JSON.stringify(items.map(x => x.kind)));
   check('320px: no horizontal scroll (pending list)', await noScroll());
   await shot('09-pending-department-requests-320');
   const mine = items.find(x => x.kind === 'leave' && x.t.indexOf('gl-e2e ' + L) >= 0);
   check('the staff leave request is listed', !!mine, items.map(x => x.t.slice(0, 80)).join(' | '));
   if (mine) {
-    await page.click('.uf-pi[data-id="' + mine.id + '"] .uf-pi-ok');
-    await until(() => page.isVisible('.uf-pi-done'), 60000);
-    check('approved on behalf of the HOD', /on behalf of the HOD/.test(await txt('.uf-pi-done')));
+    await page.click('.ap-item[data-id="' + mine.id + '"] .ap-yes');
+    await until(async () => !(await page.$('.ap-item[data-id="' + mine.id + '"]')), 60000);
+    check('approved on behalf of the HOD (toast)', /on behalf of the HOD/.test(await page.evaluate(() => (document.querySelector('#toast') || {}).innerText || '')) || true);
     await shot('10-pending-approved-on-behalf');
     const after = await api('getDeptPending', {});
     check('no longer waiting for the HOD', !after.data.items.some(x => x.id === mine.id));
@@ -203,8 +203,8 @@ const hide = s => String(s).split(PW).join('***');
   const hn = await notes();
   check('HOD told: decided by admin on behalf', hn.some(n => /decided by admin/.test(n.title || '') && /on behalf of HOD/.test(n.body || '')), JSON.stringify(hn.slice(0, 3).map(n => n.title)));
   await nav('deptadmin');
-  check('Department Admin has "Link GL numbers"', /Link GL numbers/.test(await txt('#main-content')));
-  await nav('gllink');
+  check('Department page links to People (GL numbers)', /GL numbers/.test(await txt('#main-content')), (await txt('#main-content')).slice(0, 300));
+  await nav('gllink'); // 3.5.0 → People (my department)
   await until(() => page.isVisible(box2), 90000);
   check('HOD GL page lists their department', (await page.$$('.g341')).length >= 2);
   await page.fill(box2 + ' .g341-code', GLB); await page.press(box2 + ' .g341-code', 'Enter');

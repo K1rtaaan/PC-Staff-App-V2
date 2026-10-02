@@ -36,7 +36,7 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
     cur = key;
     await page.evaluate(() => { try { doLogout(); } catch (e) {} });
     await page.waitForTimeout(500);
-    await page.evaluate(() => { localStorage.setItem('pcrtest_v2_coach_done', '1'); });
+    await page.evaluate(() => { localStorage.setItem('pcrtest_v2_coach_done', '1'); localStorage.setItem('pcrtest_guides_off', '1'); });
     await page.waitForSelector('#login-email', { state: 'visible', timeout: 20000 });
     await page.fill('#login-email', A(key)); await page.fill('#login-password', pw || PW);
     await page.click('#login-form button[type=submit]');
@@ -47,7 +47,7 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
     return ok;
   }
   await page.goto(SITE, { waitUntil: 'load' });
-  await page.evaluate(() => { localStorage.setItem('pcrtest_v2_coach_done', '1'); }); await page.reload({ waitUntil: 'load' });
+  await page.evaluate(() => { localStorage.setItem('pcrtest_v2_coach_done', '1'); localStorage.setItem('pcrtest_guides_off', '1'); }); await page.reload({ waitUntil: 'load' });
   cur = 'site';
   check('orange TEST SITE banner visible', await page.evaluate(() => { const b = document.getElementById('test-site-banner'); return !!b && b.getBoundingClientRect().height > 10 && /TEST SITE/.test(b.innerText); }));
   check('title says TEST', /TEST/.test(await page.title()));

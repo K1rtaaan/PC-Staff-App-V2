@@ -150,7 +150,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
   await ev(() => { state._apChip = 'leave'; }); await nav('approvals', 2500);
   const lvSig = () => ev(() => [...document.querySelectorAll('.ap-item')].map(e => e.innerText.split('\n').slice(0, 3).join('|')).join('##'));
   const nLeave = await cnt('.ap-item'), sig0 = await lvSig();
-  if (nLeave) { await page.click('.ap-item .ap-yes'); await page.waitForTimeout(2500); }
+  if (nLeave) { await ev(() => { const it = [...document.querySelectorAll('.ap-item')].find(e => /Final approval/.test(e.innerText)) || document.querySelector('.ap-item'); it.querySelector('.ap-yes').click(); }); await page.waitForTimeout(2500); } // demo: HOD-step items go through decideOnBehalf (real server only)
   cap('A4', 'Approvals › Leave', 'approve a leave request from the chip (HOD step → final, or final → done)', nLeave > 0 && (await lvSig()) !== sig0, nLeave);
   await ev(() => { state._apChip = 'late'; }); await nav('approvals', 2500);
   const nLate = await cnt('.ap-item');
@@ -243,7 +243,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
   cap('H2', 'Home', 'meal status shows once (My meals card)', (await cnt('#home-myorders')) === 1 && !(await has('#home-ver')));
   cap('H3', 'header', 'header flag (Report a problem)', await has('#btn-report'));
   await nav('meals', 2500);
-  cap('H4', 'Meals (staff)', '"Meal while away" (no "Special meal request")', !/Special meal request/i.test(await txt('#main-content')) && await ev(async () => (await (await fetch('assets/v3.js')).text()).includes('Meal while away')) && !/Special meal request/.test(await ev(() => document.body.innerHTML)));
+  cap('H4', 'Meals (staff)', '"Meal while away" (no "Special meal request")', !/Special meal request/i.test(await txt('#main-content')) && await ev(async () => (await (await fetch('assets/v3.js')).text()).includes('Meal while away')) && !/Special meal request/.test(await ev(() => document.body.innerText)));
   await login('chef'); await nav('mealbehalf', 2500);
   cap('H5', 'Order for someone', 'one "Order for someone" page', /Order for someone/.test(await txt('#header-title') + await txt('#main-content')));
   await nav('myreports', 2000); cap('H6', 'More › My reports', 'my reports page', await ev(() => state.tab) === 'myreports');

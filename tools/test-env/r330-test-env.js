@@ -60,8 +60,8 @@ const TAG = '[auto-test] ' + new Date().toISOString().slice(0, 16);
   cur = 'site';
   const ver = await api('getVersion', {}).catch(e => ({ error: String(e.message || e) }));
   const vs = ver && (ver.version || (ver.data && ver.data.version)) || '';
-  check('backend getVersion is 3.3.0+-test (or emulator)', /^3\.[34]\.\d+-test/.test(vs), JSON.stringify(ver));
-  check('frontend APP_VERSION 3.3.0+', /^3\.[34]\.\d+$/.test(await page.evaluate(() => APP_VERSION)));
+  check('backend getVersion is 3.3.0+-test (or emulator)', /^3\.[345]\.\d+-test/.test(vs), JSON.stringify(ver));
+  check('frontend APP_VERSION 3.3.0+', /^3\.[345]\.\d+$/.test(await page.evaluate(() => APP_VERSION)));
 
   // ================= meals sub-tabs + My meals + chef feedback (staff)
   await login('staff');
@@ -175,16 +175,20 @@ const TAG = '[auto-test] ' + new Date().toISOString().slice(0, 16);
   const asst = ((await api('getResortBoat', { scope: 'hod' })).data || {}).requests || [];
   check('assistant HOD sees + can decide department requests', asst.some(x => x.id === out0.id && x.canDecide), JSON.stringify(asst.map(x => [x.id, x.canDecide])));
   await login('hod');
-  await nav('approvals'); await until(async () => (await page.$$('#ap-resort [data-rb]')).length >= 4, 45000);
-  check('HOD: Resort boat section on Approvals', !!(await page.$('#ap-resort')) && (await page.$$eval('#ap-resort [data-rb]', x => x.length)) >= 4);
+  // 3.5.0: resort boat requests are a chip in the ONE Approvals inbox, one card per leg
+  const RB = id => '.ap-item[data-chip="resort"][data-id="' + id + '"]';
+  await page.evaluate(() => { state._apChip = 'resort'; navigate('approvals'); });
+  await until(async () => (await page.$$('.ap-item[data-chip="resort"]')).length >= 4, 45000);
+  check('HOD: Resort boat chip on Approvals', !!(await page.$('.ap-chip[data-chip="resort"]')) && (await page.$$('.ap-item[data-chip="resort"]')).length >= 4);
   await shot('09-hod-approval');
-  const hodGone = id => until(async () => !(await page.$('#ap-resort [data-rb="' + id + '"]')) && !!(await page.$('#ap-resort')), 45000);
-  const tap = async (sel) => { await until(() => page.$(sel), 30000); await page.waitForTimeout(800); try { await page.click(sel, { timeout: 8000 }); } catch (e) { await page.screenshot({ path: '/tmp/r33/tap-fail.png' }); await page.$eval(sel, el => el.click()); } };
-  await tap('#ap-resort .rb-yes[data-id="' + out0.id + '"][data-both]'); await hodGone(out0.id);
-  await tap('#ap-resort .rb-yes[data-id="' + oth.id + '"]:not([data-both])'); await hodGone(oth.id);
+  const hodGone = id => until(async () => !(await page.$(RB(id))), 45000);
+  const tap = async (sel) => { await until(() => page.$(sel), 30000); await page.waitForTimeout(800); try { await page.click(sel, { timeout: 8000 }); } catch (e) { await page.$eval(sel, el => el.click()); } };
   const r3 = rows.find(x => x.date === D(3)), r4 = rows.find(x => x.date === D(4));
-  await tap('#ap-resort .rb-no[data-id="' + r3.id + '"]'); await formSubmit('Short staffed that day'); await hodGone(r3.id);
-  await tap('#ap-resort .rb-yes[data-id="' + r4.id + '"]'); await hodGone(r4.id);
+  await tap(RB(out0.id) + ' .ap-yes'); await hodGone(out0.id);
+  if (await page.$(RB(ret0.id))) { await tap(RB(ret0.id) + ' .ap-yes'); await hodGone(ret0.id); }
+  await tap(RB(oth.id) + ' .ap-yes'); await hodGone(oth.id);
+  await tap(RB(r3.id) + ' .ap-no'); await formSubmit('Short staffed that day'); await hodGone(r3.id);
+  await tap(RB(r4.id) + ' .ap-yes'); await hodGone(r4.id);
   const own = await api('hodDecideResortBoat', { id: out0.id, decision: 'approve' });
   check('HOD cannot re-decide an approved request', own && own.success === false);
   const hlog = await api('getAdminLog', { area: 'dept', limit: 30 });
