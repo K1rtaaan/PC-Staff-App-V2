@@ -5,7 +5,7 @@ const SITE = process.argv[2] || 'https://k1rtaaan.github.io/PC-Staff-App-V2-Test
 const OUT = process.argv[3] || '/workspace/v3-test-shots/340/00-schedule-as-is.png';
 const LIVE = 'AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8';
 const PW = process.env.TEST_PASSWORD || (fs.readFileSync('/workspace/test-env-accounts.txt', 'utf8').match(/^TEST_PASSWORD=(\S+)/m) || [])[1];
-const A = k => 'groupit.paradisecoveresortfiji+t-' + k + '@gmail.com';
+const A = k => 'pcrstaffapp+t-' + k + '@gmail.com';
 (async () => {
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, serviceWorkers: 'block' });

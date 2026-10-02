@@ -11,7 +11,7 @@ const SITE = process.argv[2] || 'https://k1rtaaan.github.io/PC-Staff-App-V2-Test
 const S = (process.argv[3] || '/workspace/v3-test-shots/342') + '/';
 const LIVE = 'AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8';
 const PW = process.env.TEST_PASSWORD || (fs.readFileSync('/workspace/test-env-accounts.txt', 'utf8').match(/^TEST_PASSWORD=(\S+)/m) || [])[1];
-const A = k => 'groupit.paradisecoveresortfiji+t-' + k + '@gmail.com';
+const A = k => 'pcrstaffapp+t-' + k + '@gmail.com';
 fs.mkdirSync(S, { recursive: true });
 let pass = 0, fail = 0, cur = ''; const errors = [];
 const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + '[' + cur + '] ' + n + (x !== undefined && !c ? ' — ' + String(x).slice(0, 400) : '')); };
@@ -73,8 +73,8 @@ let restoreListing = null; // 3.5.0: put the real staff listing back (also after
   const sfx = L.charAt(0).toUpperCase() + L.slice(1);
   const num = String(Date.now()).slice(-5);
   const GLA = 'GL7' + num, GLB = 'GL8' + num;
-  const P1 = { firstName: 'Glalpha', lastName: sfx, email: 'groupit.paradisecoveresortfiji+t-gla' + L + '@gmail.com' };
-  const P2 = { firstName: 'Glbeta', lastName: sfx, email: 'groupit.paradisecoveresortfiji+t-glb' + L + '@gmail.com' };
+  const P1 = { firstName: 'Glalpha', lastName: sfx, email: 'pcrstaffapp+t-gla' + L + '@gmail.com' };
+  const P2 = { firstName: 'Glbeta', lastName: sfx, email: 'pcrstaffapp+t-glb' + L + '@gmail.com' };
 
   // the roster feature must be on (it is on the TEST site; a fresh emulator sheet starts with it off)
   await login('super');

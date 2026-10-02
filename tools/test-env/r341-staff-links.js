@@ -12,7 +12,7 @@ const SITE = process.argv[2] || 'https://k1rtaaan.github.io/PC-Staff-App-V2-Test
 const S = (process.argv[3] || '/workspace/v3-test-shots/341') + '/';
 const LIVE = 'AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8';
 const PW = process.env.TEST_PASSWORD || (fs.readFileSync('/workspace/test-env-accounts.txt', 'utf8').match(/^TEST_PASSWORD=(\S+)/m) || [])[1];
-const A = k => 'groupit.paradisecoveresortfiji+t-' + k + '@gmail.com';
+const A = k => 'pcrstaffapp+t-' + k + '@gmail.com';
 fs.mkdirSync(S, { recursive: true });
 let pass = 0, fail = 0, cur = ''; const errors = [];
 const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + '[' + cur + '] ' + n + (x !== undefined && !c ? ' — ' + String(x).slice(0, 400) : '')); };
@@ -71,7 +71,7 @@ const hide = s => String(s).split(PW).join('***');
   const ver = await api('getVersion', {});
   check('backend 3.5.0-test', /^3\.5\.0-test/.test(ver.version || ''), JSON.stringify(ver));
   const ts = Date.now().toString(36).slice(-5);
-  const NEW = 'groupit.paradisecoveresortfiji+t-n' + ts + '@gmail.com', NEWPW = PW + 'N1';
+  const NEW = 'pcrstaffapp+t-n' + ts + '@gmail.com', NEWPW = PW + 'N1';
 
   // re-runnable: decline link requests left open by an earlier (crashed) run of this suite (TEST accounts t-n…)
   await login('admin');

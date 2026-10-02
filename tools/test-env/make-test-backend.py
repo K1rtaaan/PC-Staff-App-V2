@@ -10,7 +10,7 @@ Changes vs apps-script/ (live code is otherwise identical):
 - SHEET_ID comes from Script Property TEST_SHEET_ID (a NEW empty TEST sheet made by setupTestEnvironment());
   getSS() ignores any bound sheet and refuses the live sheet id; first request auto-runs setup if needed
 - APP_VERSION gets "-test"
-- mail: Brevo is disabled in code; every recipient that is not a groupit.paradisecoveresortfiji(+alias)@gmail.com
+- mail: Brevo is disabled in code; every recipient that is not a pcrstaffapp(+alias)@gmail.com
   test address is redirected to the TEST inbox; [TEST] subject prefix is always on
 - SUPERADMIN_EMAIL / password → TEST superadmin; DEFAULT_ALERT_EMAILS → TEST admin; live roster sheet id removed;
   kitchen summary PDFs go to a separate Drive folder "PCR Kitchen Order Summaries — TEST"
@@ -23,8 +23,8 @@ SRC = os.path.join(ROOT, 'apps-script')
 LIVE_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'
 LIVE_SCRIPT = '1iKcbyeTzeLZ67nT7mqqf0XJMfHNBySEDnRE_00sGorj-pmfg6heGT0QX'
 ROSTER_ID = '1n5onxR-Ww-0oDdPWDDUvRWuzKd-UGF51tBERtZfAcZM'
-TEST_SUPER = 'groupit.paradisecoveresortfiji+t-super@gmail.com'
-TEST_ADMIN = 'groupit.paradisecoveresortfiji+t-admin@gmail.com'
+TEST_SUPER = 'pcrstaffapp+t-super@gmail.com'
+TEST_ADMIN = 'pcrstaffapp+t-admin@gmail.com'
 out = os.path.abspath(sys.argv[1])
 acc = sys.argv[2] if len(sys.argv) > 2 else '/workspace/test-env-accounts.txt'
 if os.path.realpath(out) == os.path.realpath(SRC):
@@ -64,18 +64,19 @@ code = sub(code, """function getSS() {
   if (!SHEET_ID) testAutoSetup();
   if (!SHEET_ID) throw new Error('TEST backend not set up yet: run setupTestEnvironment() in the editor.');
   if (SHEET_ID === '""" + LIVE_ID + """') throw new Error('Refusing to open the LIVE sheet from the TEST backend.');
+  if (typeof testMaybeMoveEmails_ === 'function') testMaybeMoveEmails_(); // 3.5.2: one-time groupit+t-* → pcrstaffapp+t-* move
   if (SHEET_ID) return SpreadsheetApp.openById(SHEET_ID);""")
 code = sub(code, "try { return PropertiesService.getScriptProperties().getProperty('BREVO_API_KEY') || ''; } catch (e) { return ''; }",
            "return ''; // TEST backend: Brevo is never used")
 code = sub(code, "var redirect = props ? String(props.getProperty('MAIL_REDIRECT_TO') || '').trim() : '';",
-           "var redirect = (props ? String(props.getProperty('MAIL_REDIRECT_TO') || '').trim() : '') || 'groupit.paradisecoveresortfiji+t-mail@gmail.com'; // TEST: always redirect")
+           "var redirect = (props ? String(props.getProperty('MAIL_REDIRECT_TO') || '').trim() : '') || 'pcrstaffapp+t-mail@gmail.com'; // TEST: always redirect")
 code = sub(code, "var prefix = props ? String(props.getProperty('MAIL_SUBJECT_PREFIX') || '').trim() : '';",
            "var prefix = (props ? String(props.getProperty('MAIL_SUBJECT_PREFIX') || '').trim() : '') || '[TEST]'; // TEST: always prefix")
 code = sub(code, """  if (redirect && kind !== 'code') {
     body = '[Test backend — originally to: ' + list.join(', ') + ']\\n\\n' + body;
     list = [redirect];
   }""", """  // TEST backend: only test addresses (owner Gmail +aliases) ever receive mail; anything else → TEST inbox
-  var TEST_OK = /^groupit\\.paradisecoveresortfiji(\\+[a-z0-9._-]+)?@gmail\\.com$/i;
+  var TEST_OK = /^pcrstaffapp(\\+[a-z0-9._-]+)?@gmail\\.com$/i;
   if (list.some(function (x) { return !TEST_OK.test(x); })) {
     body = '[Test backend — originally to: ' + list.join(', ') + ']\\n\\n' + body;
     var kept = list.filter(function (x) { return TEST_OK.test(x); });

@@ -112,7 +112,7 @@ const ctx = {
   ContentService: { MimeType: { JSON: 'application/json', TEXT: 'text/plain' }, createTextOutput: (t) => ({ _t: t, setMimeType() { return this; }, getContent() { return this._t; } }) },
   ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.fn, _t: t })), deleteTrigger: (t) => { const i = triggers.indexOf(t._t); if (i >= 0) triggers.splice(i, 1); },
     newTrigger: (fn) => { const t = { fn }; const b = { timeBased: () => b, everyDays: (n) => { t.everyDays = n; return b; }, atHour: (h) => { t.atHour = h; return b; }, nearMinute: (m) => { t.nearMinute = m; return b; }, everyMinutes: (m) => { t.everyMinutes = m; return b; }, everyHours: (h) => { t.everyHours = h; return b; }, inTimezone: (z) => { t.tz = z; return b; }, create: () => { triggers.push(t); return {}; } }; return b; } },
-  Session: { getActiveUser: () => ({ getEmail: () => 'groupit.paradisecoveresortfiji@gmail.com' }), getEffectiveUser: () => ({ getEmail: () => 'groupit.paradisecoveresortfiji@gmail.com' }), getScriptTimeZone: () => 'Pacific/Fiji' },
+  Session: { getActiveUser: () => ({ getEmail: () => 'pcrstaffapp@gmail.com' }), getEffectiveUser: () => ({ getEmail: () => 'pcrstaffapp@gmail.com' }), getScriptTimeZone: () => 'Pacific/Fiji' },
   Logger: { log: (...a) => logs.push(a.join(' ')) }
 };
 vm.createContext(ctx);

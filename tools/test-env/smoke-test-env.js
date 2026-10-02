@@ -11,7 +11,7 @@ const S = (process.argv[3] || '/workspace/v3-test-shots/smoke') + '/';
 const EMU = process.argv[4] || '';
 const LIVE = 'AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8';
 const PW = process.env.TEST_PASSWORD || (fs.readFileSync('/workspace/test-env-accounts.txt', 'utf8').match(/^TEST_PASSWORD=(\S+)/m) || [])[1];
-const A = k => 'groupit.paradisecoveresortfiji+t-' + k + '@gmail.com';
+const A = k => 'pcrstaffapp+t-' + k + '@gmail.com';
 fs.mkdirSync(S, { recursive: true });
 let pass = 0, fail = 0, cur = ''; const errors = [];
 const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + '[' + cur + '] ' + n + (x !== undefined && !c ? ' — ' + String(x).slice(0, 300) : '')); };
@@ -142,7 +142,7 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
   check('no calls to the LIVE backend', liveCalls === 0, liveCalls);
   if (EMU) {
     const mail = await (await fetch(EMU + '/__mail')).json();
-    check('emulator: every email went to a test address with [TEST]', mail.every(m => /^groupit\.paradisecoveresortfiji(\+[^@]+)?@gmail\.com$/i.test(String(m.to).split(',')[0]) && /^\[TEST\]/.test(m.subject || '')) && !mail.some(m => m.via === 'urlfetch'), JSON.stringify(mail.map(m => m.to + ' ' + m.subject)));
+    check('emulator: every email went to a test address with [TEST]', mail.every(m => /^pcrstaffapp(\+[^@]+)?@gmail\.com$/i.test(String(m.to).split(',')[0]) && /^\[TEST\]/.test(m.subject || '')) && !mail.some(m => m.via === 'urlfetch'), JSON.stringify(mail.map(m => m.to + ' ' + m.subject)));
     const lw = await (await fetch(EMU + '/__live-writes')).json();
     check('emulator: no writes to the live stand-in', lw.liveWrites.length === 0 && lw.liveFrozen);
   }

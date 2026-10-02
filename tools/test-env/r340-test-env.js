@@ -15,7 +15,7 @@ const S = (process.argv[3] || '/workspace/v3-test-shots/340') + '/';
 const REAL = process.argv[4] || '/workspace/rosters-real/Aug 26/ROSTER WE 30TH AUGUST 2026.xlsx';
 const LIVE = 'AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8';
 const PW = process.env.TEST_PASSWORD || (fs.readFileSync('/workspace/test-env-accounts.txt', 'utf8').match(/^TEST_PASSWORD=(\S+)/m) || [])[1];
-const A = k => 'groupit.paradisecoveresortfiji+t-' + k + '@gmail.com';
+const A = k => 'pcrstaffapp+t-' + k + '@gmail.com';
 const TMP = '/tmp/r340-files/'; fs.mkdirSync(TMP, { recursive: true }); fs.mkdirSync(S, { recursive: true });
 let pass = 0, fail = 0, cur = ''; const errors = [];
 const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + '[' + cur + '] ' + n + (x !== undefined && !c ? ' — ' + String(x).slice(0, 400) : '')); };

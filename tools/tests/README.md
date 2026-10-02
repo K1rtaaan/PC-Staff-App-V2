@@ -43,5 +43,5 @@ node tools/test-env/r330-test-env.js https://k1rtaaan.github.io/PC-Staff-App-V2-
 ```
 
 TEST build differences: SHEET_ID from Script Property TEST_SHEET_ID (refuses the live id), version `x.y.z-test`, Brevo disabled,
-all mail to non-test addresses redirected to groupit.paradisecoveresortfiji+t-mail@gmail.com with a [TEST] prefix, TEST superadmin,
+all mail to non-test addresses redirected to pcrstaffapp+t-mail@gmail.com with a [TEST] prefix, TEST superadmin,
 separate Drive folder for summary PDFs. `gas-emulator.js` never reads the real live sheet: its "live" sheet is a frozen fake.
