@@ -1,9 +1,15 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.5.3**. Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.5.2** (live). Revert any item later by asking for its ID (e.g. “revert C7”).
 
 
-## 3.5.3 — App Google account moves to pcrstaffapp@gmail.com (2026-10-03, TEST)
+## 3.5.2 — LIVE release of 3.3.0 → 3.5.2 (2026-10-09)
+
+| ID | Change |
+|----|--------|
+| C203 | **Live release** (Pranav approved 9 Oct): everything in 3.3.0, 3.4.0, 3.4.1, 3.5.0, 3.5.1 and 3.5.2 below goes to the live app, with the later real-app fixes that were already inside 3.5.0 (My bookings repaint, sign-out race guards, admin `decideOnBehalf`, staff listing snapshot/restore helper `getStaffListingRows`). API and UI both **3.5.2**; SW cache `pcr-staff-v3.5.2`; same deployment id. Live mail settings unchanged (provider / from / reply-to as before; still runs as groupit). **Not in live**: TEST-only material (TestEnv.gs, make-test-backend rewrites, [TEST] prefix + mail redirect, t-* accounts, owner tools whoami / triggers), the 3.5.3 "Sender emails" alias box (added and removed again — no app code left from it), the `feature-3.5-mail-scope` branch (mail.google.com scope). `feature_my_schedule` stays **OFF** on live: no Schedule tab, no roster card on Home, no island estimate, own leave under More › Leave; `meal_roster_block` defaults to false on live (no meal blocking). One-time steps on the first request: new tabs/columns, `departments_roster_340` (+ Front Office, Stores), `departments_341` (+ Medical; Band / Naisoso never offered — user records keep their value), `departments_350` (Admin / HR → Management). Rollback: tag `rollback-pre-3.5` (= v3.2.1, f910b6d), gh-pages 00787b9, backend @44, sheet backup in groupit Drive + /workspace/backups/live-pre-3.5-2026-10-09/. |
+
+## 3.5.3 — App Google account moves to pcrstaffapp@gmail.com (2026-10-03, TEST only — not in the live 3.5.2 release)
 - Direction change (Pranav): no Gmail alias. pcrstaffapp@gmail.com replaces groupit as the account that runs the app (option c).
   The short-lived "Sender emails" alias box is removed again (mail_from stays blank; MailApp sends as the account running the script).
 - TEST mail settings: sender name "PCR Staff App", reply-to pcrstaffapp@gmail.com, mail_from blank (one-time step in TestEnv.gs).

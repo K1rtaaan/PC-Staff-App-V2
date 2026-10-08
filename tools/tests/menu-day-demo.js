@@ -31,8 +31,8 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
   await page.goto(BASE + '?demo=1');
   await page.waitForTimeout(2500);
   const ver = await page.evaluate(() => APP_VERSION);
-  check('APP_VERSION 3.5.0', ver === '3.5.0', ver);
-  await page.evaluate(() => { state.mealPill = 'dinner'; navigate('meals'); });
+  check('APP_VERSION 3.5.2', ver === '3.5.2', ver);
+  await page.evaluate(() => { state.mealPill = 'dinner'; state._mealTab = 'dinner'; navigate('meals'); }); // 3.3.0+: Meals › Dinner sub-tab
   await page.waitForSelector('#dinner-choice', { timeout: 20000 });
   await page.waitForTimeout(800);
   const opts = await page.$$eval('#dinner-choice option', els => els.map(e => e.value));

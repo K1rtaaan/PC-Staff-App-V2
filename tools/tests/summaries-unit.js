@@ -83,7 +83,7 @@ const api = (action, p) => { p = Object.assign({}, p || {}); if (p.requesterEmai
 const snapRows = () => { const d = sheets['Dinner Prep Snapshots']._data; const h = d[0]; return d.slice(1).map(r => Object.fromEntries(h.map((k, i) => [k, r[i]]))); };
 const dinnerBefore = JSON.stringify(sheets['Dinner Orders']._data);
 
-check('getVersion is 3.5.0', api('getVersion').version === '3.5.0');
+check('getVersion is 3.5.2', api('getVersion').version === '3.5.2');
 let r = api('getKitchenDaySummary', { serviceDate: '2026-09-28', requesterEmail: 'staff@x.com' });
 check('staff cannot read kitchen summaries', r.success === false);
 r = api('getKitchenDaySummary', { serviceDate: '2026-09-28', requesterEmail: 'chef@x.com' });

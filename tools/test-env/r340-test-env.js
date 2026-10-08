@@ -93,8 +93,8 @@ let restoreListing = null; // 3.5.0: Employee codes → Confirm also saves the s
   await page.evaluate(() => { localStorage.setItem('pcrtest_v2_coach_done', '1'); }); await page.reload({ waitUntil: 'load' });
   cur = 'site';
   const ver = await api('getVersion', {});
-  check('backend 3.5.0-test', /^3\.5\.0-test/.test(ver.version || ''), JSON.stringify(ver));
-  check('frontend 3.5.0', await page.evaluate(() => APP_VERSION) === '3.5.0');
+  check('backend 3.5.2-test', /^3\.5\.2-test/.test(ver.version || ''), JSON.stringify(ver));
+  check('frontend 3.5.2', await page.evaluate(() => APP_VERSION) === '3.5.2');
   await until(() => page.evaluate(() => PCR_DEPARTMENTS.indexOf('Stores') >= 0), 30000);
   const dl = await api('getDepartments', {});
   check('departments (server) include Front Office + Stores, once each', ['Front Office', 'Stores'].every(d => dl.data.departments.filter(x => x === d).length === 1), JSON.stringify(dl));

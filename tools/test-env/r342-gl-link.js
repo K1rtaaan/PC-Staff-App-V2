@@ -67,8 +67,8 @@ let restoreListing = null; // 3.5.0: put the real staff listing back (also after
   await page.evaluate(() => { localStorage.setItem('pcrtest_v2_coach_done', '1'); }); await page.reload({ waitUntil: 'load' });
   cur = 'site';
   const ver = await api('getVersion', {});
-  check('backend 3.5.0-test', /^3\.5\.0-test/.test(ver.version || ''), JSON.stringify(ver));
-  check('frontend 3.5.0', await page.evaluate(() => APP_VERSION) === '3.5.0');
+  check('backend 3.5.2-test', /^3\.5\.2-test/.test(ver.version || ''), JSON.stringify(ver));
+  check('frontend 3.5.2', await page.evaluate(() => APP_VERSION) === '3.5.2');
   const L = Date.now().toString(36).replace(/[0-9]/g, d => 'abcdefghij'[+d]).slice(-6);
   const sfx = L.charAt(0).toUpperCase() + L.slice(1);
   const num = String(Date.now()).slice(-5);
