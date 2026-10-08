@@ -227,8 +227,12 @@ function pcrMergeDepartments(list){
   for (let i = PCR_DEPARTMENTS.length - 1; i >= 0; i--) if (PCR_REMOVED_DEPTS.indexOf(String(PCR_DEPARTMENTS[i]).toLowerCase()) >= 0) PCR_DEPARTMENTS.splice(i, 1);
   list = list.filter(function(d){ return PCR_REMOVED_DEPTS.indexOf(String(d||'').trim().toLowerCase()) < 0; });
   list.forEach(function(d){ d = String(d||'').trim(); if (!d || PCR_DEPARTMENTS.some(function(x){ return x.toLowerCase() === d.toLowerCase(); })) return; const oi = PCR_DEPARTMENTS.indexOf('Other'); if (oi >= 0) PCR_DEPARTMENTS.splice(oi, 0, d); else PCR_DEPARTMENTS.push(d); });
+  if (typeof pcrFillRegDepartments === 'function') pcrFillRegDepartments();
 }
 try { pcrMergeDepartments(JSON.parse(localStorage.getItem('pcr_depts_340') || 'null')); } catch (e) {}
+/* 3.5.2 live fix: the sign-up dropdown was hard-coded (no Front Office / Stores / Medical) — refill it from PCR_DEPARTMENTS (server list merged in) */
+function pcrFillRegDepartments(){ const s = document.getElementById('reg-department'); if (!s) return; const v = s.value; s.innerHTML = deptSelectOptions(v); }
+document.addEventListener('DOMContentLoaded', pcrFillRegDepartments);
 function deptSelectOptions(selected){
   selected = selected || '';
   return '<option value="">Select department…</option>'+PCR_DEPARTMENTS.map(function(d){
