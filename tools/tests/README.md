@@ -27,12 +27,21 @@ BASE=http://127.0.0.1:8765/ node r320flows.js   # 3.2.0/3.2.1: footer About butt
 
 No test calls the live Apps Script backend or writes to the Sheet.
 
-## TEST environment (branch `v3-test`)
+## TEST environment (3.0, branch `test-env-3.0`)
+
+Separate TEST Apps Script project ("PCR Staff App V2 TEST", script 100hS6INHT5baDuTnbGqBP2TjRp3u8OcvMOT4pmehxSyPq6XdmTK4wDHj),
+its own NEW empty Google Sheet (made by `setupTestEnvironment()`), and a TEST site in the separate repo
+K1rtaaan/PC-Staff-App-V2-Test (https://k1rtaaan.github.io/PC-Staff-App-V2-Test/). Live is never touched.
 
 ```bash
-python3 tools/test-env/make-test-backend.py /workspace/pcr-test-backend   # TEST Apps Script build (folder must hold the TEST .clasp.json)
-python3 tools/test-env/make-test-site.py OUT_DIR TEST_SCRIPT_URL           # TEST frontend (banner, pcrtest- caches/keys)
-tools/test-env/run-e2e.sh [shotDir]                                         # emulator (real TEST backend code, in-memory TEST copy) + 390px end-to-end pass
+python3 tools/test-env/make-test-backend.py /workspace/pcr-test-backend    # folder holds the TEST .clasp.json; password from /workspace/test-env-accounts.txt
+(cd /workspace/pcr-test-backend && clasp push -f && clasp deploy -i <TEST deployment id> -d "...")
+python3 tools/test-env/make-test-site.py /workspace/pcr-test-site TEST_SCRIPT_URL   # then commit + push that repo
+tools/test-env/run-e2e.sh [shotDir]                                          # emulator (TEST backend code, in-memory sheet, captured mail)
+node tools/test-env/smoke-test-env.js https://k1rtaaan.github.io/PC-Staff-App-V2-Test/ [shotDir]   # real TEST deployment
+node tools/test-env/r330-test-env.js https://k1rtaaan.github.io/PC-Staff-App-V2-Test/ [shotDir]   # 3.3.0: meals sub-tabs, chef feedback, resort boat (PCE) request → HOD → confirm → manifest (also works on the emulator site)
 ```
 
-`gas-emulator.js` never reads the real live sheet: its "live" sheet is a fake stand-in that is frozen (any write fails the run).
+TEST build differences: SHEET_ID from Script Property TEST_SHEET_ID (refuses the live id), version `x.y.z-test`, Brevo disabled,
+all mail to non-test addresses redirected to pcrstaffapp+t-mail@gmail.com with a [TEST] prefix, TEST superadmin,
+separate Drive folder for summary PDFs. `gas-emulator.js` never reads the real live sheet: its "live" sheet is a frozen fake.

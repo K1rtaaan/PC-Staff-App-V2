@@ -40,7 +40,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   await go("navigate('more')");
   const moreTxt = await page.evaluate(() => document.getElementById('main-content').innerText);
   check('More has no staff rows (My orders / boat bookings / leave requests)', !/My orders & history|My boat bookings|Leave requests/.test(moreTxt), moreTxt.slice(0, 300));
-  check('More has Superadmin log', /Superadmin log/.test(moreTxt));
+  check('More has Inbox + My reports (3.5.0: logs live in Manage › Activity log)', /Inbox/.test(moreTxt) && /My reports/.test(moreTxt));
   let r = await api('placeDinnerOrder', { serviceDate: '2026-09-29', mainChoice: 'x' });
   check('server blocks superadmin dinner order', r.success === false && r.error === BLOCK, JSON.stringify(r));
   r = await api('bookBoat', { runId: 'x' });
@@ -77,7 +77,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   await go("state.logArea='admin';navigate('adminlog')");
   check('Admin Settings activity log shows entries', (await page.$$('.a31-entry')).length >= 2, await page.innerText('#main-content'));
   await go("navigate('manage')");
-  check('Manage has Logs group', /Superadmin log/.test(await page.innerText('#main-content')) && /Activity log · Kitchen Admin/.test(await page.innerText('#main-content')));
+  check('Manage has one Activity log row; the log has area chips incl. Superadmin (3.5.0)', /Activity log/.test(await page.innerText('#main-content')) && await page.evaluate(() => { navigate('adminlog'); return new Promise(r => setTimeout(() => r([...document.querySelectorAll('.al-area')].some(b => b.dataset.area === 'super')), 1500)); }));
 
   // 4) chef: kitchen activity log only, cannot revert
   cur = 'chef'; await login(CHEF);

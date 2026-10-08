@@ -78,6 +78,7 @@ const bookApi = b => ({
   getId: () => b.id, getName: () => b.name, getUrl: () => 'https://docs.google.com/spreadsheets/d/' + b.id + '/edit (emulated)',
   getSheetByName: (n) => { const s = b.sheets.find(x => x.name === n); return s ? sheetApi(s) : null; },
   getSheets: () => b.sheets.map(sheetApi),
+  deleteSheet: (sa) => { b.guard(); const i = b.sheets.findIndex(x => x.name === sa.getName()); if (i >= 0) b.sheets.splice(i, 1); },
   insertSheet: (n) => { b.guard(); if (b.sheets.find(x => x.name === n)) throw new Error('A sheet with the name "' + n + '" already exists.'); const s = new Sheet(b, n); b.sheets.push(s); return sheetApi(s); },
   copy: (name) => { const id = 'TEST-' + crypto.randomBytes(8).toString('hex'); const nb = new Book(id, name); b.sheets.forEach(s => { const ns = new Sheet(nb, s.name); ns.rows = s.rows.map(r => r.map(cloneCell)); nb.sheets.push(ns); }); books[id] = nb; return bookApi(nb); }
 });
@@ -92,7 +93,7 @@ const cacheApi = { get: k => { const e = cache[k]; if (!e) return null; if (e.ex
 function capture(via, m) { mail.push(Object.assign({ at: new RealDate().toISOString(), via }, m)); }
 const ctx = {
   console, JSON, Math, Date: FakeDate, Intl,
-  SpreadsheetApp: { openById: (id) => { const b = books[id]; if (!b) throw new Error('Unexpected error while getting the method or property openById on object SpreadsheetApp. (no such sheet ' + id + ')'); return bookApi(b); }, getActiveSpreadsheet: () => null, flush: () => {} },
+  SpreadsheetApp: { create: (name) => { const id = 'TEST-' + crypto.randomBytes(8).toString('hex'); const nb = new Book(id, name); nb.sheets.push(new Sheet(nb, 'Sheet1')); books[id] = nb; return bookApi(nb); }, openById: (id) => { const b = books[id]; if (!b) throw new Error('Unexpected error while getting the method or property openById on object SpreadsheetApp. (no such sheet ' + id + ')'); return bookApi(b); }, getActiveSpreadsheet: () => null, flush: () => {} },
   PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); }, deleteProperty: k => { delete props[k]; }, getProperties: () => Object.assign({}, props) }) },
   CacheService: { getScriptCache: () => cacheApi },
   LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {}, hasLock: () => true }) },
@@ -111,7 +112,7 @@ const ctx = {
   ContentService: { MimeType: { JSON: 'application/json', TEXT: 'text/plain' }, createTextOutput: (t) => ({ _t: t, setMimeType() { return this; }, getContent() { return this._t; } }) },
   ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.fn, _t: t })), deleteTrigger: (t) => { const i = triggers.indexOf(t._t); if (i >= 0) triggers.splice(i, 1); },
     newTrigger: (fn) => { const t = { fn }; const b = { timeBased: () => b, everyDays: (n) => { t.everyDays = n; return b; }, atHour: (h) => { t.atHour = h; return b; }, nearMinute: (m) => { t.nearMinute = m; return b; }, everyMinutes: (m) => { t.everyMinutes = m; return b; }, everyHours: (h) => { t.everyHours = h; return b; }, inTimezone: (z) => { t.tz = z; return b; }, create: () => { triggers.push(t); return {}; } }; return b; } },
-  Session: { getActiveUser: () => ({ getEmail: () => 'groupit.paradisecoveresortfiji@gmail.com' }), getEffectiveUser: () => ({ getEmail: () => 'groupit.paradisecoveresortfiji@gmail.com' }), getScriptTimeZone: () => 'Pacific/Fiji' },
+  Session: { getActiveUser: () => ({ getEmail: () => 'pcrstaffapp@gmail.com' }), getEffectiveUser: () => ({ getEmail: () => 'pcrstaffapp@gmail.com' }), getScriptTimeZone: () => 'Pacific/Fiji' },
   Logger: { log: (...a) => logs.push(a.join(' ')) }
 };
 vm.createContext(ctx);

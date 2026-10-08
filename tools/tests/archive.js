@@ -4,12 +4,12 @@ const { chromium } = require('playwright-core');
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   const page = await ctx.newPage(); const errs = [];
   page.on('pageerror', e => errs.push(e.message)); page.on('console', m => { if (m.type()==='error') errs.push(m.text()); });
-  await page.goto(process.argv[2] + '?demo=1'); await page.evaluate(() => { localStorage.clear(); localStorage.setItem('pcr_v2_coach_done','1'); }); await page.reload();
+  await page.goto(process.argv[2] + '?demo=1'); await page.evaluate(() => { localStorage.clear(); localStorage.setItem('pcr_v2_coach_done','1'); localStorage.setItem('pcr_guides_off','1'); }); await page.reload();
   await page.fill('#login-email', 'it@paradisecoveresortfiji.com'); await page.fill('#login-password', '21slands'); await page.click('#login-form button[type=submit]');
   await page.waitForFunction(() => state.user); await page.waitForTimeout(800); await page.evaluate(() => { try{closeModal()}catch(e){} });
   // add 3 old demo rows so there is something to archive
   await page.evaluate(() => { const db = loadDemo(); db.dinnerOrders.push({ id:'old1', userEmail:'x@y', serviceDate:'2026-06-01', mealChoice:'Standard', status:'confirmed' }, { id:'old2', userEmail:'x@y', serviceDate:'2026-05-01', mealChoice:'Standard', status:'confirmed' }); db.boatRuns.push({ id:'oldrun', date:'2026-06-10', time:'05:00', from:'Soso', to:'PC', capacity:20 }); saveDemo(db); });
-  await page.evaluate(() => { state.adminTab = 'features'; navigate('admin'); }); await page.waitForTimeout(1200);
+  await page.evaluate(() => { const n = document.getElementById('a31-notice-ok'); if (n) n.click(); const p = document.getElementById('a33-later'); if (p) p.click(); try { closeModal(); } catch (e) {} navigate('system'); }); await page.waitForTimeout(1500); // 3.5.0: archive lives on System
   if (!(await page.locator('#arch-dry').count())) { const t = page.locator('button:has-text("Settings")'); if (await t.count()) await t.first().click(); await page.waitForTimeout(800); }
   await page.click('#arch-dry'); await page.waitForTimeout(800);
   console.log('dry run:', (await page.locator('#arch-out').innerText()).replace(/\n/g, ' | '));

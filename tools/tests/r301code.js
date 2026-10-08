@@ -26,6 +26,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   await page.waitForTimeout(2000); await page.evaluate(() => { try { closeModal(); } catch (e) {} });
   const openEdit = async () => {
     await page.evaluate(() => navigate('usersv3'));
+    await page.waitForSelector('#uf-q', { timeout: 30000 }); await page.fill('#uf-q', TARGET);
     await page.waitForSelector('.v3-user', { timeout: 30000 });
     await page.evaluate(t => { const b = Array.from(document.querySelectorAll('.v3-user')).find(x => x.dataset.email === t); b.click(); }, TARGET);
     await page.waitForSelector('#eu3-save', { state: 'visible' });

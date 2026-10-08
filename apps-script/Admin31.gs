@@ -12,8 +12,8 @@ var A31_MAX_ROWS = 300, A31_MAX_JSON = 45000;
 
 /* ---------- 1) superadmin: no staff features (server-side) ---------- */
 /** true = always blocked for a superadmin; 'own' = blocked when the record is the superadmin's own. */
-var A31_STAFF_ACTIONS = { placeDinnerOrder: true, placeLunchOrder: true, placeBreakfastOrder: true, bookBoat: true, requestLeave: true, submitLeave: true,
-  requestLateMeal: true, requestEmergencyTravel: true, getMySchedule: true, sendChefFeedback: true, voteMenuItem: true,
+var A31_STAFF_ACTIONS = { getMyRoster: true, placeDinnerOrder: true, placeLunchOrder: true, placeBreakfastOrder: true, bookBoat: true, requestLeave: true, submitLeave: true,
+  requestLateMeal: true, requestEmergencyTravel: true, requestResortBoat: true, getMySchedule: true, sendChefFeedback: true, voteMenuItem: true,
   cancelMealOrder: 'own', cancelBoatBooking: 'own', cancelLeave: 'own', placeMealOnBehalf: 'own' };
 
 function a31Lower(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
@@ -39,6 +39,16 @@ var A31_MEAL_SHEETS = { breakfast: 'Breakfast Orders', lunch: 'Lunch Orders', di
 function a31MealSheets(p) { var m = a31Lower(p.meal); return A31_MEAL_SHEETS[m] ? [A31_MEAL_SHEETS[m]] : ['Breakfast Orders', 'Lunch Orders', 'Dinner Orders']; }
 /** action → [default area, sheets to compare (array or fn(p)), what cannot be undone ('' = revertable)] */
 var A31_LOGGED = {
+  // 3.4.0 rosters + leave allowances (big roster tabs are not snapshotted: upload again to change)
+  rosterUploadFinish: ['admin', [], 'Upload the roster again to change it.'],
+  linkRosterName: ['dept', ['Roster Name Map'], 'Use Unlink on the Unmatched names page.'],
+  unlinkRosterName: ['dept', ['Roster Name Map'], ''],
+  saveLeaveAllowance: ['admin', ['Leave Allowances'], ''],
+  applyEmployeeCodes: ['admin', ['Users'], ''],
+  setEmployeeCode: ['admin', ['Users'], ''],
+  // 3.4.0 staff links / registration / special meals log themselves (s34Log; no Users snapshot so passwords never reach the log)
+  deleteLeaveAllowance: ['admin', ['Leave Allowances'], ''],
+  saveRosterSettings: ['admin', ['App Settings'], ''],
   // Kitchen Admin
   setMealTimes: ['kitchen', ['App Settings'], ''],
   saveDinnerMenuItem: ['kitchen', ['Dinner Menus'], ''],
@@ -59,9 +69,11 @@ var A31_LOGGED = {
   dedupeBoatRuns: ['boat', ['Boat Runs'], ''],
   cancelBoatBooking: ['boat', ['Boat Bookings'], ''],
   reviewEmergencyTravel: ['boat', ['Emergency Travel'], ''],
+  confirmResortBoat: ['boat', ['Resort Boat Bookings'], ''], // 3.3.0 resort boat: admin / boat manager confirm or reject
   // Department Admin
   decideLeave: ['dept', ['Leave Requests'], ''],
   escalateLeave: ['dept', ['Leave Requests'], ''],
+  hodDecideResortBoat: ['dept', ['Resort Boat Bookings'], ''], // 3.3.0 resort boat: HOD approve or reject
   approveAllPending: ['dept', function (p) { return a31Lower(p.kind) === 'leave' ? ['Leave Requests'] : ['Leave Requests', 'Breakfast Orders', 'Lunch Orders', 'Dinner Orders']; }, ''],
   updateDeptStaff: ['dept', ['Users'], ''],
   removeFromDept: ['dept', ['Users'], ''],
@@ -151,6 +163,7 @@ function a31Label(d) {
   if (/Orders$/.test(d.sheet)) return (full.userName || full.guestName || full.userEmail || d.keyVal) + ' · ' + d.sheet.replace(' Orders', '').toLowerCase() + ' ' + String(full.serviceDate || '').replace(/^'/, '').slice(0, 10);
   if (d.sheet === 'Leave Requests') return (full.userName || full.userEmail || d.keyVal) + ' · ' + String(full.startDate || '').replace(/^'/, '').slice(0, 10) + (full.endDate ? '→' + String(full.endDate).replace(/^'/, '').slice(0, 10) : '');
   if (d.sheet === 'Boat Bookings' || d.sheet === 'Emergency Travel') return (full.userName || full.userEmail || d.keyVal);
+  if (d.sheet === 'Resort Boat Bookings') return (full.userName || full.userEmail || d.keyVal) + ' · resort boat ' + String(full.date || '').replace(/^'/, '').slice(0, 10) + ' ' + (full.run || '') + ' ' + (full.direction === 'to_resort' ? 'Naisoso→Resort' : 'Resort→Naisoso');
   return full.title || full.name || full.email || d.keyVal;
 }
 function a31Summary(diff) {
@@ -243,6 +256,7 @@ function a31NoSheetSummary(action, p, res) {
   if (action === 'adminNotifyUser') return 'Sent a notification to ' + (p.targetEmail || '') + (p.title ? ': ' + String(p.title).substring(0, 80) : '');
   if (action === 'sendTestEmail') return 'Sent a test email to ' + (p.to || 'self');
   if (action === 'archiveOldRows') return 'Archived old rows' + (res && res.data && res.data.moved ? ' ' + a31Json(res.data.moved) : '');
+  if (action === 'rosterUploadFinish' && res && res.data) return 'Uploaded the ' + (res.data.kind || '') + ' roster for the ' + (res.data.label || '') + (res.data.department && res.data.department !== 'ALL' ? ' (' + res.data.department + ')' : '') + ': ' + (res.data.shifts || 0) + ' shifts, ' + (res.data.people || 0) + ' people, ' + ((res.data.unmatched || []).length) + ' unmatched';
   if (action === 'saveDinnerSummary') return 'Saved the dinner summary for ' + (p.serviceDate || 'tomorrow');
   return action;
 }

@@ -33,7 +33,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
     await page.evaluate(() => { const m = document.querySelector('#modal-close, .modal-close'); if (m) m.click(); });
   };
   const navLabels = async () => page.evaluate(() => Array.from(document.querySelectorAll('#bottom-nav .nav-item span:first-of-type')).map(e => e.textContent));
-  const roleBtns = async () => page.evaluate(() => Array.from(document.querySelectorAll('[data-rolebtn]')).map(e => e.dataset.rolebtn));
+  const roleBtns = async () => page.evaluate(() => Array.from(document.querySelectorAll('#main-content section[id^=more-g-]')).map(e => e.id.replace('more-g-', '')).filter(x => x !== 'me') /* 3.5.0: More role groups */);
 
   // ---- staff
   cur = 'staff';
@@ -42,7 +42,10 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   check('staff nav = Home Meals Boat More', JSON.stringify(await navLabels()) === JSON.stringify(['Home','Meals','Boat','More']), await navLabels());
   await shot('staff-home'); check('home: no overflow', !(await overflow()));
   await nav('meals'); await page.waitForTimeout(800); await shot('staff-meals');
-  check('meals: dashboard + 3 cards', await page.evaluate(() => !!document.querySelector('#meal-dash') && ['dinner','lunch','breakfast'].every(m => document.querySelector('#meal-card-'+m))));
+  // 3.3.0: Meals = 4 sub-tabs (My meals · Dinner · Lunch · Breakfast); each meal card lives on its own tab
+  check('meals: 4 sub-tabs + My meals', await page.evaluate(() => document.querySelectorAll('#meal-tabs .r33-tab').length === 4 && !!document.querySelector('#my-meals-days')));
+  await page.evaluate(() => r33PickMealTab('dinner')); await page.waitForTimeout(600);
+  check('meals: dinner tab shows the dinner card', await page.evaluate(() => !!document.querySelector('#meal-card-dinner')));
   const opts = await page.evaluate(() => Array.from(document.querySelectorAll('#dinner-choice option')).map(o => o.textContent));
   check('dinner dropdown = Tuesday menu only (no Sunday dish)', opts.length > 0 && !opts.some(o => /Lamb Neck Curry|Roasted Chicken \/ Potato/i.test(o)), opts);
   check('cutoff text 11:55pm', /11:55pm/.test(await txt('#meal-card-dinner')));
@@ -55,7 +58,8 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
     await shot('staff-overlay');
     await page.evaluate(() => { const o = document.getElementById('v3-order-overlay'); if (o) o.remove(); });
   } else check('order dinner button present', false);
-  // feedback
+  // feedback (3.3.0: on the My meals tab)
+  await page.evaluate(() => r33PickMealTab('mine')); await page.waitForTimeout(600);
   await page.fill('#fb-msg', 'Rice was a bit cold today'); await page.click('#btn-feedback'); await page.waitForTimeout(800);
   check('feedback sent (textarea cleared)', (await page.inputValue('#fb-msg')) === '');
   await nav('more'); await shot('staff-more');
@@ -70,7 +74,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   await login('hod.hk@paradisecoveresortfiji.com', 'staff123');
   check('hod nav same as staff', JSON.stringify(await navLabels()) === JSON.stringify(['Home','Meals','Boat','More']));
   await nav('more'); check('hod role buttons = dept', JSON.stringify(await roleBtns()) === '["dept"]', await roleBtns()); await shot('hod-more');
-  await nav('deptadmin'); await shot('hod-deptadmin'); check('dept admin tiles', !!(await page.$('#dept-tiles')));
+  await nav('deptadmin'); await shot('hod-deptadmin'); check('dept admin tiles', !!(await page.$('#dept-rows')));
   await nav('approvals'); await page.waitForTimeout(800); await shot('hod-approvals');
   check('approvals: no join requests section', !(await page.$('#ap-joins')));
   await nav('deptstaff'); await page.waitForTimeout(800); check('dept staff: no waiting-to-join', !(await page.$('#ds-pending')));
@@ -85,7 +89,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   await login('kitchen@paradisecoveresortfiji.com', 'staff123');
   await nav('more'); check('chef role buttons include kitchen', (await roleBtns()).includes('kitchen'), await roleBtns()); await shot('chef-more');
   await nav('kitchenadmin'); await page.waitForTimeout(1200); await shot('chef-kitchenadmin');
-  check('kitchen admin tiles', !!(await page.$('#chef-shortcuts')));
+  check('kitchen admin tiles', !!(await page.$('#v35-hubbar[data-hub=kitchen]')));
   await nav('chefmenu'); await page.waitForTimeout(1200); await shot('chef-menu7');
   check('7-day menu editor shows 7 days', (await page.$$('#me-days section[data-wd]')).length === 7);
   await page.fill('#me-new-2', 'Test Fish / Chips'); await page.click('.v3-me-add[data-wd="2"]'); await page.waitForTimeout(1000);
@@ -103,8 +107,8 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   await nav('more'); check('boat manager role buttons = boat', JSON.stringify(await roleBtns()) === '["boat"]', await roleBtns());
   await nav('boat'); await page.waitForTimeout(1200); check('boat manager staff Boat tab: no Add run', !(await page.$('#btn-add-run')));
   await nav('boatadmin'); await page.waitForTimeout(1200); await shot('boat-admin'); check('boat admin: Add run', !!(await page.$('#stb-add')));
-  await nav('boatruns'); await page.waitForTimeout(1500); await shot('boat-runs'); check('boat runs admin: Add run shown', !!(await page.$('#btn-add-run')));
-  await nav('emergency'); await page.waitForTimeout(900); check('emergency page', !!(await page.$('#emerg-card')));
+  await nav('boatruns'); await page.waitForTimeout(1500); await shot('boat-runs'); check('boat runs admin (3.5.0: Boat Admin › Village runs): Add run shown', !!(await page.$('#stb-add')));
+  await nav('emergency'); await page.waitForTimeout(900); check('emergency page (3.5.0: Boat Admin › Emergency)', await page.evaluate(() => state.tab === 'boatemergency') && !!(await page.$('#approvals-root')));
 
   // ---- admin
   cur = 'admin';
@@ -112,14 +116,14 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   await nav('more'); const ab = await roleBtns(); check('admin role buttons incl admin', ab.includes('admin'), ab); await shot('admin-more');
   await nav('adminhub'); await shot('admin-hub');
   await nav('usersv3'); await page.waitForTimeout(1200); await shot('admin-users'); check('role counts shown', !!(await page.$('#role-counts')));
-  await page.click('.v3-user'); await page.waitForTimeout(400); await shot('admin-edituser');
+  await page.fill('#uf-q', '@').catch(() => {}); await page.waitForTimeout(400); await page.click('.v3-user'); await page.waitForTimeout(400); await shot('admin-edituser');
   check('edit user: role checkboxes', (await page.$$('.eu3-perm')).length >= 6);
   await page.evaluate(() => closeModal());
 
   // ---- superadmin
   cur = 'super';
   await login('it@paradisecoveresortfiji.com', '21slands');
-  check('super nav', JSON.stringify(await navLabels()) === JSON.stringify(['Dashboard','Approvals','Manage','More']), await navLabels());
+  check('super nav', JSON.stringify(await navLabels()) === JSON.stringify(['Overview','Approvals','Manage','More']), await navLabels());
   await page.waitForTimeout(800); await shot('super-home');
   await nav('manage'); await shot('super-manage');
   await nav('settings'); await page.waitForTimeout(1000); await shot('super-settings'); check('settings: test email box', !!(await page.$('#st-test')));
@@ -129,7 +133,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
   cur = 'late';
   await page.clock.setSystemTime(new Date('2026-09-28T11:58:00Z'));
   await login('ana.tui@paradisecoveresortfiji.com', 'staff123');
-  await nav('meals'); await page.waitForTimeout(1000); await shot('staff-meals-late');
+  await nav('meals'); await page.evaluate(() => r33PickMealTab('dinner')); await page.waitForTimeout(1000); await shot('staff-meals-late');
   const dtxt = await txt('#meal-card-dinner');
   check('after 11:55pm dinner shows Orders closed', /Orders closed/.test(dtxt), dtxt.slice(0, 300));
 

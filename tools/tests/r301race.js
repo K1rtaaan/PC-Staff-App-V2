@@ -60,7 +60,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
     // normal open still works
     cur = k + ':bookings'; await page.evaluate(() => navigate('bookings')); await page.waitForTimeout(1200);
     if (k === 'super') { check(cur + ': superadmin sent Home (3.1.0)', await page.evaluate(() => state.tab === 'home' && !document.getElementById('mb-root'))); continue; }
-    check(cur + ': My boat bookings still renders', /My boat bookings/.test(await page.evaluate(() => (document.getElementById('mb-root') || {}).innerText || '')));
+    check(cur + ': old "bookings" opens Boat with My bookings (3.5.0)', await page.evaluate(() => state.tab === 'boat') && /My bookings/.test(await page.evaluate(() => (document.getElementById('boat-mybookings') || {}).innerText || '')));
   }
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (errors.length) console.log('console errors:\n' + errors.join('\n'));

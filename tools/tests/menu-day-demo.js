@@ -18,7 +18,7 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
   await page.waitForTimeout(1500);
   const staff = { id: 'usr_ana', email: 'ana.tui@paradisecoveresortfiji.com', firstName: 'Ana', lastName: 'Tui', department: 'Housekeeping', role: 'staff', permissions: ['staff'], active: true, verified: true };
   const stale = await page.evaluate((u) => {
-    localStorage.setItem('pcr_v2_session', JSON.stringify(u)); localStorage.setItem('pcr_v2_coach_done', '1');
+    localStorage.setItem('pcr_v2_session', JSON.stringify(u)); localStorage.setItem('pcr_v2_coach_done', '1'); localStorage.setItem('pcr_guides_off', '1');
     // today's (not tomorrow's) menu dish, saved as "last dinner" on this phone
     const todayWd = new Date(Date.now() + 12 * 3600e3).getUTCDay();
     const dish = DEFAULT_DINNER_MENUS[todayWd].find(d => !DEFAULT_DINNER_MENUS[(todayWd + 1) % 7].includes(d));
@@ -31,8 +31,8 @@ const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FA
   await page.goto(BASE + '?demo=1');
   await page.waitForTimeout(2500);
   const ver = await page.evaluate(() => APP_VERSION);
-  check('APP_VERSION 3.2.0', ver === '3.2.0', ver);
-  await page.evaluate(() => { state.mealPill = 'dinner'; navigate('meals'); });
+  check('APP_VERSION 3.5.2', ver === '3.5.2', ver);
+  await page.evaluate(() => { state.mealPill = 'dinner'; state._mealTab = 'dinner'; navigate('meals'); }); // 3.3.0+: Meals › Dinner sub-tab
   await page.waitForSelector('#dinner-choice', { timeout: 20000 });
   await page.waitForTimeout(800);
   const opts = await page.$$eval('#dinner-choice option', els => els.map(e => e.value));

@@ -2,7 +2,7 @@
 // Run: node tools/build-demo-server.js  (also part of `npm run build`)
 const fs = require('fs'), path = require('path');
 const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'apps-script', f), 'utf8');
-const src = read('V3.gs') + '\n' + read('Release3.gs') + '\n' + read('Admin31.gs') + '\n' + read('Reports31.gs'); // 3.1.0: + admin log / superadmin rules
+const src = read('V3.gs') + '\n' + read('Release3.gs') + '\n' + read('Admin31.gs') + '\n' + read('Reports31.gs') + '\n' + read('Resort33.gs'); // 3.3.0: + resort boat // 3.1.0: + admin log / superadmin rules
 const shim = ['APP_VERSION','ORDER_HEADERS','SHEET_ID','SUPERADMIN_EMAIL','WEEKDAY_NAMES','addFijiDays','appendRow','breakfastCutoffInfo',
   'cachedRows','cleanSpecialNote','countedMealStatus','countsInBreakfastTotal','dinnerCutoffInfo','displayUserName','ensureColumns','ensureSheet',
   'fijiDateString','findOrder','findUserByEmail','formatFiji','getDinnerMenus','getFijiNow','getRequester','getSS','getSetting','isAdminPerm',
@@ -18,7 +18,7 @@ r3NotifyMany = function (rows) { (rows || []).forEach(function (r) { appendRow('
 `;
 const exportsList = ['routeV3','getV3Home','v3Role','isAsstHod','deptStatusOf','deptApproved','v3Notify','deptLeads','canActForDept',
   'v3RoleCounts','v3UserOut','v3UserWarnings','v3CutoffReminders','getLeaveCalendar',
-  'isChefPerm','isBoatManagerPerm','routeRelease3','a31Handle','a31Pre','a31Post','routeAdmin31','routeReports31','a31SuperBlock','mealTick','mealTimes','mealTimesOut','mealWindow','mealPhase','userRoles','roleButtons','rolesPatch'];
+  'isChefPerm','isBoatManagerPerm','routeRelease3','routeResort33','r33Counts','a31Handle','a31Pre','a31Post','routeAdmin31','routeReports31','a31SuperBlock','mealTick','mealTimes','mealTimesOut','mealWindow','mealPhase','userRoles','roleButtons','rolesPatch'];
 const out = '/* GENERATED from apps-script/V3.gs + Release3.gs + Admin31.gs by tools/build-demo-server.js — demo mode only. Do not edit. */\n' +
   'window.PCRV3Server = function (S) {\n' + shim.map(n => 'var ' + n + ' = S.' + n + ';').join('\n') + '\n' + src + perms +
   '\nreturn { ' + exportsList.map(n => n + ': ' + n).join(', ') + ' };\n};\n';

@@ -62,7 +62,7 @@ function check(n, c, x) { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL 
   check('users: role count chips, no "x of N used"', /Superadmin/.test(rc) && /Admin/.test(rc) && /Kitchen|Chef/.test(rc) && !/of \d+ used/.test(rc), rc.replace(/\n/g, ' '));
   await shot('03-admin-users-role-counts');
   await shot('03b-admin-users-role-counts-full', true);
-  await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Akuila/.test(b.innerText)).click()); await wait(500);
+  await page.fill('#uf-q', '@').catch(() => {}); await page.waitForTimeout(400); await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Akuila/.test(b.innerText)).click()); await wait(500);
   const perms = await page.evaluate(() => [...document.querySelectorAll('.eu3-perm')].map(o => o.value));
   check('edit: live permission checkboxes (incl. chef / boat manager while stations run in parallel)', ['admin', 'hod', 'assistant_hod', 'chef', 'boat_manager', 'staff'].every(x => perms.includes(x)), perms.join(','));
   check('edit: superadmin sees Delete user', await page.evaluate(() => !!document.getElementById('v3-del-user')));

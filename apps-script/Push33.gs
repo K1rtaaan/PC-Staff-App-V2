@@ -114,6 +114,12 @@ function a33Jwt(aud) {
 function a33Url(kind, email) {
   if (kind === 'report') { var u = findUserByEmail(email); return (typeof a32IsReportOwner === 'function' ? a32IsReportOwner(u) : (u && isSuperPerm(u))) ? './#reports' : './#myreports'; }
   if (kind === 'cutoff') return './#meals';
+  if (kind === 'resort_boat') return './#boat'; // 3.3.0 resort boat: staff / HOD / admin pages
+  if (kind === 'resort_boat_hod') return './#approvals';
+  if (kind === 'resort_boat_admin') return './#resortboat';
+  if (kind === 'roster') return './#schedule'; // 3.4.0 rosters
+  if (kind === 'roster_hod') return './#rosterweekly';
+  if (kind === 'roster_admin') return './#rostermonthly';
   if (kind === 'boat' || kind === 'boat_admin') return kind === 'boat' ? './#bookings' : './#boatadmin';
   return './#notifications';
 }
@@ -262,6 +268,7 @@ function pushTick() {
   var out = {};
   try {
     out.reminders = a33CutoffReminders();
+    if (typeof r34Tick === 'function') { try { out.roster = r34Tick(); } catch (er) { out.rosterError = String(er && er.message || er); } } // 3.4.0 roster reminders
     out.sent = a33Flush();
     PropertiesService.getScriptProperties().setProperty('a33_tick_at', nowIso());
     a33Prune();

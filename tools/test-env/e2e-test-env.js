@@ -8,9 +8,9 @@ const SITE = ROOT + '/PC-Staff-App-V2-Test/';
 const S = (process.argv[3] || '/workspace/v3-test-shots/e2e') + '/';
 fs.mkdirSync(S, { recursive: true });
 const PW = 'TestPass-2026';
-const T = { staff: 'groupit.paradisecoveresortfiji+t-staff@gmail.com', hod: 'groupit.paradisecoveresortfiji+t-hod@gmail.com', asst: 'groupit.paradisecoveresortfiji+t-asst@gmail.com',
-  admin: 'groupit.paradisecoveresortfiji+t-admin@gmail.com', kitchen: 'groupit.paradisecoveresortfiji+t-kitchen@gmail.com', boat: 'groupit.paradisecoveresortfiji+t-boat@gmail.com',
-  newbie: 'groupit.paradisecoveresortfiji+t-new1@gmail.com', super: 'it@paradisecoveresortfiji.com' };
+const T = { staff: 'pcrstaffapp+t-staff@gmail.com', hod: 'pcrstaffapp+t-hod@gmail.com', asst: 'pcrstaffapp+t-asst@gmail.com',
+  admin: 'pcrstaffapp+t-admin@gmail.com', kitchen: 'pcrstaffapp+t-kitchen@gmail.com', boat: 'pcrstaffapp+t-boat@gmail.com',
+  newbie: 'pcrstaffapp+t-new1@gmail.com', super: 'it@paradisecoveresortfiji.com' };
 let pass = 0, fail = 0; const errors = []; let cur = ''; const results = [];
 function check(n, c, x) { c ? pass++ : fail++; results.push([cur, n, !!c]); console.log((c ? 'PASS ' : 'FAIL ') + '[' + cur + '] ' + n + (x ? ' — ' + String(x).slice(0, 300) : '')); }
 const FJ = (d, hm) => new Date(d + 'T' + hm + ':00+12:00');
@@ -35,7 +35,7 @@ async function setClock(page, d) { await page.clock.setSystemTime(d); await j('/
   const shot = (n, full, p) => (p || page).screenshot({ path: S + n + '.png', fullPage: full !== false });
   const api = (a, pl, p) => (p || page).evaluate(([a, pl]) => api(a, pl || {}), [a, pl]);
   async function login(email, pw, p) {
-    p = p || page; cur = email.replace('groupit.paradisecoveresortfiji+', '').replace('@gmail.com', '');
+    p = p || page; cur = email.replace('pcrstaffapp+', '').replace('@gmail.com', '');
     await p.evaluate(() => { try { doLogout(); } catch (e) {} });
     await p.waitForSelector('#login-email', { state: 'visible' });
     await p.fill('#login-email', email); await p.fill('#login-password', pw || PW);
@@ -207,7 +207,7 @@ async function setClock(page, d) { await page.clock.setSystemTime(d); await j('/
   await nav('usersv3'); await wait(1200);
   check('Users shows role counts (no seat limits)', /Admin/.test(await txt('#role-counts')) && !/of \d+ used/.test(await txt('#role-counts')));
   await shot('40-admin-users-role-counts');
-  await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Newstarter/.test(b.innerText)).click()); await wait(600);
+  await page.fill('#uf-q', '@').catch(() => {}); await page.waitForTimeout(400); await page.evaluate(() => [...document.querySelectorAll('.v3-user')].find(b => /Newstarter/.test(b.innerText)).click()); await wait(600);
   await shot('41-admin-edit-user', false);
   await page.click('#eu3-cancel');
   await nav('reminders'); await wait(900);

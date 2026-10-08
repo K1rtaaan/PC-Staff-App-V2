@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.2.0';
+var APP_VERSION = '3.5.2';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -197,7 +197,7 @@ function routeAction(action, p) {
     case 'approveAllLateBreakfast': return approveAllLateBreakfast(p);
     case 'processBreakfastWorkflow': return processBreakfastWorkflow(p);
     case 'processDinnerWorkflow': return processDinnerWorkflow(p);
-    case 'getDinnerPrepList': return getDinnerPrepList(p);
+    case 'getDinnerPrepList': return typeof s34Wrap === 'function' ? s34Wrap(getDinnerPrepList(p), 'dinner') : getDinnerPrepList(p); // 3.4.1 + island estimate, special meals
     case 'getKitchenDaySummary': return getKitchenDaySummary(p); // 2.10.1 Summaries.gs (read only)
     case 'getSavedSummaryPdf': return getSavedSummaryPdf(p); // 2.10.1
     case 'saveDinnerSummary': return saveDinnerSummary(p); // 2.10.1 admin
@@ -205,8 +205,8 @@ function routeAction(action, p) {
     case 'dinnerSummaryStatus': return dinnerSummaryStatus(p); // 2.10.1 superadmin
     case 'getMealStatistics': return getMealStatistics(p);
     case 'placeMealOnBehalf': return placeMealOnBehalf(p);
-    case 'getBreakfastOrderSheet': return getBreakfastOrderSheet(p);
-    case 'getLunchOrderSheet': return getLunchOrderSheet(p);
+    case 'getBreakfastOrderSheet': return typeof s34Wrap === 'function' ? s34Wrap(getBreakfastOrderSheet(p), 'breakfast') : getBreakfastOrderSheet(p); // 3.4.1 + island estimate, special meals
+    case 'getLunchOrderSheet': return typeof s34Wrap === 'function' ? s34Wrap(getLunchOrderSheet(p), 'lunch') : getLunchOrderSheet(p); // 3.4.1 + island estimate, special meals
 
     case 'getReminders': return getReminders(p);
     case 'addReminder': return addReminder(p);
@@ -271,6 +271,10 @@ function routeAction(action, p) {
       if (r3res) return r3res;
       var a31res = routeAdmin31(action, p); // 3.1.0 admin log, revert, superadmin notice (Admin31.gs)
       if (a31res) return a31res;
+      var r33res = typeof routeResort33 === 'function' ? routeResort33(action, p) : null; // 3.3.0 resort boat (Resort33.gs)
+      if (r33res) return r33res;
+      var r34res = typeof routeRoster34 === 'function' ? routeRoster34(action, p) : null; // 3.4.0 rosters, schedule tab, leave balances (Roster34.gs)
+      if (r34res) return r34res;
       return { success: false, error: 'Unknown action: ' + action };
     }
   }
@@ -569,6 +573,7 @@ function initializeSheets() {
 
 function sheetCellToValue(v, headerName) {
   if (!(v instanceof Date)) return v;
+  if (headerName === 'roster') return rosterPatternText(v); // 3.4.0: "24/8" that Sheets turned into a date → show as text again (data untouched)
   var utcYear = Number(Utilities.formatDate(v, 'UTC', 'yyyy'));
   // Time-only serials from Sheets land near 1899/1900
   if (utcYear < 1950 || headerName === 'time') {
@@ -613,6 +618,16 @@ function sheetToObjectsRaw(sheetName) {
   return rows;
 }
 
+/** 3.4.0: a roster-pattern cell Sheets auto-converted to a date → the text that was typed (d/m, or m/d if the sheet locale is US). */
+function rosterPatternText(v) {
+  var tz = 'Pacific/Fiji';
+  try { tz = getSS().getSpreadsheetTimeZone() || tz; } catch (e) {}
+  var d = Number(Utilities.formatDate(v, tz, 'd')), m = Number(Utilities.formatDate(v, tz, 'M'));
+  var us = false;
+  try { us = /^en_US/i.test(String(getSS().getSpreadsheetLocale() || '')); } catch (e2) {}
+  return us ? m + '/' + d : d + '/' + m;
+}
+
 function appendRow(sheetName, obj, headers) {
   if (sheetName === 'Notifications' && typeof a33FromNotif === 'function') { try { a33FromNotif(obj); } catch (e) {} } // 3.2.0: in-app notification → phone
   var sh = getSS().getSheetByName(sheetName);
@@ -623,7 +638,7 @@ function appendRow(sheetName, obj, headers) {
   if (!useHeaders.length || (useHeaders.length === 1 && !String(useHeaders[0] || '').trim())) {
     useHeaders = headers || Object.keys(obj || {});
   }
-  var textKeys = { date:1, time:1, dueDate:1, serviceDate:1, startDate:1, endDate:1 };
+  var textKeys = { date:1, time:1, dueDate:1, serviceDate:1, startDate:1, endDate:1, roster:1 }; // 3.4.0: roster pattern stays plain text
   var row = useHeaders.map(function (h) {
     if (!h) return '';
     var v = obj[h];
@@ -666,6 +681,7 @@ function updateRowById(sheetName, id, patch) {
       var v = patch[k];
       if (v === true) v = 'TRUE';
       if (v === false) v = 'FALSE';
+      if (k === 'roster' && typeof v === 'string' && v !== '' && v.charAt(0) !== "'") v = "'" + v; // 3.4.0: plain text
       sh.getRange(found._row, col + 1).setValue(v);
     }
   }
@@ -1251,6 +1267,11 @@ function login(p) {
   if (!isSuper && !truthy(u.active)) {
     return { success: false, error: 'Account inactive. Contact admin.' };
   }
+  // 3.4.0: accounts registered by a HOD / admin sign in once with a one-time password, then choose their own
+  if (!isSuper && truthy(u.mustChangePassword)) {
+    if (typeof s34TempExpired === 'function' && s34TempExpired(u)) return { success: false, error: 'This one-time password has expired — ask your HOD to register you again.' };
+    return { success: false, needsPasswordChange: true, email: email, error: 'Choose your own password to finish signing in' };
+  }
 
   return {
     success: true,
@@ -1263,7 +1284,7 @@ function login(p) {
 
 /** Request-scoped identity (set by bindRequestIdentity for client requests; null for triggers / editor runs). */
 var R3_AUTH = null;
-var R3_PUBLIC_ACTIONS = { login: 1, register: 1, verifyEmail: 1, requestVerification: 1, requestPasswordReset: 1, resetPassword: 1, getVersion: 1, health: 1 };
+var R3_PUBLIC_ACTIONS = { login: 1, register: 1, verifyEmail: 1, requestVerification: 1, requestPasswordReset: 1, resetPassword: 1, getVersion: 1, health: 1, getDepartments: 1, setFirstPassword: 1 }; // 3.4.0 first sign-in with a one-time password // 3.4.0 department list (sign-up form)
 /**
  * 3.0.0: a valid signed session token (login) binds the requester. Without a token the claimed requesterEmail is used
  * as in 2.x, but role accounts then act as plain staff (role / admin actions answer needsSignIn). App Setting
@@ -3053,6 +3074,7 @@ function placeDinnerOrder(p) {
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User required' };
+  var s34b = typeof s34MealBlock === 'function' ? s34MealBlock(u, 'dinner', info.serviceDate) : null; if (s34b) return s34b; // 3.4.0 rostered on leave
   // 3.0.0: normal orders are always for the next dinner date (a client-sent date can't move the order / skip the cutoff)
   var serviceDate = info.serviceDate;
   var status = late ? 'late_pending' : 'pending';
@@ -3122,6 +3144,7 @@ function placeLunchOrder(p) {
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User required' };
+  var s34b = typeof s34MealBlock === 'function' ? s34MealBlock(u, 'lunch', info.serviceDate) : null; if (s34b) return s34b; // 3.4.0 rostered on leave
   var serviceDate = p.serviceDate || info.serviceDate;
   var lNote = noteFromParams(p, '');
 
@@ -3178,6 +3201,7 @@ function placeBreakfastOrder(p) {
   var email = String(p.userEmail || p.requesterEmail || '').toLowerCase();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'User required' };
+  var s34b = typeof s34MealBlock === 'function' ? s34MealBlock(u, 'breakfast', info.serviceDate) : null; if (s34b) return s34b; // 3.4.0 rostered on leave
   var serviceDate = p.serviceDate || info.serviceDate;
   var status = late ? 'late_pending' : 'ordered';
 
@@ -4247,6 +4271,8 @@ function shiftsFingerprintList(list) {
 }
 
 function deleteSheetRowsByPredicate(sheetName, predicate) {
+  // 3.4.0: no row-by-row deletes — contiguous blocks, or keep-rows rewrite (Roster34.gs r34DeleteWhere)
+  if (typeof r34DeleteWhere === 'function') return r34DeleteWhere(sheetName, predicate);
   var rows = sheetToObjects(sheetName);
   var sh = getSS().getSheetByName(sheetName);
   if (!sh) return 0;

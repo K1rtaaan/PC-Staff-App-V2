@@ -20,7 +20,7 @@ var V3_LEAVE_HEADERS = ['id', 'userEmail', 'userName', 'department', 'startDate'
   'leaveType', 'hodStatus', 'hodBy', 'hodAt', 'mgmtStatus', 'mgmtBy', 'mgmtAt', 'cancelledAt', 'escalatedAt'];
 var V3_SHEETS = {
   'Menu Votes': ['id', 'dishKey', 'dish', 'userEmail', 'vote', 'updatedAt'],
-  'Chef Feedback': ['id', 'userEmail', 'userName', 'department', 'kind', 'message', 'status', 'chefNote', 'createdAt', 'handledBy', 'handledAt'],
+  'Chef Feedback': ['id', 'userEmail', 'userName', 'department', 'kind', 'message', 'status', 'chefNote', 'createdAt', 'handledBy', 'handledAt', 'meal', 'mealDate'],
   'Dept Updates': ['id', 'department', 'authorEmail', 'authorName', 'title', 'body', 'active', 'createdAt'],
   'Dept Update Activity': ['id', 'updateId', 'userEmail', 'userName', 'kind', 'text', 'createdAt'],
   'Role Changes': ['id', 'at', 'by', 'userEmail', 'before', 'after']
@@ -246,6 +246,8 @@ function v3UserOut(u) {
   pu.deptDecidedBy = u.deptDecidedBy || '';
   pu.deptDecidedAt = u.deptDecidedAt || '';
   pu.createdAt = u.createdAt || '';
+  pu.position = String(u.position || ''); pu.payType = String(u.payType || ''); pu.dateStarted = String(u.dateStarted || '').replace(/^'/, ''); // 3.4.1 GL link fields
+  pu.employeeCode = String(u.employeeCode || ''); // 3.4.0
   return pu;
 }
 function getDeptStaff(p) {
@@ -375,17 +377,19 @@ function submitLeave(p) {
   var s = v3Date(p.startDate), e = v3Date(p.endDate || p.startDate);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e)) return { success: false, error: 'Pick a start and end date' };
   if (e < s) return { success: false, error: 'End date is before start date' };
-  var type = V3_LEAVE_TYPES.indexOf(String(p.leaveType)) >= 0 ? String(p.leaveType) : 'Other';
-  var earliest = fijiDateString(addFijiDays(getFijiNow(), type === 'Sick sheet' ? -14 : -1));
-  if (s < earliest) return { success: false, error: type === 'Sick sheet' ? 'Sick sheets can be back-dated up to 14 days' : 'Start date is in the past' };
+  var type = V3_LEAVE_TYPES.indexOf(String(p.leaveType)) >= 0 ? String(p.leaveType)
+    : ((typeof r34CanonLeaveType === 'function' && r34CanonLeaveType(p.leaveType, false)) || 'Other'); // 3.4.0: configurable leave types
+  var sick = /sick/i.test(type);
+  var earliest = fijiDateString(addFijiDays(getFijiNow(), sick ? -14 : -1));
+  if (s < earliest) return { success: false, error: sick ? 'Sick leave can be back-dated up to 14 days' : 'Start date is in the past' };
   var reason = v3Clean(p.reason, 500);
   if (!reason) return { success: false, error: 'Please give a reason' };
   var open = sheetToObjects('Leave Requests').filter(function (l) {
     var st = String(l.status);
-    return String(l.userEmail).toLowerCase() === String(u.email).toLowerCase() && (st === 'pending' || st === 'pending_hod' || st === 'pending_manager') &&
+    return String(l.userEmail).toLowerCase() === String(u.email).toLowerCase() && (st === 'pending' || st === 'pending_hod' || st === 'pending_manager' || st === 'approved') &&
       !(v3Date(l.endDate) < s || v3Date(l.startDate) > e);
   });
-  if (open.length) return { success: false, error: 'You already have a pending request for those dates' };
+  if (open.length) return { success: false, error: open.some(function (l) { return String(l.status) === 'approved'; }) ? 'You already have approved leave on those dates' : 'You already have a pending request for those dates' };
   // HODs (and admins) go straight to management — nobody approves their own leave.
   var lead = v3HasHod(u) || isAdminPerm(u);
   var row = {
@@ -398,6 +402,8 @@ function submitLeave(p) {
   to.forEach(function (x) { v3Notify(x.email, 'Leave request: ' + row.userName, type + ' ' + s + (e !== s ? ' → ' + e : '') + ' — ' + reason, 'leave', row.id); });
   return { success: true, data: { request: v3LeaveOut(row) } };
 }
+/** 3.4.1: true only while decideOnBehalf (GlLink341.gs, admin only) runs a HOD-step decision */
+var A341_BEHALF = false;
 function decideLeave(p) {
   var r = v3Requester(p);
   var l = sheetToObjects('Leave Requests').filter(function (x) { return String(x.id) === String(p.id); })[0];
@@ -411,10 +417,11 @@ function decideLeave(p) {
     // 3.0 (item 33): the department step is never skipped — only the HOD / assistant HOD of THAT department decides it.
     // An admin may act for the department only when it has no active HOD / assistant HOD (recorded as such).
     var noLead = !deptLeads(l.department).some(function (x) { return String(x.email).toLowerCase() !== String(l.userEmail).toLowerCase(); });
-    if (!v3IsLeadOf(r, l.department) && !(isAdminPerm(r) && noLead)) {
+    var behalf = A341_BEHALF && isAdminPerm(r); // 3.4.1: admin approves on behalf of the HOD (People & roles → Pending department requests)
+    if (!v3IsLeadOf(r, l.department) && !(isAdminPerm(r) && (noLead || behalf))) {
       return { success: false, error: 'Waiting for the HOD / assistant HOD of ' + (l.department || 'the department') + ' (HODs only decide their own department)' };
     }
-    if (!v3IsLeadOf(r, l.department)) note = (note ? note + ' ' : '') + '(department has no HOD — decided by admin)';
+    if (!v3IsLeadOf(r, l.department)) note = (note ? note + ' ' : '') + (behalf && !noLead ? '(' + (approve ? 'approved' : 'declined') + ' by admin on behalf of HOD)' : '(department has no HOD — decided by admin)');
     patch = { status: approve ? 'pending_manager' : 'rejected', hodStatus: approve ? 'approved' : 'declined', hodBy: r.email, hodAt: nowIso(), hodNote: note, reviewedBy: r.email };
     if (!approve) patch.notifyNote = note || 'Declined by HOD';
   } else if (st === 'pending_manager') {
@@ -530,6 +537,7 @@ function requestLateMeal(p) {
   var info = v3MealInfo(meal, now);
   var sd = v3Date(p.serviceDate) || info.serviceDate;
   if (sd !== v3Today() && sd !== v3Tomorrow()) return { success: false, error: 'Late requests are for today or tomorrow only' };
+  var s34b = typeof s34MealBlock === 'function' ? s34MealBlock(u, meal, sd) : null; if (s34b) return s34b; // 3.4.0 rostered on leave
   // 3.0.0: late window = after the cutoff until the late close (Kitchen Admin → Meal times)
   var w = mealWindow(meal, sd);
   var phase = mealPhase(meal, sd, now);
@@ -771,9 +779,15 @@ function sendChefFeedback(p) {
   var msg = v3Clean(p.message, 800);
   if (msg.length < 3) return { success: false, error: 'Write a short message' };
   var kind = ['issue', 'request', 'compliment'].indexOf(String(p.kind)) >= 0 ? String(p.kind) : 'issue';
-  var row = { id: uid('cf'), userEmail: String(u.email).toLowerCase(), userName: v3Name(u), department: u.department || '', kind: kind, message: msg, status: 'new', chefNote: '', createdAt: nowIso(), handledBy: '', handledAt: '' };
+  // 3.3.0: optional meal + date (My meals → Feedback to chef); columns are added to the tab on first use
+  var meal = ['breakfast', 'lunch', 'dinner'].indexOf(String(p.meal || '').toLowerCase()) >= 0 ? String(p.meal).toLowerCase() : '';
+  var mealDate = /^\d{4}-\d{2}-\d{2}$/.test(v3Date(p.mealDate)) ? v3Date(p.mealDate) : '';
+  var row = { id: uid('cf'), userEmail: String(u.email).toLowerCase(), userName: v3Name(u), department: u.department || '', kind: kind, message: msg, status: 'new', chefNote: '', createdAt: nowIso(), handledBy: '', handledAt: '',
+    meal: meal, mealDate: mealDate ? "'" + mealDate : '' };
   v3Append('Chef Feedback', row, V3_SHEETS['Chef Feedback']);
-  chefUsers().forEach(function (c) { v3Notify(c.email, 'Food feedback (' + kind + ')', msg.slice(0, 120), 'chef_feedback', row.id); });
+  var about = (meal ? meal.charAt(0).toUpperCase() + meal.slice(1) : '') + (mealDate ? ' ' + mealDate : '');
+  chefUsers().forEach(function (c) { v3Notify(c.email, 'Food feedback (' + kind + ')' + (about ? ' · ' + about : ''), msg.slice(0, 120), 'chef_feedback', row.id); });
+  row.mealDate = mealDate;
   return { success: true, data: { feedback: row } };
 }
 function getChefFeedback(p) {
@@ -781,7 +795,7 @@ function getChefFeedback(p) {
   if (!(isChefPerm(u))) return { success: false, error: 'Chef station (or superadmin) only' };
   var rows = sheetToObjects('Chef Feedback');
   rows.sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
-  rows.forEach(function (r) { delete r._row; });
+  rows.forEach(function (r) { delete r._row; r.mealDate = v3Date(r.mealDate); });
   return { success: true, data: { feedback: rows.slice(0, 300), newCount: rows.filter(function (r) { return String(r.status) === 'new'; }).length } };
 }
 function markChefFeedback(p) {
@@ -1080,6 +1094,7 @@ function getV3Home(u) {
   out.roleButtons = roleButtons(out.roles);
   out.mealTimes = mealTimesOut();
   out.cutoffReminders = v3CutoffReminders(u, myMeals);
+  if (typeof r33Counts === 'function') { try { out.resortBoat = r33Counts(u); } catch (eR) {} } // 3.3.0 resort boat badges
   return out;
 }
 

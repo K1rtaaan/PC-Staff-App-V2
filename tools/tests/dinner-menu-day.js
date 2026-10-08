@@ -111,7 +111,7 @@ const onMenu = vm.runInNewContext('(' + fnSrc.replace(/^function dinnerChoiceOnM
 const tue = LIVE[2].map(n => ({ itemName: n }));
 check('frontend: stale last choice not on Tuesday menu', onMenu('Roasted Chicken / Potato Salad / Vegs', tue) === false);
 check('frontend: Tuesday dish is on menu', onMenu('Chicken Pizza', tue) === true);
-check('frontend: last-choice preselect/"Same as last time" gated by menu', /const last = \(lastRaw && dinnerChoiceOnMenu\(lastRaw\.mealChoice, menuItems\)\) \? lastRaw : null;/.test(fe));
+check('frontend: off-menu choices are checked against the day menu (3.5.0: the 2.x dinner page with "Same as last time" was dead code and is removed)', /function dinnerChoiceOnMenu\(/.test(fe) && /!dinnerChoiceOnMenu\(p\.mealChoice, menu\)/.test(fe) && !/async function renderDinnerV2\(/.test(fe));
 check('docs mirrors public', fs.readFileSync(path.join(root, 'docs', 'index.html'), 'utf8') === fe);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -18,7 +18,7 @@ function fijiDate(off) { return new Date(Date.now() + 12 * 3600e3 + off * 86400e
   await page.waitForTimeout(1500);
   const chef = { id: 'usr_kit', email: 'kitchen@paradisecoveresortfiji.com', firstName: 'Cesare', lastName: 'Chef', department: 'Kitchen', role: 'chef', permissions: ['chef'], active: true, verified: true };
   await page.evaluate(([u, days]) => {
-    localStorage.setItem('pcr_v2_session', JSON.stringify(u)); localStorage.setItem('pcr_v2_coach_done', '1');
+    localStorage.setItem('pcr_v2_session', JSON.stringify(u)); localStorage.setItem('pcr_v2_coach_done', '1'); localStorage.setItem('pcr_guides_off', '1');
     const db = JSON.parse(localStorage.getItem('pcr_v2_demo_db') || '{}');
     db.dinnerOrders = (db.dinnerOrders || []).filter(o => !/^din_t_/.test(o.id));
     const dishes = ['Chicken Pizza', 'Beef Curry / Rice / Chutney', 'Sausages / Potato Salad / Gravy'];
@@ -59,7 +59,7 @@ function fijiDate(off) { return new Date(Date.now() + 12 * 3600e3 + off * 86400e
   await page.waitForFunction(d => document.querySelector('[data-kit-day="' + d + '"]'), fijiDate(-3));
   check('empty day shows 0 + message', (await page.textContent('#kit-day-total')).trim() === '0' && /No dinner orders/.test(await page.textContent('#kit-day-panel')));
   // rest of the kitchen page unchanged
-  check('existing Dinner Prep List buttons still there', !!(await page.$('#btn-prep-gen')) && !!(await page.$('#btn-prep-print')) && !!(await page.$('#btn-prep-dl')));
+  check('3.5.0: ONE prep list card — Generate / Print / PDF live in it, the duplicate 2.x buttons are gone', !!(await page.$('#kit-day-gen')) && !!(await page.$('#kit-day-print')) && !!(await page.$('#kit-day-pdf')) && !(await page.$('#btn-prep-gen')) && (await page.$$('#kit-dinner-card')).length === 1);
   if (SHOTS) await page.screenshot({ path: SHOTS + '/demo-kitchen-empty-day.png' });
   check('no page errors', errors.length === 0, errors.join(' | '));
   check('no live backend calls in demo', live === 0);
