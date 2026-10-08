@@ -127,6 +127,7 @@
 .fa-inverse{color: var(--fa-inverse, #fff);}
 .fa-calendar-days::before{content: "\f073";}
 .fa-right-from-bracket::before{content: "\f2f5";}
+.fa-people-roof::before{content: "\e537";}
 .fa-file-csv::before{content: "\f6dd";}
 .fa-address-book::before{content: "\f2b9";}
 .fa-clipboard-list::before{content: "\f46d";}
@@ -144,6 +145,8 @@
 .fa-hourglass-half::before{content: "\f252";}
 .fa-users::before{content: "\f0c0";}
 .fa-stamp::before{content: "\f5bf";}
+.fa-umbrella-beach::before{content: "\f5ca";}
+.fa-chart-simple::before{content: "\e473";}
 .fa-gauge::before{content: "\f624";}
 .fa-user::before{content: "\f007";}
 .fa-key::before{content: "\f084";}
@@ -157,10 +160,12 @@
 .fa-image::before{content: "\f03e";}
 .fa-rotate-left::before{content: "\f2ea";}
 .fa-circle-check::before{content: "\f058";}
+.fa-id-badge::before{content: "\f2c1";}
 .fa-cloud-arrow-up::before{content: "\f0ee";}
 .fa-bowl-food::before{content: "\e4c6";}
 .fa-arrows-rotate::before{content: "\f021";}
 .fa-shield-halved::before{content: "\f3ed";}
+.fa-layer-group::before{content: "\f5fd";}
 .fa-list-ol::before{content: "\f0cb";}
 .fa-filter::before{content: "\f0b0";}
 .fa-leaf::before{content: "\f06c";}
@@ -172,6 +177,7 @@
 .fa-clipboard-check::before{content: "\f46c";}
 .fa-circle-question::before{content: "\f059";}
 .fa-plane-departure::before{content: "\f5b0";}
+.fa-tags::before{content: "\f02c";}
 .fa-eye::before{content: "\f06e";}
 .fa-user-slash::before{content: "\f506";}
 .fa-pen::before{content: "\f304";}
@@ -210,6 +216,7 @@
 .fa-person-swimming::before{content: "\f5c4";}
 .fa-inbox::before{content: "\f01c";}
 .fa-gauge-high::before{content: "\f625";}
+.fa-link::before{content: "\f0c1";}
 .fa-receipt::before{content: "\f543";}
 .fa-arrow-up::before{content: "\f062";}
 .fa-list-check::before{content: "\f0ae";}
@@ -224,17 +231,22 @@
 .fa-clock-rotate-left::before{content: "\f1da";}
 .fa-magic::before{content: "\f0d0";}
 .fa-moon::before{content: "\f186";}
+.fa-hashtag::before{content: "\23";}
 .fa-chart-column::before{content: "\e0e3";}
 .fa-calendar::before{content: "\f133";}
 .fa-clone::before{content: "\f24d";}
 .fa-anchor::before{content: "\f13d";}
+.fa-scale-balanced::before{content: "\f24e";}
 .fa-table-list::before{content: "\f00b";}
 .fa-user-plus::before{content: "\f234";}
 .fa-check::before{content: "\f00c";}
+.fa-user-tag::before{content: "\f507";}
 .fa-book-open::before{content: "\f518";}
 .fa-triangle-exclamation::before{content: "\f071";}
 .fa-right-left::before{content: "\f362";}
+.fa-paper-plane::before{content: "\f1d8";}
 .fa-calendar-day::before{content: "\f783";}
+.fa-person-walking-arrow-right::before{content: "\e552";}
 .fa-circle-xmark::before{content: "\f057";}
 .fa-thumbs-up::before{content: "\f164";}
 .fa-user-clock::before{content: "\f4fd";}
