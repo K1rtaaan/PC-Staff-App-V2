@@ -1,6 +1,12 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.5.2** (live). Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.5.2a** (live; UI 3.5.2a, API 3.5.2). Revert any item later by asking for its ID (e.g. “revert C7”).
+
+## 3.5.2a — Register dropdown fix (2026-10-09, LIVE)
+
+| ID | Change |
+|----|--------|
+| C204 | **Register screen department dropdown** now comes from the app's department list (server list merged in) instead of a hard-coded list, so **Front Office, Stores and Medical** show and Band / Naisoso never do (`pcrFillRegDepartments`, on page load and after `getDepartments`). Frontend only — UI 3.5.2a, API stays 3.5.2 (no Apps Script deploy). SW cache `pcr-staff-v3.5.2a`. Test: `tools/tests/r352-signup-depts.js`. Rollback: gh-pages 3dc8f82 (3.5.2). Pranav approved 9 Oct. |
 
 
 ## 3.5.2 — LIVE release of 3.3.0 → 3.5.2 (2026-10-09)
