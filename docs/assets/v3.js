@@ -949,12 +949,13 @@ function v351OpenBoat(t){
 function v351RoleShortcuts(){
   if (v3IsSuper()) return [];
   const out = [], seen = {}, cnt = (typeof v35ApCount === 'function') ? v35ApCount() : 0;
-  const add = function(tab, icon, label, sub, n){ if (seen[tab]) return; seen[tab] = 1; out.push(v3Tile("navigate('"+tab+"')", icon, label, sub, n).replace('class="v3-tile ', 'data-tab="'+tab+'" class="v3-tile v351-role ')); };
+  const add = function(tab, icon, label, sub, n, go){ if (seen[tab]) return; seen[tab] = 1; out.push(v3Tile(go || ("navigate('"+tab+"')"), icon, label, sub, n).replace('class="v3-tile ', 'data-tab="'+tab+'" class="v3-tile v351-role ')); };
   const admin = v3Has('admin'), lead = v3Has('hod') || v3IsAsst(), chef = v3IsChef(), boat = v3Has('boat_manager') || v3Has('boat_captain');
   if (admin || lead) add('approvals', 'fa-inbox', 'Approvals', admin ? 'All departments' : 'My department', cnt);
   if (admin) add('adminhub', 'fa-user-shield', 'Admin', 'People, leave, system');
   if (lead) add('deptadmin', 'fa-people-roof', 'Department', 'My team, roster');
   if (chef) add('kitchenadmin', 'fa-fire-burner', 'Kitchen Admin', 'Lists, menu, reports');
+  if (chef) add('mealbehalf', 'fa-star', 'Order for someone', 'Staff without a phone', 0, "state._mbBack='kitchenadmin';navigate('mealbehalf')"); // 3.5.3 (Pranav): chef shortcut, once
   if (boat) add('boatadmin', 'fa-anchor', 'Boat Admin', 'Runs, resort boat, emergency');
   return out;
 }

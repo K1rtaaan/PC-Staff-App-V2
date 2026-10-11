@@ -1,6 +1,12 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.5.2a** (live; UI 3.5.2a, API 3.5.2). Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.5.3** (live; UI 3.5.3, API 3.5.2). Revert any item later by asking for its ID (e.g. “revert C7”).
+
+## 3.5.3 — Chef shortcut: Order for someone (2026-10-11, LIVE)
+
+| ID | Change |
+|----|--------|
+| C205 | **Home › My roles**: users with the Chef / Kitchen role get an **Order for someone** tile next to Kitchen Admin; it opens the existing Order for someone page (back → Kitchen Admin). One tile per page (no duplicates for multi-role users); admins without the chef role are unchanged (Approvals + Admin). Frontend only — UI 3.5.3, API stays 3.5.2; SW cache `pcr-staff-v3.5.3`. Note: the TEST-only "3.5.3" (pcrstaffapp account move) was never live; this live 3.5.3 is a different change. Tests: `tools/tests/r353-chef-shortcut.js`, r351flows updated. Rollback: gh-pages 51508da (3.5.2a). Pranav approved 11 Oct. |
 
 ## 3.5.2a — Register dropdown fix (2026-10-09, LIVE)
 
