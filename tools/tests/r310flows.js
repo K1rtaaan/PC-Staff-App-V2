@@ -2,7 +2,7 @@
  * activity logs per admin page, superadmin log + revert (owner only). BASE=http://127.0.0.1:8765/ node tools/tests/r310flows.js */
 const { chromium } = require('playwright-core');
 const BASE = process.env.BASE || 'http://127.0.0.1:8765/';
-const SUPER = ['it@paradisecoveresortfiji.com', '21slands'], CHEF = ['kitchen@paradisecoveresortfiji.com', 'staff123'], STAFF = ['ana.tui@paradisecoveresortfiji.com', 'staff123'];
+const SUPER = ['it@paradisecoveresortfiji.com', 'demo-super'], CHEF = ['kitchen@paradisecoveresortfiji.com', 'staff123'], STAFF = ['ana.tui@paradisecoveresortfiji.com', 'staff123'];
 const BLOCK = "Superadmin accounts can't place orders or bookings. Use a staff account.";
 let pass = 0, fail = 0; const errors = []; let cur = '';
 function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } else { fail++; console.log('FAIL', name, info === undefined ? '' : info); } }

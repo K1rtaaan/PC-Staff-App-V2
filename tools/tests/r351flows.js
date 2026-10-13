@@ -9,7 +9,7 @@ const BASE = process.env.BASE || 'http://127.0.0.1:8765/';
 const SHOTS = process.env.SHOTS || '';
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 const ROLES = { staff: ['ana.tui@paradisecoveresortfiji.com', 'staff123'], hod: ['hod.fb@pcr.com', 'staff123'], chef: ['kitchen@paradisecoveresortfiji.com', 'staff123'],
-  captain: ['boat@paradisecoveresortfiji.com', 'staff123'], boatmgr: ['boat.mgr@paradisecoveresortfiji.com', 'staff123'], admin: ['admin@paradisecoveresortfiji.com', 'staff123'], super: ['it@paradisecoveresortfiji.com', '21slands'] };
+  captain: ['boat@paradisecoveresortfiji.com', 'staff123'], boatmgr: ['boat.mgr@paradisecoveresortfiji.com', 'staff123'], admin: ['admin@paradisecoveresortfiji.com', 'staff123'], super: ['it@paradisecoveresortfiji.com', 'demo-super'] };
 let pass = 0, fail = 0, cur = ''; const errors = [], checklist = [];
 const check = (n, c, x) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + '[' + cur + '] ' + n + (!c && x !== undefined ? ' — ' + String(x).slice(0, 300) : '')); return !!c; };
 const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok: !!c }); return check('CAP ' + id + ' ' + n + ' @ ' + where, c, x); };

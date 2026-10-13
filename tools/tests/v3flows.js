@@ -287,7 +287,7 @@ const FJ = (d, hm) => new Date(d + 'T' + hm + ':00+12:00');
   check('staff blocked from admin / HOD / chef actions', deny.every(x => x === false), JSON.stringify(deny));
 
   // ---------- 8. Superadmin
-  await login('it@paradisecoveresortfiji.com', '21slands');
+  await login('it@paradisecoveresortfiji.com', 'demo-super');
   await nav('home'); await shot('superadmin-home');
   await nav('approvals'); await shot('superadmin-approvals');
   await nav('manage'); await shot('superadmin-manage');

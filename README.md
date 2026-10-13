@@ -39,7 +39,7 @@ python3 -m http.server 8080
 
 Or open `public/index.html` directly (demo auto-enables when `API_URL` is empty).
 
-**Superadmin login:** `it@paradisecoveresortfiji.com` / `21slands`
+**Superadmin login:** `it@paradisecoveresortfiji.com` (password is not stored in the repo; demo mode uses `demo-super`)
 
 ## Deploy — Apps Script backend
 

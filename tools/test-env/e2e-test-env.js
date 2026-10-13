@@ -318,7 +318,7 @@ async function setClock(page, d) { await page.clock.setSystemTime(d); await j('/
   await nav('station', bp); await shot('73-boat-more', true, bp);
 
   // ---------- superadmin: Manage, Settings, Chef + Boat pages, rotate
-  await login(T.super, '21slands'); cur = 'superadmin';
+  await login(T.super, 'demo-super'); cur = 'superadmin';
   await nav('home'); await shot('80-superadmin-home');
   await nav('manage'); await wait(600); check('Manage hub has Stations (Chef page, Boat page, Station logins) + Settings', /Station logins/.test(await txt('#main-content')) && /Chef page/.test(await txt('#main-content')) && /settings/i.test(await txt('#main-content')));
   await shot('81-superadmin-manage');

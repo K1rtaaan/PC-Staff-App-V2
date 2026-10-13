@@ -10,7 +10,7 @@ let store;
 function reset() {
   store = {
     Users: [
-      U('it@paradisecoveresortfiji.com', 'IT', 'IT', 'super_admin,admin', { password: '21slands', role: 'super_admin' }),
+      U('it@paradisecoveresortfiji.com', 'IT', 'IT', 'super_admin,admin', { password: 'demo-super', role: 'super_admin' }),
       U('it2.paradisecoveresort@gmail.com', 'Delai', 'IT', 'super_admin', { role: 'super_admin' }),
       U('ad1@x.com', 'Nicola', 'Management', 'staff,hod,admin'),
       U('chef1@x.com', 'Vicky', 'Kitchen', 'staff,chef'),
@@ -110,7 +110,7 @@ function req(action, p) {
 /** the harness has no real sheets: an exception AFTER the permission gate means the gate let the call through */
 const reqT = (a, p) => { try { return req(a, p); } catch (e) { R('R3_AUTH = null'); return { success: true, passedGate: true, err: e.message }; } };
 const LOG = () => store['Admin Log'] || [];
-const tSuper = login('it@paradisecoveresortfiji.com', '21slands');
+const tSuper = login('it@paradisecoveresortfiji.com', 'demo-super');
 const tDelai = login('it2.paradisecoveresort@gmail.com', 'pw-Delai');
 const tChef = login('chef1@x.com', 'pw-Vicky');
 const tHod = login('hod1@x.com', 'pw-Praneel');
@@ -118,7 +118,7 @@ const tAdmin = login('ad1@x.com', 'pw-Nicola');
 const tStaff = login('staff1@x.com', 'pw-Ana');
 store.Users.push(U('leanne@paradisecoveresortfiji.com', 'Leanne', 'Management', 'staff,super_admin,chef', { role: 'super_admin', roles: 'super_admin,chef' }));
 const tLeanne = login('leanne@paradisecoveresortfiji.com', 'pw-Leanne');
-check('APP_VERSION is 3.5.2', R('APP_VERSION') === '3.5.2');
+check('APP_VERSION is 3.5.4', R('APP_VERSION') === '3.5.4');
 
 // ---------- (d) admins get these tools ----------
 let r = req('deleteUser', { sessionToken: tAdmin, targetEmail: 'staff2@x.com' });

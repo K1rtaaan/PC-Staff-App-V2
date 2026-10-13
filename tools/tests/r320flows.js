@@ -3,7 +3,7 @@
 const { chromium } = require('playwright-core');
 const path = require('path');
 const BASE = process.env.BASE || 'http://127.0.0.1:8765/';
-const SUPER = ['it@paradisecoveresortfiji.com', '21slands'], ADMIN = ['admin@paradisecoveresortfiji.com', 'staff123'], STAFF = ['ana.tui@paradisecoveresortfiji.com', 'staff123'];
+const SUPER = ['it@paradisecoveresortfiji.com', 'demo-super'], ADMIN = ['admin@paradisecoveresortfiji.com', 'staff123'], STAFF = ['ana.tui@paradisecoveresortfiji.com', 'staff123'];
 let pass = 0, fail = 0; const errors = []; let cur = '';
 function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } else { fail++; console.log('FAIL', name, info === undefined ? '' : info); } }
 (async () => {
@@ -39,8 +39,8 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
     check('credit + About at the bottom of ' + t, ok);
   }
   await go("navigate('more')");
-  check('About sits under the version info (UI 3.3.0)', await page.evaluate(() => { const t = document.getElementById('main-content').innerText; return /PCR Staff App 3.5.3/.test(t) && t.lastIndexOf('3.5.3') < t.lastIndexOf('About'); }));
-  check('More shows the version line once (3.3.0 fix)', await page.evaluate(() => (document.getElementById('main-content').innerText.match(/PCR Staff App 3\.5\.3/g) || []).length === 1));
+  check('About sits under the version info (UI 3.3.0)', await page.evaluate(() => { const t = document.getElementById('main-content').innerText; return /PCR Staff App 3.5.4/.test(t) && t.lastIndexOf('3.5.4') < t.lastIndexOf('About'); }));
+  check('More shows the version line once (3.3.0 fix)', await page.evaluate(() => (document.getElementById('main-content').innerText.match(/PCR Staff App 3\.5\.4/g) || []).length === 1));
   const st = await page.evaluate(() => { const e = document.querySelector('#pcr-credit .pcr-about-btn'), t = e.querySelector('.pcr-rasta'); const a = getComputedStyle(e), b = getComputedStyle(t), r = e.getBoundingClientRect(); return { op: +a.opacity, bg: a.backgroundColor, fs: parseFloat(a.fontSize), h: r.height, w: r.width, clip: b.webkitBackgroundClip || b.backgroundClip, img: b.backgroundImage, icon: !!t.querySelector('.fa-circle-info') }; });
   check('Rasta gradient text (red/yellow/green, clipped to text)', /text/.test(st.clip) && /255, 77, 77/.test(st.img) && /255, 210, 63/.test(st.img) && /47, 211, 95/.test(st.img), JSON.stringify(st));
   check('About button: small (≤10.5px text), see-through (opacity 0.75–0.85, translucent bg), tappable (≥32px)', st.fs <= 10.5 && st.op >= 0.75 && st.op <= 0.85 && /rgba\(.*0\.\d+\)/.test(st.bg) && st.h >= 32 && st.icon, JSON.stringify(st));

@@ -54,7 +54,7 @@ function check(n, c, x) { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL 
   // superadmin: users & roles — role counts (no seat limits, item 9 not chosen), live permissions
   await page.evaluate(() => { try { showLoginPanel && showLoginPanel(); } catch (e) {} });
   await page.reload({ waitUntil: 'load' }); await wait(500);
-  await page.fill('#login-email', 'it@paradisecoveresortfiji.com'); await page.fill('#login-password', '21slands');
+  await page.fill('#login-email', 'it@paradisecoveresortfiji.com'); await page.fill('#login-password', 'demo-super');
   await page.click('#login-form button[type=submit]'); await page.waitForFunction(() => state.user); await wait(1200);
   await page.evaluate(() => { try { closeModal(); } catch (e) {} });
   await page.evaluate(() => navigate('usersv3')); await wait(1200);

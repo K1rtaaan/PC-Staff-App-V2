@@ -122,7 +122,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
 
   // ---- superadmin
   cur = 'super';
-  await login('it@paradisecoveresortfiji.com', '21slands');
+  await login('it@paradisecoveresortfiji.com', 'demo-super');
   check('super nav', JSON.stringify(await navLabels()) === JSON.stringify(['Overview','Approvals','Manage','More']), await navLabels());
   await page.waitForTimeout(800); await shot('super-home');
   await nav('manage'); await shot('super-manage');

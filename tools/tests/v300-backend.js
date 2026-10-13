@@ -10,7 +10,7 @@ let store;
 function reset() {
   store = {
     Users: [
-      U('it@paradisecoveresortfiji.com', 'IT', 'IT', 'super_admin,admin', { password: '21slands', role: 'super_admin' }),
+      U('it@paradisecoveresortfiji.com', 'IT', 'IT', 'super_admin,admin', { password: 'demo-super', role: 'super_admin' }),
       U('it2.paradisecoveresort@gmail.com', 'Delai', 'IT', 'super_admin', { role: 'super_admin' }),
       U('ad1@x.com', 'Nicola', 'Management', 'staff,hod,admin'),
       U('chef1@x.com', 'Vicky', 'Kitchen', 'staff,chef'),
@@ -85,7 +85,7 @@ function login(email, pw) { const r = api('login', { email, password: pw }); ret
 const at = (iso) => { FAKE_NOW = iso; cache = {}; };
 
 // ---------- version / basics
-check('APP_VERSION is 3.5.2', R('APP_VERSION') === '3.5.2');
+check('APP_VERSION is 3.5.4', R('APP_VERSION') === '3.5.4');
 check('no stations / snapshots code left', typeof ctx.routeStations === 'undefined' && typeof ctx.routeSnapshots === 'undefined' && typeof ctx.stationLogin === 'undefined');
 check('appsscript.json has script.external_request (Brevo)', /script\.external_request/.test(fs.readFileSync(path.join(root, 'apps-script/appsscript.json'), 'utf8')));
 
@@ -99,7 +99,7 @@ check('HOD + admin → Admin Settings + Department Admin', run('roleButtons', ro
 check('staff → no role buttons', run('roleButtons', roles('staff1@x.com')).length === 0);
 
 // ---------- sessions: role powers need a signed token
-const tSuper = login('it@paradisecoveresortfiji.com', '21slands');
+const tSuper = login('it@paradisecoveresortfiji.com', 'demo-super');
 check('login returns a signed v3 token', /^v3\./.test(tSuper || ''));
 let r = api('getSuperDashboard', { requesterEmail: 'it@paradisecoveresortfiji.com' });
 check('claimed superadmin email WITHOUT token is refused + needsSignIn', r.success === false && r.needsSignIn === true);
@@ -110,9 +110,9 @@ check('tampered token → sessionExpired', r.success === false && r.sessionExpir
 const tStaff = login('staff1@x.com', 'pw-Ana');
 r = api('getSuperDashboard', { sessionToken: tStaff });
 check('staff token cannot open superadmin dashboard', r.success === false);
-check('superadmin password NOT reset by login / ensureSuperAdmin', (run('ensureSuperAdmin'), store.Users[0].password === '21slands') && (store.Users[0].password = 'changed', run('ensureSuperAdmin'), store.Users[0].password === 'changed'));
-store.Users[0].password = '21slands';
-const tSuper2 = login('it@paradisecoveresortfiji.com', '21slands');
+check('superadmin password NOT reset by login / ensureSuperAdmin', (run('ensureSuperAdmin'), store.Users[0].password === 'demo-super') && (store.Users[0].password = 'changed', run('ensureSuperAdmin'), store.Users[0].password === 'changed'));
+store.Users[0].password = 'demo-super';
+const tSuper2 = login('it@paradisecoveresortfiji.com', 'demo-super');
 check('code 2025 / 2026 alone never grant access', throws(() => run('requirePasscode', { passcode: '2026' }, 'super')) && throws(() => run('requirePasscode', { passcode: '2025' }, 'admin')));
 
 // ---------- role editing
@@ -333,7 +333,7 @@ check('no hard-coded Roasted Chicken default in the order code', !/mealChoice:\s
 
 // cancel-with-reason stores the reason; admin can notify a chosen user; chef cannot; admin direct message
 {
-  const tokS = login('it@paradisecoveresortfiji.com', '21slands'), tokC = login('chef1@x.com', 'pw-Vicky');
+  const tokS = login('it@paradisecoveresortfiji.com', 'demo-super'), tokC = login('chef1@x.com', 'pw-Vicky');
   store['Dinner Orders'].push({ id: 'tue2', serviceDate: '2026-09-29', userEmail: 'staff1@x.com', userName: 'Ana', department: 'Kitchen', mealChoice: 'Chicken Pizza', status: 'pending', late: false });
   store['Dinner Orders'].push({ id: 'tue3', serviceDate: '2026-09-29', userEmail: 'staff2@x.com', userName: 'Sami', department: 'Kitchen', mealChoice: 'Chicken Pizza', status: 'pending', late: false });
   let c = api('adminCancelMealOrder', { sessionToken: tokC, requesterEmail: 'chef1@x.com', meal: 'dinner', id: 'tue2', reason: 'x', notifyEmail: 'hod1@x.com' });

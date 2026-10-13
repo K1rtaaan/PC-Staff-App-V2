@@ -10,7 +10,7 @@ let store;
 function reset() {
   store = {
     Users: [
-      U('it@paradisecoveresortfiji.com', 'IT', 'IT', 'super_admin,admin', { password: '21slands', role: 'super_admin' }),
+      U('it@paradisecoveresortfiji.com', 'IT', 'IT', 'super_admin,admin', { password: 'demo-super', role: 'super_admin' }),
       U('it2.paradisecoveresort@gmail.com', 'Delai', 'IT', 'super_admin', { role: 'super_admin' }),
       U('ad1@x.com', 'Nicola', 'Management', 'staff,hod,admin'),
       U('chef1@x.com', 'Vicky', 'Kitchen', 'staff,chef'),
@@ -119,7 +119,7 @@ const clone2 = (o) => JSON.parse(JSON.stringify(o));
 ctx.r3NotifyMany = (rows) => rows.forEach(r => { ctx.a33FromNotif(r); store.Notifications.push(r); });
 ctx.UrlFetchApp.fetchAll = (reqs) => reqs.map(r => { pushSends.push(r); const code = typeof pushCode === 'function' ? pushCode(r) : pushCode; return { getResponseCode: () => code, getContentText: () => '' }; });
 store['Push Subscriptions'] = []; store['Push Queue'] = [];
-const tSuper = login('it@paradisecoveresortfiji.com', '21slands'), tChef = login('chef1@x.com', 'pw-Vicky'), tStaff = login('staff1@x.com', 'pw-Ana'), tStaff2 = login('staff2@x.com', 'pw-Sami'), tHod = login('hod1@x.com', 'pw-Praneel'), tCap = login('cap1@x.com', 'pw-Jone');
+const tSuper = login('it@paradisecoveresortfiji.com', 'demo-super'), tChef = login('chef1@x.com', 'pw-Vicky'), tStaff = login('staff1@x.com', 'pw-Ana'), tStaff2 = login('staff2@x.com', 'pw-Sami'), tHod = login('hod1@x.com', 'pw-Praneel'), tCap = login('cap1@x.com', 'pw-Jone');
 check('logins', tSuper && tChef && tStaff && tStaff2 && tHod && tCap);
 // keys + ES256
 let r = req('getPushConfig', {});

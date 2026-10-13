@@ -12,7 +12,7 @@ const roles = [
   ['chef-station','chef','kitchen2026'],
   ['boat-station','boat','boatcrew2026'],
   ['admin','admin@paradisecoveresortfiji.com','staff123'],
-  ['superadmin','it@paradisecoveresortfiji.com','21slands'],
+  ['superadmin','it@paradisecoveresortfiji.com','demo-super'],
 ];
 (async () => {
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });

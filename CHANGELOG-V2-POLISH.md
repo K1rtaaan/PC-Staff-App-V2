@@ -1,6 +1,12 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.5.3** (live; UI 3.5.3, API 3.5.2). Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.5.4** (live; UI + API 3.5.4). Revert any item later by asking for its ID (e.g. “revert C7”).
+
+## 3.5.4 — Superadmin password out of the code (2026-10-13, LIVE)
+
+| ID | Change |
+|----|--------|
+| C206 | The superadmin password is no longer in the code, the site, the demo data or the README. The backend reads Script Property `SUPERADMIN_PASSWORD` (only used to create the superadmin account if it is missing — sign-in uses the Users sheet as before; if the property is empty a random password is used and Forgot password resets it). Demo mode uses `demo-super`. The old password remains in git history → it must be changed. TEST builder injects the TEST password into `superadminPassword_()`. |
 
 ## 3.5.3 — Chef shortcut: Order for someone (2026-10-11, LIVE)
 
@@ -251,7 +257,7 @@ Version **3.5.3** (live; UI 3.5.3, API 3.5.2). Revert any item later by asking f
 
 - Live `SCRIPT_URL` (production Apps Script `/exec`)
 - GET-based `api()` (POST breaks phones)
-- Fiji UTC+12 cutoffs, staff directory robustness, alert email list, superadmin `it@paradisecoveresortfiji.com` / `21slands`
+- Fiji UTC+12 cutoffs, staff directory robustness, alert email list, superadmin `it@paradisecoveresortfiji.com` (password removed from the repo in 3.5.4)
 - V2 Sheet ID `1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM`
 - No changes to `/workspace/pcr-staff-app-v3` or Netlify reference folder
 

@@ -20,11 +20,12 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.5.2';
+var APP_VERSION = '3.5.4';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
-var SUPERADMIN_PASSWORD = '21slands';
+/** 3.5.4: never in code — Script Property SUPERADMIN_PASSWORD (only used to create the superadmin account if it is missing; sign-in uses the Users sheet). */
+function superadminPassword_() { try { return String(PropertiesService.getScriptProperties().getProperty('SUPERADMIN_PASSWORD') || ''); } catch (e) { return ''; } }
 var FIJI_OFFSET_MS = 12 * 60 * 60 * 1000; // UTC+12 (no DST for business rules)
 
 var DEFAULT_ALERT_EMAILS = [
@@ -982,6 +983,7 @@ function requireSuperadminPinIfSet(p) {
 function ensureSuperAdmin() {
   var u = findUserByEmail(SUPERADMIN_EMAIL);
   if (!u) {
+    var SUPERADMIN_PASSWORD = superadminPassword_() || Utilities.getUuid(); // 3.5.4: no password in code; random if the property is unset (use Forgot password)
     appendRow('Users', {
       id: uid('usr'),
       email: SUPERADMIN_EMAIL,

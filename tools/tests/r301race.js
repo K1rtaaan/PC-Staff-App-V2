@@ -43,7 +43,7 @@ function check(name, ok, info){ if (ok) { pass++; console.log('PASS', name); } e
     if (check2) check(cur + ': ' + check2[0], await page.evaluate(check2[1]));
   };
   const users = [['staff', 'ana.tui@paradisecoveresortfiji.com', 'staff123'], ['chef', 'kitchen@paradisecoveresortfiji.com', 'staff123'],
-    ['boat', 'boat.mgr@paradisecoveresortfiji.com', 'staff123'], ['super', 'it@paradisecoveresortfiji.com', '21slands']];
+    ['boat', 'boat.mgr@paradisecoveresortfiji.com', 'staff123'], ['super', 'it@paradisecoveresortfiji.com', 'demo-super']];
   for (const [k, email, pw] of users) {
     cur = k; await login(email, pw);
     await slow(['myBoatBookings', 'getBoatRuns', 'getReminders', 'getSuggestions', 'getUsers'], 1200);

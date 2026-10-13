@@ -50,7 +50,7 @@ code = resub(code, r"var SHEET_ID = '" + LIVE_ID + r"';[^\n]*",
              "var SHEET_ID = (function () { try { return String(PropertiesService.getScriptProperties().getProperty('TEST_SHEET_ID') || ''); } catch (e) { return ''; } })(); // TEST backend")
 code = resub(code, r"var APP_VERSION = '([^']+)';", r"var APP_VERSION = '\1-test';")
 code = resub(code, r"var SUPERADMIN_EMAIL = '[^']+';", "var SUPERADMIN_EMAIL = '" + TEST_SUPER + "'; // TEST superadmin")
-code = resub(code, r"var SUPERADMIN_PASSWORD = '[^']+';", "var SUPERADMIN_PASSWORD = '" + PW + "'; // TEST only")
+code = resub(code, r"function superadminPassword_\(\) \{[^\n]*\}", "function superadminPassword_() { return '" + PW + "'; } // TEST only")
 code = resub(code, r"var DEFAULT_ALERT_EMAILS = \[[^\]]*\];", "var DEFAULT_ALERT_EMAILS = ['" + TEST_ADMIN + "']; // TEST")
 code = resub(code, r"var LIVE_ROSTER_SHEET_ID = '[^']+';", "var LIVE_ROSTER_SHEET_ID = ''; // TEST: no live roster")
 code = sub(code, """function getSS() {

@@ -5,7 +5,7 @@
 const { chromium } = require('playwright-core');
 const BASE = process.env.BASE || 'http://127.0.0.1:8765/';
 const SITE = process.env.SITE || (BASE + '?demo=1');
-const EMAIL = process.env.EMAIL || 'it@paradisecoveresortfiji.com', PW = process.env.PW || '21slands', CODE = process.env.CODE || '2026';
+const EMAIL = process.env.EMAIL || 'it@paradisecoveresortfiji.com', PW = process.env.PW || 'demo-super', CODE = process.env.CODE || '2026';
 const TARGET = process.env.TARGET || 'ana.tui@paradisecoveresortfiji.com';
 const LSP = process.env.LSP || 'pcr_';
 let pass = 0, fail = 0; const errors = [];

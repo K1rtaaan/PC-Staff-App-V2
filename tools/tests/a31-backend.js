@@ -10,7 +10,7 @@ let store;
 function reset() {
   store = {
     Users: [
-      U('it@paradisecoveresortfiji.com', 'IT', 'IT', 'super_admin,admin', { password: '21slands', role: 'super_admin' }),
+      U('it@paradisecoveresortfiji.com', 'IT', 'IT', 'super_admin,admin', { password: 'demo-super', role: 'super_admin' }),
       U('it2.paradisecoveresort@gmail.com', 'Delai', 'IT', 'super_admin', { role: 'super_admin' }),
       U('ad1@x.com', 'Nicola', 'Management', 'staff,hod,admin'),
       U('chef1@x.com', 'Vicky', 'Kitchen', 'staff,chef'),
@@ -109,10 +109,10 @@ function req(action, p) {
 }
 const MSG = "Superadmin accounts can't place orders or bookings. Use a staff account.";
 const LOG = () => store['Admin Log'] || [];
-check('APP_VERSION is 3.5.2', R('APP_VERSION') === '3.5.2');
+check('APP_VERSION is 3.5.4', R('APP_VERSION') === '3.5.4');
 check('handleRequest goes through a31Handle', /a31Handle\(action, payload, routeAction\)/.test(fs.readFileSync(path.join(root, 'apps-script/Code.gs'), 'utf8')));
 
-const tSuper = login('it@paradisecoveresortfiji.com', '21slands');
+const tSuper = login('it@paradisecoveresortfiji.com', 'demo-super');
 const tDelai = login('it2.paradisecoveresort@gmail.com', 'pw-Delai');
 const tChef = login('chef1@x.com', 'pw-Vicky');
 const tHod = login('hod1@x.com', 'pw-Praneel');

@@ -58,7 +58,7 @@ async function patchPdfCapture(page) {
   await page.reload({ waitUntil: 'load' });
   await login(page, 'ana.tui@paradisecoveresortfiji.com', 'staff123');
   const ver = await page.evaluate(() => APP_VERSION);
-  check('APP_VERSION is 3.5.3', ver === '3.5.3', ver);
+  check('APP_VERSION is 3.5.4', ver === '3.5.4', ver);
 
   await page.evaluate(() => navigate('breakfast'));
   await page.waitForSelector('#bf-note');
@@ -103,7 +103,7 @@ async function patchPdfCapture(page) {
   await A.ctx.close();
 
   // ---------- Phase B: real time — kitchen + superadmin views
-  for (const who of [['chef', 'kitchen2026', 'kitchen'], ['it@paradisecoveresortfiji.com', '21slands', 'superadmin']]) {
+  for (const who of [['chef', 'kitchen2026', 'kitchen'], ['it@paradisecoveresortfiji.com', 'demo-super', 'superadmin']]) {
     const B = await newPage(browser, '2026-09-25T00:00:00Z');
     page = B.page;
     await page.goto(BASE + '?demo=1', { waitUntil: 'load' });
