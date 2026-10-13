@@ -2674,6 +2674,8 @@ function kitchenNoteOf(o) {
   var raw = String(o.notes || '')
     .replace(/\s*\|?\s*order declined please see hod or chef/gi, '')
     .replace(/^\s*\[On behalf by[^\]]*\]\s*/i, '')
+    .replace(/^\s*\[Ordered by[^\]]*\]\s*/i, '') // 3.6.0
+    .replace(/^\s*\[Late request by[^\]]*\].*$/i, '')
     .replace(/^\s*\[(Late request|Special by[^\]]*)\].*$/i, ''); // 3.0: the request reason is not a kitchen note
   return cleanSpecialNote(raw);
 }
@@ -2704,9 +2706,22 @@ function kitchenDisplayName(o, nameMap) {
 }
 
 /** Adds specialNote / noteFlag / displayName to each order row (in place). */
+/** 3.6.0: who placed an Order on behalf / leader late request ('' for own orders). */
+function orderedByOf(o) {
+  if (!o) return '';
+  if (o.orderedBy) return String(o.orderedBy);
+  var m = String(o.notes || '').match(/^\s*\[(?:Ordered|Late request) by ([^\]]+)\]/i);
+  return m ? m[1].trim() : '';
+}
+/** 3.6.0: kitchen note with "Ordered by X" in front (prep list, summaries, PDFs). Never doubled. */
+function noteWithBy(o, n) {
+  var by = orderedByOf(o);
+  if (!by || /ordered by/i.test(n || '')) return n || '';
+  return 'Ordered by ' + by + (n ? ' · ' + n : '');
+}
 function decorateOrderNotes(orders, nameMap) {
   (orders || []).forEach(function (o) {
-    var n = kitchenNoteOf(o);
+    var n = noteWithBy(o, kitchenNoteOf(o));
     o.specialNote = n;
     o.noteFlag = noteFlag(n);
     o.displayName = kitchenDisplayName(o, nameMap);
@@ -2724,7 +2739,7 @@ function kitchenNoteEntries(meal, orders, nameMap) {
   (orders || []).forEach(function (o) {
     var st = String(o.status || '');
     if (st === 'cancelled' || st === 'rejected' || st === 'declined') return;
-    var note = kitchenNoteOf(o);
+    var note = noteWithBy(o, kitchenNoteOf(o));
     if (!note) return;
     var key = String(o.userEmail || '').trim().toLowerCase() || String(o.id);
     if (seen[key]) return;
