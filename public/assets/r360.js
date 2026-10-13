@@ -10,7 +10,7 @@ function r36PersonFields(w){
 }
 function r36BindPerson(){ const s = $('#r36-who'); const f = function(){ $('#r36-free').classList.toggle('hidden', !!s.value); }; s.onchange = f; f(); }
 function r36PersonPayload(){
-  const em = $('#r36-who').value; if (em) return { userEmail: em };
+  const em = $('#r36-who').value; if (em) return { targetEmail: em };
   const d = $('#r36-dept').value;
   return d === '__contractor' ? { guestName: $('#r36-name').value.trim(), guestType: 'contractor' } : { guestName: $('#r36-name').value.trim(), department: d };
 }

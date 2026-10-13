@@ -24,6 +24,8 @@ let pass = 0, fail = 0; const check = (n, c, x) => { c ? pass++ : fail++; consol
     const r1 = await p.evaluate(([n, dn]) => api('placeOrderOnBehalf', { guestName: n, mealChoice: dn }), [nm, dn]); check('HOD orders on behalf (own dept)', r1 && r1.success, JSON.stringify(r1));
     const r2 = await p.evaluate(([n, dn]) => api('placeOrderOnBehalf', { guestName: n, mealChoice: dn }), [nm, dn]); check('duplicate refused', r2 && !r2.success && /already/.test(r2.error), JSON.stringify(r2));
     const r3 = await p.evaluate(([n, dn]) => api('placeOrderOnBehalf', { guestName: n + 'x', department: 'Boat', mealChoice: dn }), [nm, dn]); check('HOD other dept refused', r3 && !r3.success, JSON.stringify(r3));
+    const st = (d.people || []).find(x => /t-staff|t-asst/.test(x.email));
+    if (st) { const r4 = await p.evaluate(([e, dn]) => api('placeOrderOnBehalf', { targetEmail: e, mealChoice: dn }), [st.email, dn]); check('HOD orders for a registered team member (' + st.email + ')', r4 && (r4.success || /already has/.test(r4.error)) && (!r4.success || r4.data.order.userEmail === st.email), JSON.stringify(r4).slice(0, 200)); }
     await login('chef');
     const pl = await p.evaluate((s) => api('getDinnerPrepList', { serviceDate: s }), sd);
     const js = JSON.stringify(pl); check('prep list has the order marked "Ordered by"', js.indexOf(nm) >= 0 && /Ordered by/.test(js), js.slice(0, 200));

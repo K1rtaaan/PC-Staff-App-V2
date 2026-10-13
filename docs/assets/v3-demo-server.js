@@ -2510,7 +2510,7 @@ function r36Leader(r) { return !!r && (isDeptLead(r) || isAdminPerm(r) || (typeo
 function r36AnyDept(r) { return isAdminPerm(r) || isChefPerm(r) || (typeof isSuperPerm === 'function' && isSuperPerm(r)); }
 /** Who the meal is for: registered user (userEmail) or free-text name + department / Contractor. Refuses duplicates for that dinner. */
 function r36Target(r, p, sd) {
-  var em = String(p.userEmail || '').trim().toLowerCase(), any = r36AnyDept(r), row = {};
+  var em = String(p.targetEmail || '').trim().toLowerCase(), any = r36AnyDept(r), row = {};
   if (em) {
     var u = findUserByEmail(em);
     if (!u) return { error: 'Staff member not found' };
