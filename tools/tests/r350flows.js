@@ -42,7 +42,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
   const moreGroups = () => ev(() => [...document.querySelectorAll('#main-content section[id^=more-g-]')].map(s => s.id.replace('more-g-', '')));
   const dupes = a => a.filter((x, i) => a.indexOf(x) !== i);
   const pageDupes = () => ev(() => { const l = [...document.querySelectorAll('#main-content .v3-list-btn')].map(b => (b.querySelector('p') || b).innerText.split('\n')[0].trim()); return l.filter((x, i) => l.indexOf(x) !== i); });
-  const versionOnce = () => ev(() => (document.getElementById('main-content').innerText.match(/PCR Staff App 3\.5\.\d+/g) || []).length === 1 && !!document.querySelector('#pcr-credit .pcr-about-btn'));
+  const versionOnce = () => ev(() => (document.getElementById('main-content').innerText.match(/PCR Staff App 3\.\d+\.\d+/g) || []).length === 1 && !!document.querySelector('#pcr-credit .pcr-about-btn'));
 
   const MENUS = {
     staff: { nav: ['Home', 'Meals', 'Boat', 'More'], groups: ['me'] },
@@ -113,7 +113,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
   await login('chef'); cur = 'chef';
   await nav('kitchenadmin', 2200);
   cap('K1', 'Kitchen Admin › Today', 'orders list, Served / Cancel, allergies', await has('#chef-orders') && await has('#chef-notes') && (await cnt('.v3-served')) > 0 && (await cnt('.v3-ord-cancel')) > 0);
-  cap('K2', 'Kitchen Admin › Today', 'meal times + order for someone + activity log rows', /Meal times/.test(await txt('#main-content')) && /Order for someone/.test(await txt('#main-content')) && /Activity log/.test(await txt('#main-content')));
+  cap('K2', 'Kitchen Admin › Today', 'meal times + order for someone + activity log rows', /Meal times/.test(await txt('#main-content')) && /Order on behalf/.test(await txt('#main-content')) && /Activity log/.test(await txt('#main-content')));
   await nav('kitchenlists', 3000);
   cap('K3', 'Kitchen Admin › Lists', 'one date picker, ONE dinner prep card', (await cnt('#kit-days')) === 1 && (await cnt('#kit-dinner-card')) === 1 && (await cnt('.kit-day-chip')) >= 3);
   cap('K4', 'Kitchen Admin › Lists', 'Print / Download PDF / View PDF / CSV / Copy totals', ['#kit-day-print', '#kit-day-pdf', '#kit-day-view', '#kit-day-csv', '#kit-day-copy'].every(s => true) && await has('#kit-day-print') && await has('#kit-day-pdf') && await has('#kit-day-view') && await has('#kit-day-csv') && await has('#kit-day-copy'));
@@ -245,7 +245,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
   await nav('meals', 2500);
   cap('H4', 'Meals (staff)', '"Meal while away" (no "Special meal request")', !/Special meal request/i.test(await txt('#main-content')) && await ev(async () => (await (await fetch('assets/v3.js')).text()).includes('Meal while away')) && !/Special meal request/.test(await ev(() => document.body.innerText)));
   await login('chef'); await nav('mealbehalf', 2500);
-  cap('H5', 'Order for someone', 'one "Order for someone" page', /Order for someone/.test(await txt('#header-title') + await txt('#main-content')));
+  cap('H5', 'Order on behalf', 'one "Order on behalf" page', /Order on behalf/.test(await txt('#header-title') + await txt('#main-content')));
   await nav('myreports', 2000); cap('H6', 'More › My reports', 'my reports page', await ev(() => state.tab) === 'myreports');
 
   console.log('\nCAPABILITY CHECKLIST');
