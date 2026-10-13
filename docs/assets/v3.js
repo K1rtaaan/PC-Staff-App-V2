@@ -694,7 +694,7 @@ navItems = function(){
 const V3_ROLE_TABS = {
   kitchenadmin:'kitchen', kitchen:'kitchen', chefreq:'kitchen', chefmenu:'kitchen', chefcomments:'kitchen', mealtimes:'kitchen', mealstats:'kitchen', special:'kitchen', offmenu:'kitchen',
   boatadmin:'boat', boatruns:'boat', emergency:'boat', resortboat:'boat',
-  deptadmin:'dept', approvals:'dept', deptstaff:'dept', deptupdatespost:'dept', leavecal:'dept', leavesummary:'dept', mealbehalf:'dept',
+  latemeal:'dept', deptadmin:'dept', approvals:'dept', deptstaff:'dept', deptupdatespost:'dept', leavecal:'dept', leavesummary:'dept', mealbehalf:'dept',
   adminhub:'admin', usersv3:'admin', users:'admin', reminders:'admin', suggestions:'admin', adminstatus:'admin', settings:'admin', admin:'admin', manage:'admin', migrate:'admin',
   adminoverview:'admin', admintools:'admin', aboutimage:'admin', // 3.2.0
   kitchenlists:'kitchen', kitchenapprovals:'kitchen', boatemergency:'boat', people:'dept', peoplelinks:'dept', leavelist:'dept', system:'admin' // 3.5.0 hubs
@@ -947,15 +947,17 @@ function v351OpenBoat(t){
 /* 3.5.1: role shortcuts on Home — only for roles the user really holds (admin → Admin + Approvals, chef → Kitchen Admin,
    HOD / assistant HOD → Approvals + Department, boat manager / captain → Boat Admin). One tile per page, never twice. */
 function v351RoleShortcuts(){
-  if (v3IsSuper()) return [];
   const out = [], seen = {}, cnt = (typeof v35ApCount === 'function') ? v35ApCount() : 0;
   const add = function(tab, icon, label, sub, n, go){ if (seen[tab]) return; seen[tab] = 1; out.push(v3Tile(go || ("navigate('"+tab+"')"), icon, label, sub, n).replace('class="v3-tile ', 'data-tab="'+tab+'" class="v3-tile v351-role ')); };
-  const admin = v3Has('admin'), lead = v3Has('hod') || v3IsAsst(), chef = v3IsChef(), boat = v3Has('boat_manager') || v3Has('boat_captain');
+  const sup = v3IsSuper(), admin = v3Has('admin'), lead = v3Has('hod') || v3IsAsst(), chef = v3IsChef(), boat = v3Has('boat_manager') || v3Has('boat_captain');
+  // 3.6.0 (Pranav): Order on behalf (HOD / asst / admin / superadmin / chef) + Late meal request (HOD / asst / admin / superadmin)
+  if (sup || admin || lead || chef) add('mealbehalf', 'fa-star', 'Order on behalf', "Tomorrow's dinner", 0, "state._mbBack='home';navigate('mealbehalf')");
+  if (sup || admin || lead) add('latemeal', 'fa-clock', 'Late meal request', 'Today, until 4pm', 0, "state._mbBack='home';navigate('latemeal')");
+  if (sup) return out;
   if (admin || lead) add('approvals', 'fa-inbox', 'Approvals', admin ? 'All departments' : 'My department', cnt);
   if (admin) add('adminhub', 'fa-user-shield', 'Admin', 'People, leave, system');
   if (lead) add('deptadmin', 'fa-people-roof', 'Department', 'My team, roster');
   if (chef) add('kitchenadmin', 'fa-fire-burner', 'Kitchen Admin', 'Lists, menu, reports');
-  if (chef) add('mealbehalf', 'fa-star', 'Order for someone', 'Staff without a phone', 0, "state._mbBack='kitchenadmin';navigate('mealbehalf')"); // 3.5.3 (Pranav): chef shortcut, once
   if (boat) add('boatadmin', 'fa-anchor', 'Boat Admin', 'Runs, resort boat, emergency');
   return out;
 }
@@ -1684,7 +1686,7 @@ async function v3RenderKitchenAdmin(){ // 3.5.0: Kitchen Admin › Today — ord
       '<p class="text-[11px] text-slate-400 px-1" id="ka-times"><i class="fa-solid fa-clock mr-1"></i>Dinner closes '+esc(dinnerCutLabel())+' the day before · late requests until '+esc(mtLabel(mealTimesNow().late_close_dinner))+' (auto-approved then) · breakfast & lunch close '+esc(mtLabel(mealTimesNow().breakfast_cutoff))+' / '+esc(mtLabel(mealTimesNow().lunch_cutoff))+'.</p>'+
       '<div id="chef-orders">'+(state._chefOrdersHtml||v3Card(v3Loading()))+'</div><div id="chef-notes">'+(state._chefNotesHtml||'')+'</div>'+
       '<section class="glass rounded-2xl overflow-hidden" id="ka-more">'+v3Row(v3Nav('mealtimes'),'fa-clock','Meal times','Cutoffs & late windows')+
-        v3Row("state._mbBack='kitchenadmin';navigate('mealbehalf')",'fa-star','Order for someone','Staff without a phone · contractors')+
+        v3Row("state._mbBack='kitchenadmin';navigate('mealbehalf')",'fa-star','Order on behalf','Tomorrow\'s dinner · contractors')+
         v3Row(a31LogNav('kitchen'),'fa-clock-rotate-left','Activity log','Who changed what in the kitchen')+'</section>', 'chef-root');
     v3BindChefOrders();
   };
@@ -2337,7 +2339,7 @@ const A32_GUIDES = { // 3.5.0: texts follow the new layout
     { icon:'fa-users', title:'People', body:'Your department’s accounts: edit details, link GL numbers, remove someone who moved, and the roster links.' },
     { icon:'fa-calendar-days', title:'Leave overview', body:'Calendar and list of approved and waiting leave, with a CSV download.' },
     { icon:'fa-bullhorn', title:'Announcements', body:'Post an update for your department. Staff see it in Inbox → Announcements and on Home.' },
-    { icon:'fa-star', title:'Order for someone', body:'Order a meal for a staff member who can’t use the app (for example no phone).' } ] },
+    { icon:'fa-star', title:'Order on behalf', body:'Order tomorrow\'s dinner for staff or a contractor (Home › Order on behalf). Late meal request (until 4pm) needs the chef.' } ] },
   admin: { title:'Admin', steps: [
     { icon:'fa-chart-line', title:'Overview', body:'Meals, approvals waiting, boat load and people at the top of the Admin page.' },
     { icon:'fa-users-gear', title:'People', body:'All users by department: roles, codes, active, add user, import CSV, sign-ups, CSV export and roster links.' },
@@ -3002,7 +3004,8 @@ setTimeout(function(){
   try { if (typeof state === 'undefined' || state.demo || /[?&]demo=1/.test(location.search) || typeof api !== 'function') return; } catch (e) { return; }
   api('getDepartments', {}).then(function(r){ if (r && r.success && r.data && Array.isArray(r.data.departments)) { try { localStorage.setItem('pcr_depts_340', JSON.stringify(r.data.departments)); } catch (e) {} if (typeof pcrMergeDepartments === 'function') pcrMergeDepartments(r.data.departments); } }).catch(function(){});
 }, 1200);
-function r34On(){ return !!state.user && !v3IsSuper() && featureOn('feature_my_schedule'); }
+function r34On(){ return !!state.user && !v3IsSuper() && featureOn('feature_my_schedule') && r36SchedAllowed(); }
+function r36SchedAllowed(){ return !featureOn('feature_schedule_leaders') || v3IsSuper() || v3Has('admin') || v3Has('hod') || v3IsAsst(); } // 3.6.0 leaders-only mode
 (function(){
   const baseNav = navItems;
   navItems = function(){
@@ -4181,7 +4184,7 @@ function v35Navigate(tab){
   if (v3IsSuper() && A31_SUPER_NO_TABS[tab]) { toast(A31_SUPER_TOAST,'error'); tab = 'home'; }
   if (tab === 'adminlog' && !a31CanArea(state.logArea || 'admin')) { const a = V35_LOG_AREAS.find(a31CanArea); if (a) state.logArea = a; }
   if (!canPrivilegedTab(tab)) { toast('That area is not part of your role','error'); tab = 'home'; }
-  if (tab === 'schedule' && !featureOn('feature_my_schedule')) { toast('My Schedule is off for now.','error'); tab = 'more'; }
+  if (tab === 'schedule' && (!featureOn('feature_my_schedule') || !r36SchedAllowed())) { toast('My Schedule is off for now.','error'); tab = 'more'; }
   if (state._v3Timer) { clearInterval(state._v3Timer); state._v3Timer = null; }
   if (state._homeRemTimer) { clearInterval(state._homeRemTimer); state._homeRemTimer = null; }
   V35.tok++; // stale renders compare their token and never paint over the next page
@@ -4190,7 +4193,7 @@ function v35Navigate(tab){
   if (tab === 'approvals') state._roleMode = v3IsSuper() || v3IsAdmin() ? 'admin' : (v3CanDept() ? 'dept' : (v3CanChef() ? 'kitchen' : 'boat'));
   if (tab === 'adminlog') state._roleMode = state.logArea || 'admin';
   if (state._roleMode === 'dept' && v3IsAdmin() && ['people','peoplelinks','leavelist','leavecal','empcodes','rosterunmatched'].indexOf(tab) >= 0) state._roleMode = 'admin'; // admin work is logged in the Admin area
-  if (tab !== 'mealbehalf' && tab !== 'mealtimes') state._mbBackKeep = false;
+  if (tab !== 'mealbehalf' && tab !== 'latemeal' && tab !== 'mealtimes') state._mbBackKeep = false;
   const hub = v35HubOf(tab);
   const ht = $('#header-title'); if (ht) ht.textContent = hub ? V35_HUBS[hub].title : (V3_TITLES[tab] || tab);
   const sticky = $('#app-sticky'); if (sticky) sticky.classList.remove('hidden');
@@ -4199,7 +4202,7 @@ function v35Navigate(tab){
     history: v3RenderHistory, leave: v3RenderLeave, inbox: v3RenderNotifications, announcements: v35RenderAnnouncements, pushsettings: a33RenderSettings, myreports: a32RenderMyReports,
     approvals: function(){ return v35RenderApprovals('all'); },
     kitchenadmin: v3RenderKitchenAdmin, kitchenlists: v35RenderKitchenLists, kitchenapprovals: function(){ return v35RenderApprovals('kitchen'); }, chefmenu: v3RenderMenuEditor,
-    mealstats: v3RenderMealStats, chefcomments: v3RenderChefComments, offmenu: v3RenderOffMenu, mealtimes: v3RenderMealTimes, mealbehalf: v3RenderSpecialPage,
+    mealstats: v3RenderMealStats, chefcomments: v3RenderChefComments, offmenu: v3RenderOffMenu, mealtimes: v3RenderMealTimes, mealbehalf: function(){ return r36RenderBehalf(); }, latemeal: function(){ return r36RenderLate(); },
     boatadmin: v3RenderBoatAdmin, resortboat: r33RenderResortAdmin, boatemergency: function(){ return v35RenderApprovals('boat'); },
     deptadmin: v35RenderDeptPage, adminhub: v35RenderAdminPage, manage: v35RenderManage, system: v35RenderSystem,
     people: v3RenderUsers, peoplelinks: s34RenderDeptStaff, empcodes: r34RenderEmpCodes, rosterunmatched: r34RenderUnmatched,
@@ -4222,18 +4225,19 @@ function v35Navigate(tab){
   a32AfterNav(tab);
 }
 /** every page key that has a renderer (used by the hash check on start) */
-const V35_PAGES = ['home','meals','boat','more','profile','schedule','history','leave','inbox','announcements','pushsettings','myreports','approvals','kitchenadmin','kitchenlists','kitchenapprovals','chefmenu','mealstats','chefcomments','offmenu','mealtimes','mealbehalf',
+const V35_PAGES = ['home','meals','boat','more','profile','schedule','history','leave','inbox','announcements','pushsettings','myreports','approvals','kitchenadmin','kitchenlists','kitchenapprovals','chefmenu','mealstats','chefcomments','offmenu','mealtimes','mealbehalf','latemeal',
   'boatadmin','resortboat','boatemergency','deptadmin','adminhub','manage','system','people','peoplelinks','empcodes','rosterunmatched','leavecal','leavelist','suggestions','adminstatus','migrate','aboutimage','adminlog','reports','rostermonthly','rosterweekly','rosterarchive','leaveallow'];
 Object.assign(V3_TITLES, { approvals:'Approvals', kitchenlists:'Kitchen Admin', kitchenapprovals:'Kitchen Admin', boatemergency:'Boat Admin', people:'People', peoplelinks:'People',
   inbox:'Inbox', announcements:'Inbox', leavelist:'Leave overview', leavecal:'Leave overview', system:'System', adminhub:'Admin', deptadmin:'Department', manage:'Manage',
-  mealbehalf:'Order for someone', special:'Order for someone', history:'My history', adminlog:'Activity log', kitchenadmin:'Kitchen Admin', boatadmin:'Boat Admin', resortboat:'Boat Admin',
+  mealbehalf:'Order on behalf', special:'Order on behalf', latemeal:'Late meal request', history:'My history', adminlog:'Activity log', kitchenadmin:'Kitchen Admin', boatadmin:'Boat Admin', resortboat:'Boat Admin',
   chefmenu:'Kitchen Admin', mealstats:'Kitchen Admin', chefcomments:'Kitchen Admin', offmenu:'Kitchen Admin', pushsettings:'Inbox', empcodes:'People', rosterunmatched:'People' });
 (function(){
   const base = canPrivilegedTab;
   canPrivilegedTab = function(tab){
     const t = v35Target(tab).tab;
     if (t === 'approvals') return v3IsSuper() || v3CanDept() || v3CanChef() || v3HasBoat();
-    if (t === 'mealbehalf') return v3CanDept() || v3CanChef();
+    if (t === 'mealbehalf') return v3CanDept() || v3CanChef() || v3IsSuper();
+    if (t === 'latemeal') return v3CanDept() || v3IsAdmin() || v3IsSuper();
     if (t === 'people' || t === 'peoplelinks' || t === 'rosterunmatched' || t === 'leavecal' || t === 'leavelist') return v3CanDept();
     if (t === 'empcodes' || t === 'system') return v3IsAdmin();
     if (t === 'kitchenlists' || t === 'kitchenapprovals') return v3CanChef();
@@ -4316,7 +4320,7 @@ function v35RenderDeptPage(){
     v3Row(v3Nav('leavecal'),'fa-calendar-days','Leave overview','Calendar · list · CSV') +
     v3Row(v3Nav('announcements'),'fa-bullhorn','Announcements','Post to your department') +
     (featureOn('feature_my_schedule') ? v3Row(v3Nav('rosterweekly'),'fa-calendar-week','Weekly roster','Upload Mon–Sun, before the week') : '') +
-    v3Row("state._mbBack='deptadmin';navigate('mealbehalf')",'fa-star','Order for someone','Staff without a phone · contractors') +
+    v3Row("state._mbBack='deptadmin';navigate('mealbehalf')",'fa-star','Order on behalf','Tomorrow\'s dinner · contractors') +
     v3Row(a31LogNav('dept'),'fa-clock-rotate-left','Activity log','Who changed what');
   $('#main-content').innerHTML = v3Page((v3IsSuper() ? v3Back('manage','Manage') : v3Back('more','More')) +
     '<p class="text-xs text-slate-400 px-1">'+(v3IsAdmin() ? 'All departments (admin)' : esc((state.user||{}).department||''))+'</p>'+v3HodBar()+
@@ -4375,7 +4379,7 @@ function v35BindSummaries(pfx){
     toast('Summaries checked','ok');
   };
 }
-const V35_FLAGS = [['feature_my_schedule','My Schedule','Schedule tab, rosters, own leave in Schedule'],['feature_live_roster','Live roster','External roster sheet (read-only)'],['feature_leave_escalation','Leave escalation','HOD → managers by email']];
+const V35_FLAGS = [['feature_my_schedule','My Schedule','Schedule tab, rosters, own leave in Schedule'],['feature_schedule_leaders','Schedule: leaders only','With My Schedule on, only HOD / asst HOD / admin see it'],['feature_live_roster','Live roster','External roster sheet (read-only)'],['feature_leave_escalation','Leave escalation','HOD → managers by email']];
 async function v35RenderSystem(){
   const tk = V35.tok, sup = v3IsSuper(), s = state.appSettings || {};
   const prov = s.mail_provider === 'brevo' ? 'brevo' : 'mailapp';

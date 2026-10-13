@@ -274,7 +274,7 @@ function mealTick(force) {
       if (!lock2.tryLock(15000)) return;
       try {
         if (!r3PropDone(key)) {
-          var rows = sheetToObjects(V3_MEAL_SHEETS[meal]).filter(function (o) { return v3Date(o.serviceDate) === d && String(o.status) === 'late_pending'; });
+          var rows = sheetToObjects(V3_MEAL_SHEETS[meal]).filter(function (o) { return v3Date(o.serviceDate) === d && String(o.status) === 'late_pending' && String(o.orderType || '') !== 'late_leader'; }); // 3.6.0: leader late requests wait for the chef
           var n = r3ApproveRows(meal, rows, 'late_approved', 'auto-approved at ' + r3Label(t['late_close_' + meal]));
           if (meal === 'dinner') {
             var row2 = dsumSaveSnapshot(d, true, 'final', 'final list after late requests (' + t.late_close_dinner + ')'); if (typeof a33SummarySaved === 'function') a33SummarySaved(d, 'final');

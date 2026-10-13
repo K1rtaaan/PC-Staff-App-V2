@@ -62,6 +62,8 @@ var A31_LOGGED = {
   decideAllMealRequests: ['kitchen', a31MealSheets, ''],
   markChefFeedback: ['kitchen', ['Chef Feedback'], ''],
   placeSpecialMeal: ['kitchen', a31MealSheets, ''],
+  placeOrderOnBehalf: ['kitchen', ['Dinner Orders'], ''],
+  requestLateOnBehalf: ['kitchen', ['Dinner Orders'], ''],
   saveDinnerSummary: ['kitchen', [], 'A saved summary / PDF cannot be un-saved.'],
   // Boat Admin
   saveBoatRun: ['boat', ['Boat Runs'], ''],

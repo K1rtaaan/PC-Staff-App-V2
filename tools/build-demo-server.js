@@ -2,7 +2,7 @@
 // Run: node tools/build-demo-server.js  (also part of `npm run build`)
 const fs = require('fs'), path = require('path');
 const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'apps-script', f), 'utf8');
-const src = read('V3.gs') + '\n' + read('Release3.gs') + '\n' + read('Admin31.gs') + '\n' + read('Reports31.gs') + '\n' + read('Resort33.gs'); // 3.3.0: + resort boat // 3.1.0: + admin log / superadmin rules
+const src = read('V3.gs') + '\n' + read('Release3.gs') + '\n' + read('Admin31.gs') + '\n' + read('Reports31.gs') + '\n' + read('Resort33.gs') + '\n' + read('Behalf36.gs'); // 3.3.0: + resort boat // 3.1.0: + admin log / superadmin rules
 const shim = ['APP_VERSION','ORDER_HEADERS','SHEET_ID','SUPERADMIN_EMAIL','WEEKDAY_NAMES','addFijiDays','appendRow','breakfastCutoffInfo',
   'cachedRows','cleanSpecialNote','countedMealStatus','countsInBreakfastTotal','dinnerCutoffInfo','displayUserName','ensureColumns','ensureSheet',
   'fijiDateString','findOrder','findUserByEmail','formatFiji','getDinnerMenus','getFijiNow','getRequester','getSS','getSetting','isAdminPerm',

@@ -40,7 +40,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
     await ev(() => { const n = document.getElementById('a31-notice-ok'); if (n) n.click(); const p = document.getElementById('a33-later'); if (p) p.click(); try { closeModal(); } catch (e) {} });
   };
 
-  const EXP = { staff: [], hod: ['approvals', 'deptadmin'], chef: ['kitchenadmin', 'mealbehalf'], captain: ['boatadmin'], boatmgr: ['boatadmin'], admin: ['approvals', 'adminhub'] };
+  const EXP = { staff: [], hod: ['mealbehalf', 'latemeal', 'approvals', 'deptadmin'], chef: ['mealbehalf', 'kitchenadmin'], captain: ['boatadmin'], boatmgr: ['boatadmin'], admin: ['mealbehalf', 'latemeal', 'approvals', 'adminhub'] };
   for (const role of Object.keys(EXP)) {
     await login(role);
     await nav('home', 1800);
@@ -73,7 +73,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
   cur = 'multi';
   const multi = await ev(() => { const keep = v3Has; window.v3Has = function(r){ return ['admin', 'hod', 'chef', 'boat_manager', 'boat_captain'].indexOf(r) >= 0 || keep(r); };
     try { return [...new DOMParser().parseFromString(v351RoleShortcuts().join(''), 'text/html').querySelectorAll('[data-tab]')].map(b => b.dataset.tab); } finally { window.v3Has = keep; } });
-  check('admin + HOD + chef + boat: each shortcut once', multi.join(',') === 'approvals,adminhub,deptadmin,kitchenadmin,mealbehalf,boatadmin', multi.join(','));
+  check('admin + HOD + chef + boat: each shortcut once', multi.join(',') === 'mealbehalf,latemeal,approvals,adminhub,deptadmin,kitchenadmin,boatadmin', multi.join(','));
   check('no page errors', errors.length === 0, errors.join(' | '));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   await browser.close(); process.exit(fail ? 1 : 0);

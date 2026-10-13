@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.5.4';
+var APP_VERSION = '3.6.0';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -41,7 +41,8 @@ var ALL_PERMISSIONS = ['super_admin', 'admin', 'hod', 'assistant_hod', 'boat_man
 var FEATURE_DEFAULTS = {
   feature_live_roster: 'false',
   feature_leave_escalation: 'false',
-  feature_my_schedule: 'false'
+  feature_my_schedule: 'false',
+  feature_schedule_leaders: 'false' // 3.6.0: true = Schedule only for HOD / asst HOD / admin / superadmin
 };
 var LIVE_ROSTER_SHEET_ID = '1n5onxR-Ww-0oDdPWDDUvRWuzKd-UGF51tBERtZfAcZM';
 
@@ -931,7 +932,8 @@ function getAppSettings(p) {
   return { success: true, data: { settings: settings, features: {
     feature_live_roster: isFeatureEnabled('feature_live_roster'),
     feature_leave_escalation: isFeatureEnabled('feature_leave_escalation'),
-    feature_my_schedule: isFeatureEnabled('feature_my_schedule')
+    feature_my_schedule: isFeatureEnabled('feature_my_schedule'),
+    feature_schedule_leaders: isFeatureEnabled('feature_schedule_leaders')
   } } };
 }
 

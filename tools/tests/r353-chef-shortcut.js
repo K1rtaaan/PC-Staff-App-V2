@@ -17,8 +17,8 @@ let pass = 0, fail = 0; const check = (n, c, x) => { c ? pass++ : fail++; consol
   const tabs = () => p.evaluate(() => [...document.querySelectorAll('#home-role-actions [data-tab]')].map(e => e.dataset.tab));
   await login('kitchen@paradisecoveresortfiji.com');
   const t = await tabs();
-  check('chef: My roles = Kitchen Admin + Order for someone', t.join(',') === 'kitchenadmin,mealbehalf', t.join(','));
-  check('chef: Order for someone once on Home', await p.evaluate(() => (document.getElementById('main-content').innerText.match(/Order for someone/g) || []).length) === 1);
+  check('chef: My roles = Kitchen Admin + Order for someone', t.join(',') === 'mealbehalf,kitchenadmin', t.join(','));
+  check('chef: Order for someone once on Home', await p.evaluate(() => (document.getElementById('main-content').innerText.match(/Order on behalf/g) || []).length) === 1);
   for (const w of [390, 320]) {
     await p.setViewportSize({ width: w, height: 844 }); await p.waitForTimeout(300);
     check(w + 'px: no sideways scroll', await p.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1));
@@ -27,12 +27,12 @@ let pass = 0, fail = 0; const check = (n, c, x) => { c ? pass++ : fail++; consol
   }
   await p.setViewportSize({ width: 390, height: 844 });
   await p.click('#home-role-actions [data-tab="mealbehalf"]'); await p.waitForTimeout(1800);
-  check('tap opens the Order for someone page', await p.evaluate(() => state.tab === 'mealbehalf') && /Order for someone/.test(await p.innerText('body')), await p.evaluate(() => state.tab));
+  check('tap opens the Order for someone page', await p.evaluate(() => state.tab === 'mealbehalf') && /Order on behalf/.test(await p.innerText('body')), await p.evaluate(() => state.tab));
   if (SHOTS) await p.screenshot({ path: `${SHOTS}/chef-order-for-someone-390.png` });
   await login('ana.tui@paradisecoveresortfiji.com');
   check('staff: no role shortcuts', (await tabs()).length === 0);
   await login('admin@paradisecoveresortfiji.com');
-  check('admin (no chef role): unchanged Approvals + Admin', (await tabs()).join(',') === 'approvals,adminhub', (await tabs()).join(','));
+  check('admin (no chef role): unchanged Approvals + Admin', (await tabs()).join(',') === 'mealbehalf,latemeal,approvals,adminhub', (await tabs()).join(','));
   check('no page errors', errs.length === 0, errs.join(' | ')); check('no live backend calls', live === 0, live);
   console.log(pass + ' passed, ' + fail + ' failed'); await b.close(); process.exit(fail ? 1 : 0);
 })();

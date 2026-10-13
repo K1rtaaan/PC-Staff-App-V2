@@ -12,7 +12,7 @@
 
 /** Permissions an admin can assign (same set as 2.x ALL_PERMISSIONS). */
 var V3_ASSIGNABLE_PERMS = ['staff', 'hod', 'assistant_hod', 'chef', 'boat_manager', 'boat_captain', 'admin', 'super_admin'];
-var V3_ORDER_COLS = ['orderType', 'reason', 'requestedBy', 'guestName', 'guestCompany', 'decidedBy', 'decidedAt', 'cancelReason', 'cancelledAt', 'cancelledBy'];
+var V3_ORDER_COLS = ['orderType', 'reason', 'requestedBy', 'guestName', 'guestCompany', 'decidedBy', 'decidedAt', 'cancelReason', 'cancelledAt', 'cancelledBy', 'orderedBy'];
 /** Lazy: Apps Script may load V3.gs before Code.gs, so never read another file's globals at load time. */
 function v3OrderHeaders() { return ORDER_HEADERS.concat(V3_ORDER_COLS); }
 var V3_USER_COLS = ['deptStatus', 'deptDecidedBy', 'deptDecidedAt', 'assistantHod', 'roles'];
@@ -211,6 +211,9 @@ function routeV3(action, p) {
     getLeave: getLeave,
     requestLateMeal: function (q) { return withIdempotency('requestLateMeal', q, requestLateMeal); },
     placeSpecialMeal: function (q) { return withIdempotency('placeSpecialMeal', q, placeSpecialMeal); },
+    getLateWindow: function (q) { return getLateWindow(q); },
+    placeOrderOnBehalf: function (q) { return withIdempotency('placeOrderOnBehalf', q, placeOrderOnBehalf); },
+    requestLateOnBehalf: function (q) { return withIdempotency('requestLateOnBehalf', q, requestLateOnBehalf); },
     getMealRequests: getMealRequests,
     decideMealRequest: decideMealRequest,
     decideAllMealRequests: decideAllMealRequests,
@@ -602,7 +605,7 @@ function placeSpecialMeal(p) {
 function v3CanDecide(r, o) {
   var t = String(o.orderType || '');
   if (isChefPerm(r)) return true;
-  if (t === 'special') return false;
+  if (t === 'special' || t === 'late_leader') return false; // 3.6.0: leader late requests = chef / admin only
   return canActForDept(r, o.department); // late requests: HOD / assistant HOD of that department
 }
 function getMealRequests(p) {
