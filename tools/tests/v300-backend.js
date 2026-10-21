@@ -119,6 +119,16 @@ r = run('pwMigrateAll'); check('3.7.0: pwMigrateAll leaves no plain text', r.suc
 check('3.7.0: staff signs in after migration', !!login('staff1@x.com', 'pw-Ana'));
 { let w; try { w = run('r37WeeklyText', run('r37WeeklyData')); } catch (e) { w = 'ERR ' + e.message; } check('3.7.0: weekly report text builds', /weekly report/.test(w) && /By department/.test(w), w.slice(0, 200)); }
 { let n; try { n = run('r37MissingOrderNudge'); } catch (e) { n = { err: e.message }; } check('3.7.0: 7pm nudge runs', n && typeof n.recipients === 'number', JSON.stringify(n)); }
+{ const base = store.Users.find(u => u.email === 'staff1@x.com'); const dupe = Object.assign({}, base, { id: 'usr_dupe1', email: 'STAFF1@x.com ' });
+  store.Users.push(dupe);
+  let d = api('findDuplicateAccounts', { sessionToken: tSuper }); check('3.7.0: duplicate same-email found', d.success && d.data.groups.some(g => g.kind === 'same_email'), JSON.stringify(d).slice(0, 200));
+  d = api('findDuplicateAccounts', { sessionToken: tStaff }); check('3.7.0: staff cannot list duplicates', !d.success);
+  d = api('mergeAccounts', { sessionToken: tSuper, keepId: base.id, dropId: 'usr_dupe1' }); check('3.7.0: merge deactivates the other', d.success && store.Users.some(u => u.id === 'usr_dupe1' && /^merged\./.test(u.email) && String(u.active) === 'FALSE'), JSON.stringify(d).slice(0, 200));
+  d = api('findDuplicateAccounts', { sessionToken: tSuper }); check('3.7.0: no duplicates after merge', d.success && !d.data.groups.some(g => g.kind === 'same_email'));
+}
+{ const b2 = store.Users.find(u => u.email === 'staff1@x.com'); store.Users.push(Object.assign({}, b2, { id: 'usr_dupe2', active: 'FALSE' })); store.Users.push(Object.assign({}, b2, { id: 'usr_name1', email: 'other@x.com' }));
+  const m = run('r37MergeExactEmailDupsOnce'); check('3.7.0: one-off merges exact email only', Array.isArray(m) && m.length === 1 && m[0].drop === 'usr_dupe2' && store.Users.find(u => u.id === 'usr_name1').email === 'other@x.com', JSON.stringify(m));
+  check('3.7.0: one-off runs once', run('r37MergeExactEmailDupsOnce') === null); }
 check('superadmin password NOT reset by login / ensureSuperAdmin', (run('ensureSuperAdmin'), run('pwCheck', store.Users[0].password, 'demo-super')) && (store.Users[0].password = 'changed', run('ensureSuperAdmin'), store.Users[0].password === 'changed'));
 store.Users[0].password = 'demo-super';
 const tSuper2 = login('it@paradisecoveresortfiji.com', 'demo-super');

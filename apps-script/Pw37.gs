@@ -35,6 +35,16 @@ function pwUpgradeOnLogin_(u, plain) {
 function pwMigrateAll(p) {
   if (p && p.requesterEmail !== undefined) { var r = getRequester(p); if (!r || !isSuperPerm(r)) return { success: false, error: 'Superadmin only' }; }
   var started = Date.now(), done = 0, left = 0;
+  var sh = null; try { sh = getSS().getSheetByName('Users'); } catch (e) {}
+  if (sh && typeof sh.getDataRange === 'function') { // fast path: one read, one column write
+    var data = sh.getDataRange().getValues(), col = data[0].map(String).indexOf('password');
+    if (col < 0) return { success: false, error: 'No password column' };
+    var colVals = [];
+    for (var i = 1; i < data.length; i++) { var v = String(data[i][col] || ''); if (v && !pwIsHashed(v)) { if (Date.now() - started > 240000) { left++; } else { v = pwHash(v); done++; } } colVals.push([v]); }
+    if (done) sh.getRange(2, col + 1, colVals.length, 1).setValues(colVals);
+    if (typeof scInvalidateSheet === 'function') { try { scInvalidateSheet('Users'); } catch (e) {} }
+    return { success: true, data: { hashed: done, plainLeft: left, message: left ? 'Run again to finish' : 'No plain-text passwords left' } };
+  }
   sheetToObjects('Users').forEach(function (u) {
     var v = String(u.password || '');
     if (!v || pwIsHashed(v)) return;
@@ -45,3 +55,10 @@ function pwMigrateAll(p) {
   return { success: true, data: { hashed: done, plainLeft: left, message: left ? 'Run again to finish' : 'No plain-text passwords left' } };
 }
 function pwPlainCount() { var rows = sheetToObjects('Users'); return rows.filter(function (u) { return u.password && !pwIsHashed(u.password); }).length; }
+
+/** 3.7.0 one-off from pushTick: hash every plain-text password once (re-runs until none left). */
+function pwMigrateOnce_() {
+  var props = PropertiesService.getScriptProperties(); if (props.getProperty('R37_PW_MIGRATED')) return null;
+  var r = pwMigrateAll(); if (r && r.success && !r.data.plainLeft) props.setProperty('R37_PW_MIGRATED', nowIso() + ' hashed ' + r.data.hashed);
+  return r && r.data;
+}

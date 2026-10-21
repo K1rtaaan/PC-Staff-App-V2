@@ -21,8 +21,8 @@ function findDuplicateAccounts(p) {
   return { success: true, data: { groups: groups } };
 }
 /** keepId stays; dropId is deactivated (email renamed merged.<id>.<email>) and its rows move to the kept email. */
-function mergeAccounts(p) {
-  var r; try { r = r37DupAdmin_(p); } catch (e) { return { success: false, error: e.message }; }
+function mergeAccounts(p, sys) {
+  var r; if (sys) r = { email: 'system', firstName: 'System', lastName: '(3.7.0 one-off)', department: '' }; else { try { r = r37DupAdmin_(p); } catch (e) { return { success: false, error: e.message }; } }
   var keep = null, drop = null;
   sheetToObjects('Users').forEach(function (u) { if (String(u.id) === String(p.keepId)) keep = u; if (String(u.id) === String(p.dropId)) drop = u; });
   if (!keep || !drop || keep.id === drop.id) return { success: false, error: 'Pick two different accounts' };
@@ -40,6 +40,21 @@ function mergeAccounts(p) {
   if (!truthy(keep.active) && truthy(drop.active)) updateRowById('Users', keep.id, { active: 'TRUE' });
   if (typeof scBump === 'function') { try { scBump('users'); } catch (e) {} }
   var summary = 'Merged ' + de + ' (' + drop.id + ') into ' + ke + ' (' + keep.id + '); moved ' + JSON.stringify(moved);
-  try { a31WriteLog({ id: uid('log'), at: nowIso(), actorEmail: String(r.email).toLowerCase(), actorName: v3Name(r), actorRole: isSuperPerm(r) ? 'superadmin' : 'admin', actorDept: r.department || '', area: 'admin', action: 'mergeAccounts', target: keep.id, summary: summary }); } catch (e) {}
+  try { a31WriteLog({ id: uid('log'), at: nowIso(), actorEmail: String(r.email).toLowerCase(), actorName: v3Name(r), actorRole: sys ? 'system' : (isSuperPerm(r) ? 'superadmin' : 'admin'), actorDept: r.department || '', area: 'admin', action: 'mergeAccounts', target: keep.id, summary: summary }); } catch (e) {}
   return { success: true, data: { keepId: keep.id, dropId: drop.id, moved: moved, summary: summary } };
+}
+
+/** 3.7.0 one-off (runs once from pushTick): merge only EXACT same-email duplicates (keep the active / oldest row). Name matches are never merged automatically. */
+function r37MergeExactEmailDupsOnce() {
+  var props = PropertiesService.getScriptProperties(); if (props.getProperty('R37_MERGE_EXACT')) return null;
+  props.setProperty('R37_MERGE_EXACT', nowIso());
+  var by = {}, out = [];
+  sheetToObjects('Users').forEach(function (u) { var e = r37Norm_(u.email); if (e && !/^merged\./.test(e)) (by[e] = by[e] || []).push(u); });
+  Object.keys(by).forEach(function (e) {
+    var g = by[e]; if (g.length < 2) return;
+    var keep = g.filter(function (u) { return truthy(u.active); })[0] || g[0];
+    g.forEach(function (u) { if (u.id !== keep.id && !isSuperPerm(u)) { var r = mergeAccounts({ keepId: keep.id, dropId: u.id }, true); out.push({ email: e, keep: keep.id, drop: u.id, ok: !!(r && r.success) }); } });
+  });
+  props.setProperty('R37_MERGE_EXACT_RESULT', JSON.stringify(out).slice(0, 8000));
+  return out;
 }

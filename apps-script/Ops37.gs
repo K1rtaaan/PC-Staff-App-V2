@@ -4,6 +4,8 @@ var R37_BACKUP_FOLDER = 'PCR App Backups', R37_KEEP = 30;
 function r37Once_(key) { var p = PropertiesService.getScriptProperties(); if (p.getProperty(key)) return false; p.setProperty(key, nowIso()); return true; }
 function r37Tick() {
   var now = getFijiNow(), h = now.getUTCHours(), d = fijiDateString(now), out = {};
+  try { var pm = pwMigrateOnce_(); if (pm) out.pwMigrate = pm; } catch (e) { out.pwMigrateError = String(e.message || e); }
+  try { var mg = r37MergeExactEmailDupsOnce(); if (mg) out.mergeExact = mg.length; } catch (e) { out.mergeError = String(e.message || e); }
   if (h === 2 && r37Once_('r37bk_' + d)) { try { out.backup = r37NightlyBackup(); } catch (e) { out.backupError = String(e.message || e); } }
   if (h === 19 && truthy(getSetting('nudge_7pm', 'false')) && r37Once_('r37nudge_' + d)) { try { out.nudge = r37MissingOrderNudge(); } catch (e) { out.nudgeError = String(e.message || e); } }
   if (h === 7 && now.getUTCDay() === 1 && String(getSetting('weekly_report_to', '')).trim() && r37Once_('r37wk_' + d)) { try { out.weekly = r37SendWeeklyReport(); } catch (e) { out.weeklyError = String(e.message || e); } }
