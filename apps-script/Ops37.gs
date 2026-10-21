@@ -1,6 +1,7 @@
 /* 3.7.0 (Pranav): nightly sheet backup (~2am), 7pm missing-dinner nudge (setting nudge_7pm), Monday 7am weekly report (setting weekly_report_to).
  * All run from the existing 10-minute pushTick trigger (owner groupit today — moves with the pcrstaffapp cutover). Each job runs once per date. */
 var R37_BACKUP_FOLDER = 'PCR App Backups', R37_KEEP = 30;
+var R37_WEEKLY_DEFAULT = 'it@paradisecoveresortfiji.com'; // used while App Setting weekly_report_to is unset (Pranav decides on more)
 function r37Once_(key) { var p = PropertiesService.getScriptProperties(); if (p.getProperty(key)) return false; p.setProperty(key, nowIso()); return true; }
 function r37Tick() {
   var now = getFijiNow(), h = now.getUTCHours(), d = fijiDateString(now), out = {};
@@ -8,7 +9,7 @@ function r37Tick() {
   try { var mg = r37MergeExactEmailDupsOnce(); if (mg) out.mergeExact = mg.length; } catch (e) { out.mergeError = String(e.message || e); }
   if (h === 2 && r37Once_('r37bk_' + d)) { try { out.backup = r37NightlyBackup(); } catch (e) { out.backupError = String(e.message || e); } }
   if (h === 19 && truthy(getSetting('nudge_7pm', 'false')) && r37Once_('r37nudge_' + d)) { try { out.nudge = r37MissingOrderNudge(); } catch (e) { out.nudgeError = String(e.message || e); } }
-  if (h === 7 && now.getUTCDay() === 1 && String(getSetting('weekly_report_to', '')).trim() && r37Once_('r37wk_' + d)) { try { out.weekly = r37SendWeeklyReport(); } catch (e) { out.weeklyError = String(e.message || e); } }
+  if (h === 7 && now.getUTCDay() === 1 && String(getSetting('weekly_report_to', R37_WEEKLY_DEFAULT)).trim() && r37Once_('r37wk_' + d)) { try { out.weekly = r37SendWeeklyReport(); } catch (e) { out.weeklyError = String(e.message || e); } }
   var p = PropertiesService.getScriptProperties(), old = fijiDateString(addFijiDays(now, -10));
   p.getKeys().forEach(function (k) { var m = k.match(/^r37(?:bk|nudge|wk)_(\d{4}-\d{2}-\d{2})$/); if (m && m[1] < old) p.deleteProperty(k); });
   return out;
@@ -75,7 +76,7 @@ function r37WeeklyText(w) {
 }
 function r37SendWeeklyReport(p) {
   if (p && p.requesterEmail !== undefined) { var r = getRequester(p); if (!r || !(isSuperPerm(r) || isAdminPerm(r))) return { success: false, error: 'Admin only' }; }
-  var to = String(getSetting('weekly_report_to', '') || '').split(/[,;\s]+/).filter(Boolean);
+  var to = String(getSetting('weekly_report_to', R37_WEEKLY_DEFAULT) || '').split(/[,;\s]+/).filter(Boolean);
   if (!to.length) return { success: false, error: 'Set weekly_report_to first' };
   var w = r37WeeklyData();
   var res = sendAppMail(to, 'PCR Staff App weekly report ' + w.start + ' – ' + w.end, r37WeeklyText(w), 'weekly_report');
