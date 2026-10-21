@@ -957,6 +957,7 @@ function v351RoleShortcuts(){
   if (admin || lead) add('approvals', 'fa-inbox', 'Approvals', admin ? 'All departments' : 'My department', cnt);
   if (admin) add('adminhub', 'fa-user-shield', 'Admin', 'People, leave, system');
   if (lead) add('deptadmin', 'fa-people-roof', 'Department', 'My team, roster');
+  if (chef) add('sharecount', 'fa-share-nodes', "Share tonight's count", 'Picture for WhatsApp', 0, 'r37ShareCount()'); // 3.7.0
   if (chef) add('kitchenadmin', 'fa-fire-burner', 'Kitchen Admin', 'Lists, menu, reports');
   if (boat) add('boatadmin', 'fa-anchor', 'Boat Admin', 'Runs, resort boat, emergency');
   return out;
@@ -1254,10 +1255,9 @@ async function v3FetchMeal(meal, force){
 async function v3FetchMenu(force, date){
   const sd = date || dinnerCutoffInfo().serviceDate, key = 'dinnerMenus:'+sd;
   if (!force && cacheGet(key)) return cachePeek(key);
-  const m = await api('getDinnerMenus', { serviceDate: sd, includePreviousDay:false });
-  const pack = (m && m.data) || {};
-  cacheSet(key, pack);
-  return pack;
+  const load = async function(){ const m = await api('getDinnerMenus', { serviceDate: sd, includePreviousDay:false, slim:1 }); const pack = (m && m.data) || {}; if (m && m.success) cacheSet(key, pack); return pack; };
+  if (!force && cachePeek(key)) { load().catch(function(){}); return cachePeek(key); } // 3.7.0: saved menu now, refresh in the background
+  return load();
 }
 function v3MenuItems(pack, date){
   pack = pack || cachePeek('dinnerMenus:'+(date || dinnerCutoffInfo().serviceDate)) || {};
@@ -3946,6 +3946,7 @@ async function v3RenderUsers(){
   $('#main-content').innerHTML = v3Page(
     '<section class="glass rounded-2xl p-3 space-y-2 min-w-0" id="uf-top"><label for="uf-q" class="text-[11px] text-slate-400">Search all users</label><input id="uf-q" class="ui-input w-full" type="search" placeholder="Name, email or GL number" value="'+esc(f.q)+'"/>'+
     v35PeopleToolbar()+
+    (v3IsAdmin() || v3IsSuper() ? '<button type="button" onclick="r37OpenDups()" id="uf-dups" class="w-full rounded-xl py-2.5 px-3 text-sm border border-slate-600 text-slate-200 text-left"><i class="fa-solid fa-clone mr-1"></i>Duplicate accounts</button>' : '')+
     '<button type="button" id="uf-pend" class="w-full rounded-xl py-2.5 px-3 text-sm border border-amber-400/50 text-amber-100 flex items-center justify-between gap-2 min-w-0"><span class="min-w-0 text-left leading-tight"><i class="fa-solid fa-inbox mr-1"></i>Waiting for the HOD step · open Approvals</span><span class="v3-count shrink-0 rounded-full bg-amber-500/30 px-2 text-xs" id="uf-pend-n">…</span></button></section>'+
     '<div id="uf-list" class="space-y-2 min-w-0">'+v3Loading()+'</div>', 'users-root');
   const [ru, rd] = await Promise.all([api('getUsers', { activeOnly:false }).catch(function(){ return null; }), state.demo ? Promise.resolve(null) : api('getPeopleDepartments', {}).catch(function(){ return null; })]);
