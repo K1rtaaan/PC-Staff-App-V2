@@ -12,14 +12,15 @@ var SC_PREFIX = 'pcr210:';
 var SC_CHUNK = 30000;      // chars per cache value (<= 90KB even if every char were 3 bytes; CacheService max is 100KB/key)
 var SC_MAX_CHUNKS = 8;     // values bigger than ~240K chars are not cached (read from the sheet instead)
 /** Sheets whose rows are cached for read paths (seconds). Write paths always read the sheet directly. */
-var SC_ROW_TTL = { 'App Settings': 600, 'Dinner Menus': 600, 'Reminders': 300, 'Suggestions': 120 };
+var SC_ROW_TTL = { 'App Settings': 600, 'Dinner Menus': 600, 'Boat Runs': 300, // 3.8.0: + boat runs
+  'Reminders': 300, 'Suggestions': 120 };
 /** Which cache namespaces a write to a sheet invalidates. */
 var SC_SHEET_NS = {
   'App Settings': ['rows:App Settings'],
   'Dinner Menus': ['rows:Dinner Menus'],
   'Reminders': ['rows:Reminders'],
   'Suggestions': ['rows:Suggestions'],
-  'Boat Runs': ['boat'],
+  'Boat Runs': ['boat', 'rows:Boat Runs'],
   'Boat Bookings': ['boat']
 };
 var SC_VER_MEMO = {};

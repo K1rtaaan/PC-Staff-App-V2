@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.7.1';
+var APP_VERSION = '3.8.0';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -118,6 +118,8 @@ function handleRequest(e, method) {
       dsumMaybeAutoSave(); // 2.10.1: first request after 8pm Fiji saves tomorrow's dinner summary (Summaries.gs)
     }
     // 3.0.0: signed session token binds the identity; role powers need the token (see Release3.gs)
+    if (typeof R38_BATCH_READS !== 'undefined' && R38_BATCH_READS[action] && action !== 'getBootstrap') REQ_MEMO = {}; // 3.8.0: read-only call → each sheet read once per request
+    if (action === 'batch' && typeof r38Batch === 'function') { var br = r38Batch(payload); R3_AUTH = null; return jsonOut(br); } // 3.8.0: several reads, one request
     var auth = bindRequestIdentity(action, payload);
     if (auth && auth.error) {
       R3_AUTH = null;
@@ -128,10 +130,10 @@ function handleRequest(e, method) {
     var result = a31Handle(action, payload, routeAction); // 3.1.0: superadmin staff-action block + admin activity log (Admin31.gs)
     if (result && result.success === false && R3_AUTH && R3_AUTH.staffView) { result.needsSignIn = true; }
     if (typeof a33AfterAction === 'function') { a33AfterAction(action, payload, result); try { a33Flush(); } catch (e) {} } // 3.2.0 phone notifications (Push33.gs)
-    R3_AUTH = null;
+    R3_AUTH = null; REQ_MEMO = null;
     return jsonOut(result);
   } catch (err) {
-    R3_AUTH = null;
+    R3_AUTH = null; REQ_MEMO = null;
     return jsonOut({ success: false, error: String(err && err.message ? err.message : err) });
   }
 }
@@ -277,6 +279,8 @@ function routeAction(action, p) {
       if (r33res) return r33res;
       var r34res = typeof routeRoster34 === 'function' ? routeRoster34(action, p) : null; // 3.4.0 rosters, schedule tab, leave balances (Roster34.gs)
       if (r34res) return r34res;
+      var r38res = typeof routeOps38 === 'function' ? routeOps38(action, p) : null; // 3.8.0 ratings, boat manifest, HOD dashboard (Ops38.gs)
+      if (r38res) return r38res;
       return { success: false, error: 'Unknown action: ' + action };
     }
   }

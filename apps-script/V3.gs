@@ -911,7 +911,7 @@ function getMyHistory(p) {
       if (String(o.orderType) === 'special' || String(o.orderType) === 'late_request') requests.push(x); else orders.push(x);
     });
   });
-  var runs = {}; sheetToObjects('Boat Runs').forEach(function (r) { runs[r.id] = r; });
+  var runs = {}; cachedRows('Boat Runs').forEach(function (r) { runs[r.id] = r; });
   var boats = sheetToObjects('Boat Bookings').filter(function (b) { return String(b.userEmail).toLowerCase() === me; }).map(function (b) {
     var r = runs[b.runId] || {};
     return { id: b.id, date: v3Date(r.date || b.date), time: r.time || '', route: r.route || r.direction || r.title || '', seats: b.seats || 1, status: b.status || 'confirmed', createdAt: b.createdAt || '' };
@@ -1005,7 +1005,7 @@ function getAdminExport(p) {
     lunch: strip(sheetToObjects('Lunch Orders').filter(function (o) { return inR(o.serviceDate); })),
     dinner: strip(sheetToObjects('Dinner Orders').filter(function (o) { return inR(o.serviceDate); })),
     leave: strip(sheetToObjects('Leave Requests').filter(function (o) { return inR(o.startDate) || inR(o.createdAt); })),
-    boatRuns: strip(sheetToObjects('Boat Runs').filter(function (o) { return inR(o.date); })),
+    boatRuns: strip(cachedRows('Boat Runs').filter(function (o) { return inR(o.date); })),
     boatBookings: strip(sheetToObjects('Boat Bookings')),
     feedback: strip(sheetToObjects('Chef Feedback').filter(function (o) { return inR(o.createdAt); })),
     suggestions: strip(sheetToObjects('Suggestions')),
@@ -1026,7 +1026,7 @@ function v3SuperDash() {
   users.forEach(function (x) { var r = v3Role(x); roleCounts[r] = (roleCounts[r] || 0) + 1; });
   var leave = sheetToObjects('Leave Requests');
   var today = v3Today(), tom = v3Tomorrow();
-  var runs = sheetToObjects('Boat Runs').filter(function (r) { var d = v3Date(r.date); return (d === today || d === tom) && !/cancel/i.test(String(r.status || '')); });
+  var runs = cachedRows('Boat Runs').filter(function (r) { var d = v3Date(r.date); return (d === today || d === tom) && !/cancel/i.test(String(r.status || '')); });
   var bk = sheetToObjects('Boat Bookings');
   var boat = runs.map(function (r) {
     var pax = bk.filter(function (b) { return b.runId === r.id && b.status !== 'cancelled'; }).reduce(function (s, b) { return s + Number(b.seats || 1); }, 0);

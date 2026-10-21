@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" href="assets/golden-logo.jpg"/>
 <link rel="apple-touch-icon" href="assets/golden-logo.jpg"/>
-<link rel="stylesheet" href="assets/fa/fa.css?v=3.7.1"/>
+<link rel="stylesheet" href="assets/fa/fa.css?v=3.8.0"/>
 <style>
 :root {
   color-scheme: dark;
@@ -210,7 +210,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 @media print{.pcr-credit-wrap{display:none}}
 </style>
 <!-- 2.10.0: self-hosted purged Tailwind (tools/ builds it); loaded after the inline styles like the old CDN -->
-<link rel="stylesheet" href="assets/app.css?v=3.7.1"/>
+<link rel="stylesheet" href="assets/app.css?v=3.8.0"/>
 </head>
 <body class="text-slate-100 antialiased">
 
@@ -218,7 +218,7 @@ button:not(:disabled):active, .ui-btn:not(:disabled):active, .quick-tile:active,
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZFZhIgebzM8tegKAmE6ia6hoUD_eyrVBfYUmPS1jW60uV3NSyIkJLq7iZYIrdNi8/exec';
 const API_URL = SCRIPT_URL;
-const APP_VERSION = '3.7.1';
+const APP_VERSION = '3.8.0';
 const PCR_DEPARTMENTS = ['F&B','Bar','Kitchen','Boatman','Porters','Kids Club','BR Kitchen','Donu Kitchen','Housekeeping','Grounds','Spa','Maintenance','Diveshop','Activities','Security','Management','IT/Office','Front Office','Stores','Medical','Other']; // 3.4.1: + Medical · 3.5.0: no "Admin" department (a role only) — listing "HR" → Management; "Construction" = Maintenance
 /* 3.4.0: the server's department list (App Setting "departments") wins; merged in place (never removes/renames), cached for the sign-up form */
 const PCR_REMOVED_DEPTS = ['band','naisoso']; // 3.4.1 (Pranav): not app departments
@@ -1349,7 +1349,41 @@ const BOOTSTRAP_TIMEOUT_MS = 120000;
 // piling 5+ slow parallel calls onto a struggling connection / backend (screens keep their saved data; one retry is scheduled).
 const BOOT_COVERED_READS = { getMyOrdersSummary:1, getReminders:1, getSuggestions:1, getDinnerOrders:1, getBreakfastOrders:1, getLunchOrders:1,
   getBoatRuns:1, getDinnerMenus:1, getDailyOpsSummary:1, getMealStatistics:1, getKitchenDashboard:1, getDinnerPrepList:1, getCutoffInfo:1, getAppSettings:1 };
-async function api(action, payload={}) {
+/* 3.8.0: reads asked for in the same moment go to the server as ONE request ("batch") — one sign-in check, each sheet read once.
+   Falls back to single calls if the backend is older (no batch) or the batch itself fails. */
+const R38_BATCHABLE = { getDinnerMenus:1, myBoatBookings:1, getEmergencyTravel:1, getKitchenDaySummary:1, getKitchenDashboard:1, getBoatRuns:1, getBoatBookings:1,
+  getMyOrdersSummary:1, getLeaveRequests:1, getMyNotifications:1, getReminders:1, getSuggestions:1, getDinnerOrders:1, getCutoffInfo:1, getAppSettings:1,
+  getMySchedule:1, getMyRoster:1, getHodLeaveSummary:1, getDailyOpsSummary:1, getBoatTripSummary:1, getPendingApprovals:1, getDepartments:1, getV3Home:1,
+  getAnnouncements:1, getChefFeedback:1, getDinnerPrepList:1, getMyResortBoat:1, getResortBoatManifest:1, getDinnerRatingPrompt:1, getDishRatings:1,
+  getBoatManifestDay:1, getHodDashboard:1, getMealStatistics:1, getDeptUpdates:1, getPushConfig:1, getMyGuides:1, getBreakfastOrders:1, getLunchOrders:1 };
+let r38Q = [], r38T = null;
+function api(action, payload){
+  payload = payload || {};
+  if (state.demo || !R38_BATCHABLE[action] || state._noBatch || navigator.onLine === false) return apiDirect(action, payload);
+  return new Promise(function(resolve, reject){
+    r38Q.push({ a: action, p: payload, resolve: resolve, reject: reject });
+    if (r38Q.length >= 10) { clearTimeout(r38T); r38Flush(); } else if (!r38T) r38T = setTimeout(r38Flush, 40);
+  });
+}
+async function r38Flush(){
+  const q = r38Q; r38Q = []; r38T = null;
+  if (!q.length) return;
+  const single = function(x){ apiDirect(x.a, x.p).then(x.resolve, x.reject); };
+  if (q.length === 1) return single(q[0]);
+  let r;
+  try { r = await apiDirect('batch', { calls: q.map(function(x){ return { a: x.a, p: x.p }; }) }); }
+  catch (e) { q.forEach(function(x){ x.reject(e); }); return; }
+  if (!r || !r.batch || !Array.isArray(r.results) || r.results.length !== q.length) {
+    if (r && /Unknown action/i.test(String(r.error || ''))) state._noBatch = true;
+    q.forEach(single); return;
+  }
+  q.forEach(function(x, i){
+    const j = r.results[i];
+    if (j && (j.sessionExpired || j.needsSignIn) && state.user && typeof onAuthProblem === 'function') { try { onAuthProblem(j, x.a); } catch (e) {} }
+    x.resolve(j);
+  });
+}
+async function apiDirect(action, payload={}) {
   if (state.demo) {
     // 2.10.0: demo honours offline mode so the offline queue can be tried without a backend
     if (navigator.onLine === false && !['login','getVersion','health'].includes(action)) {
@@ -5107,8 +5141,9 @@ function isLateWaitingStatus(st){
 }
 // 3.0: boot() is called at the end of assets/v3.js (loaded next) so the 3.0 screens are in place first
 </script>
-<script src="assets/v3.js?v=3.7.1"></script>
-<script src="assets/r360.js?v=3.7.1"></script>
-<script src="assets/r370.js?v=3.7.1"></script>
+<script src="assets/v3.js?v=3.8.0"></script>
+<script src="assets/r360.js?v=3.8.0"></script>
+<script src="assets/r370.js?v=3.8.0"></script>
+<script src="assets/r380.js?v=3.8.0"></script>
 </body>
 </html>

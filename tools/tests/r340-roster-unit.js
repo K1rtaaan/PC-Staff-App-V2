@@ -72,7 +72,7 @@ settings.schedule_link_required = 'false'; // the 3.4.0 lock is tested in its ow
 const T = { super: login('super@x.com', 'pw-Delai'), admin: login('admin@x.com', 'pw-Nicola'), hod: login('hod@x.com', 'pw-Praneel'), ahod: login('ahod@x.com', 'pw-Mere'),
   ana: login('ana@x.com', 'pw-Ana'), sami: login('sami@x.com', 'pw-Sami'), khod: login('khod@x.com', 'pw-Vicky') };
 check('logins work', Object.values(T).every(Boolean), JSON.stringify(T));
-check('APP_VERSION 3.6.0', R('APP_VERSION') === '3.7.1');
+check('APP_VERSION 3.6.0', R('APP_VERSION') === '3.8.0');
 
 // ---------- parsing ----------
 const P = (c) => run('r34ParseCell', c, run('r34Codes'));
@@ -519,7 +519,7 @@ const s34pl = run('r34PlanCodes', [{ code: 'GL601', name: 'Sami Lal', department
 check('import: unknown listing department → "check" (never filled automatically)', s34pl.rows[0].status === 'check' && s34pl.rows[1].status === 'match', JSON.stringify(s34pl.rows.map(r => r.status + ':' + r.why)));
 settings.schedule_link_required = 'false';
 
-// ---- 3.7.1: one-off live import (system actor) + leaders-only notices ----
+// ---- 3.8.0: one-off live import (system actor) + leaders-only notices ----
 (function () {
   const props = {}; ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: k => props[k] || null, setProperty: (k, v) => { props[k] = String(v); } }) };
   const ppl = store.Users.filter(u => u.active !== false && u.firstName && u.lastName && u.department && !/^merged\./.test(u.email));
@@ -531,11 +531,47 @@ settings.schedule_link_required = 'false';
   const before = (store.Notifications || []).length;
   const r = R('r371ImportOnce')();
   const notes = (store.Notifications || []).slice(before).map(n => String(n.userEmail).toLowerCase());
-  check('3.7.1 one-off imports as system', !r.error && r.shifts >= 1 && trashed, JSON.stringify(r));
-  check('3.7.1 flags: schedule on, leaders only, meal block off', R("getSetting('feature_my_schedule')") === 'true' && R("getSetting('feature_schedule_leaders')") === 'true' && R("getSetting('meal_roster_block')") === 'false');
-  check('3.7.1 leaders-only: HOD notified, staff not', lead && staffU ? notes.indexOf(lead.email.toLowerCase()) >= 0 && notes.indexOf(staffU.email.toLowerCase()) < 0 : true, JSON.stringify({ notes, lead: lead && lead.email, staff: staffU && staffU.email }));
-  check('3.7.1 one-off runs once', JSON.stringify(R('r371ImportOnce')()) === '{"done":true}');
-  check('3.7.1 r34Need restored', R('r34Need').toString().indexOf('v3Requester') >= 0);
+  check('3.8.0 one-off imports as system', !r.error && r.shifts >= 1 && trashed, JSON.stringify(r));
+  check('3.8.0 flags: schedule on, leaders only, meal block off', R("getSetting('feature_my_schedule')") === 'true' && R("getSetting('feature_schedule_leaders')") === 'true' && R("getSetting('meal_roster_block')") === 'false');
+  check('3.8.0 leaders-only: HOD notified, staff not', lead && staffU ? notes.indexOf(lead.email.toLowerCase()) >= 0 && notes.indexOf(staffU.email.toLowerCase()) < 0 : true, JSON.stringify({ notes, lead: lead && lead.email, staff: staffU && staffU.email }));
+  check('3.8.0 one-off runs once', JSON.stringify(R('r371ImportOnce')()) === '{"done":true}');
+  check('3.8.0 r34Need restored', R('r34Need').toString().indexOf('v3Requester') >= 0);
+})();
+
+// ---- 3.8.0: batch, dinner rating, manifest, HOD dashboard ----
+(function () {
+  at('2026-10-22T08:00:00Z'); T.ana = login('ana@x.com', 'pw-Ana'); T.admin = login('admin@x.com', 'pw-Nicola'); T.hod = login('hod@x.com', 'pw-Praneel');
+  const ana = store.Users.find(u => u.email === 'ana@x.com'), hodU = store.Users.find(u => u.email === 'hod@x.com');
+  store['Dinner Orders'] = (store['Dinner Orders'] || []).concat([{ id: 'do38', serviceDate: '2026-10-21', userEmail: 'ana@x.com', userName: 'Ana', department: ana.department, mealChoice: 'Fish curry', status: 'approved' }]);
+  store['Chef Feedback'] = store['Chef Feedback'] || [];
+  const b = R('r38Batch')({ sessionToken: T.ana, requesterEmail: 'ana@x.com', userEmail: 'ana@x.com', calls: JSON.stringify([{ a: 'getDinnerRatingPrompt', p: {} }, { a: 'getAppSettings', p: {} }, { a: 'rateDinner', p: {} }]) });
+  check('3.8.0 batch: one request, results in order', b.success && b.batch && b.results.length === 3 && b.results[0].success && b.results[1].success, JSON.stringify(b).slice(0, 300));
+  check('3.8.0 batch refuses writes', b.results[2].success === false && /Not batchable/.test(b.results[2].error));
+  check('3.8.0 batch memo cleared', R('REQ_MEMO') === null);
+  const pr = b.results[0].data.prompt;
+  check('3.8.0 rating prompt = last night’s dish', pr && pr.dish === 'Fish curry' && pr.date === '2026-10-21', JSON.stringify(pr));
+  const r1 = api('rateDinner', { sessionToken: T.ana, date: '2026-10-21', rating: 'down', comment: 'Too salty' });
+  check('3.8.0 rate 👎 + comment saved to Chef Feedback', r1.success && store['Chef Feedback'].some(f => f.kind === 'rating' && f.rating === 'down' && f.dish === 'Fish curry' && f.status === 'new'), JSON.stringify(r1));
+  check('3.8.0 one rating per night', api('rateDinner', { sessionToken: T.ana, date: '2026-10-21', rating: 'up' }).data.already === true);
+  check('3.8.0 prompt gone after rating', api('getDinnerRatingPrompt', { sessionToken: T.ana }).data.prompt === null);
+  check('3.8.0 staff cannot see dish ratings', api('getDishRatings', { sessionToken: T.ana }).success === false);
+  const dr = api('getDishRatings', { sessionToken: T.admin });
+  check('3.8.0 admin dish summary', dr.success && dr.data.dishes[0].dish === 'Fish curry' && dr.data.dishes[0].down === 1 && dr.data.dishes[0].comments[0].text === 'Too salty', JSON.stringify(dr).slice(0, 300));
+  // manifest
+  store['Boat Runs'] = (store['Boat Runs'] || []).concat([{ id: 'br38', date: '2026-10-22', time: '17:00', route: 'PC → Soso', capacity: 20, active: true }]);
+  store['Boat Bookings'] = (store['Boat Bookings'] || []).concat([{ id: 'bb38', runId: 'br38', userEmail: 'ana@x.com', userName: 'Ana', seats: 1, status: 'active' }, { id: 'bb39', runId: 'br38', userEmail: 'sami@x.com', userName: 'Sami', seats: 1, status: 'cancelled' }]);
+  const mf = api('getBoatManifestDay', { sessionToken: T.admin, date: '2026-10-22' });
+  const vr = mf.success && mf.data.runs.find(r => r.key === 'village-br38');
+  check('3.8.0 manifest: village run with name, dept, from/to; cancelled left out', vr && vr.passengers.length === 1 && vr.passengers[0].name === 'Ana' && vr.passengers[0].department === ana.department && vr.passengers[0].from === 'PC' && vr.passengers[0].to === 'Soso', JSON.stringify(mf).slice(0, 400));
+  check('3.8.0 manifest: PCE runs listed', mf.data.runs.filter(r => r.kind === 'pce').length === 4);
+  check('3.8.0 manifest: staff refused', api('getBoatManifestDay', { sessionToken: T.ana }).success === false);
+  // HOD dashboard
+  const hd = api('getHodDashboard', { sessionToken: T.hod });
+  check('3.8.0 HOD dashboard: own department', hd.success && hd.data.department === hodU.department && Array.isArray(hd.data.dinner.notOrdered), JSON.stringify(hd).slice(0, 300));
+  check('3.8.0 HOD cannot pick another department', api('getHodDashboard', { sessionToken: T.hod, department: 'Kitchen' }).data.department === hodU.department);
+  const ad = api('getHodDashboard', { sessionToken: T.admin, department: ana.department });
+  check('3.8.0 admin picks a department; team boat move shows', ad.success && ad.data.department === ana.department && ad.data.moves.today.some(m => m.name && /Village/.test(m.boat)), JSON.stringify(ad.data && ad.data.moves));
+  check('3.8.0 staff refused dashboard', api('getHodDashboard', { sessionToken: T.ana }).success === false);
 })();
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

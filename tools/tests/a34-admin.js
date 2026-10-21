@@ -119,7 +119,7 @@ const tAdmin = login('ad1@x.com', 'pw-Nicola');
 const tStaff = login('staff1@x.com', 'pw-Ana');
 store.Users.push(U('leanne@paradisecoveresortfiji.com', 'Leanne', 'Management', 'staff,super_admin,chef', { role: 'super_admin', roles: 'super_admin,chef' }));
 const tLeanne = login('leanne@paradisecoveresortfiji.com', 'pw-Leanne');
-check('APP_VERSION is 3.7.1', R('APP_VERSION') === '3.7.1');
+check('APP_VERSION is 3.8.0', R('APP_VERSION') === '3.8.0');
 
 // ---------- (d) admins get these tools ----------
 let r = req('deleteUser', { sessionToken: tAdmin, targetEmail: 'staff2@x.com' });
