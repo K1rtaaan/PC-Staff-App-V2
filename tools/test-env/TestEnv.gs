@@ -58,13 +58,13 @@ function setupTestEnvironment() {
   if (fresh) { var s1 = ss.getSheetByName('Sheet1'); if (s1 && ss.getSheets().length > 1) { try { ss.deleteSheet(s1); } catch (eD) {} } }
   ensureSuperAdmin(); // SUPERADMIN_EMAIL is the TEST superadmin on this build
   var sa = findUserByEmail(SUPERADMIN_EMAIL);
-  if (sa) updateRowById('Users', sa.id, Object.assign({ password: SUPERADMIN_PASSWORD, firstName: 'TEST', lastName: 'Superadmin', department: 'IT/Office',
+  if (sa) updateRowById('Users', sa.id, Object.assign({ password: pwHash(superadminPassword_()), firstName: 'TEST', lastName: 'Superadmin', department: 'IT/Office',
     active: true, verified: true, deptStatus: 'approved' }, rolesPatch(['super_admin', 'admin'])));
   out.push('Test user super_admin: ' + SUPERADMIN_EMAIL);
   // 3. Test accounts (upsert)
   TEST_USERS.forEach(function (t) {
     var u = findUserByEmail(t.email);
-    var patch = Object.assign({ password: TEST_PASSWORD, firstName: t.firstName, lastName: t.lastName, department: t.department,
+    var patch = Object.assign({ password: pwHash(TEST_PASSWORD), firstName: t.firstName, lastName: t.lastName, department: t.department,
       active: true, verified: true, village: 'Mainland', deptStatus: 'approved', deptDecidedBy: 'test setup', deptDecidedAt: nowIso() }, rolesPatch(t.roles));
     if (u) updateRowById('Users', u.id, patch);
     else appendRow('Users', Object.assign({ id: uid('usr'), email: t.email, contact: '', createdAt: nowIso() }, patch));

@@ -86,7 +86,7 @@ function login(email, pw) { const r = api('login', { email, password: pw }); ret
 const at = (iso) => { FAKE_NOW = iso; cache = {}; };
 
 // ---------- version / basics
-check('APP_VERSION is 3.6.0', R('APP_VERSION') === '3.6.0');
+check('APP_VERSION is 3.7.0', R('APP_VERSION') === '3.7.0');
 check('no stations / snapshots code left', typeof ctx.routeStations === 'undefined' && typeof ctx.routeSnapshots === 'undefined' && typeof ctx.stationLogin === 'undefined');
 check('appsscript.json has script.external_request (Brevo)', /script\.external_request/.test(fs.readFileSync(path.join(root, 'apps-script/appsscript.json'), 'utf8')));
 
@@ -117,6 +117,8 @@ check('3.7.0: legacy plain text still verifies', run('pwCheck', 'plainpw', 'plai
 store.Users.forEach(u => { if (u.password && !/^h1\$/.test(u.password)) {} });
 r = run('pwMigrateAll'); check('3.7.0: pwMigrateAll leaves no plain text', r.success && store.Users.every(u => !u.password || /^h1\$/.test(u.password)), JSON.stringify(r));
 check('3.7.0: staff signs in after migration', !!login('staff1@x.com', 'pw-Ana'));
+{ let w; try { w = run('r37WeeklyText', run('r37WeeklyData')); } catch (e) { w = 'ERR ' + e.message; } check('3.7.0: weekly report text builds', /weekly report/.test(w) && /By department/.test(w), w.slice(0, 200)); }
+{ let n; try { n = run('r37MissingOrderNudge'); } catch (e) { n = { err: e.message }; } check('3.7.0: 7pm nudge runs', n && typeof n.recipients === 'number', JSON.stringify(n)); }
 check('superadmin password NOT reset by login / ensureSuperAdmin', (run('ensureSuperAdmin'), run('pwCheck', store.Users[0].password, 'demo-super')) && (store.Users[0].password = 'changed', run('ensureSuperAdmin'), store.Users[0].password === 'changed'));
 store.Users[0].password = 'demo-super';
 const tSuper2 = login('it@paradisecoveresortfiji.com', 'demo-super');

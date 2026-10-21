@@ -269,6 +269,7 @@ function pushTick() {
   try {
     out.reminders = a33CutoffReminders();
     if (typeof r34Tick === 'function') { try { out.roster = r34Tick(); } catch (er) { out.rosterError = String(er && er.message || er); } } // 3.4.0 roster reminders
+    if (typeof r37Tick === 'function') { try { out.r37 = r37Tick(); } catch (e7) { out.r37Error = String(e7 && e7.message || e7); } } // 3.7.0 backup / nudge / weekly report
     out.sent = a33Flush();
     PropertiesService.getScriptProperties().setProperty('a33_tick_at', nowIso());
     a33Prune();

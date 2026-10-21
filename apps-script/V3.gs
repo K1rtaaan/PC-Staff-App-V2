@@ -213,6 +213,8 @@ function routeV3(action, p) {
     placeSpecialMeal: function (q) { return withIdempotency('placeSpecialMeal', q, placeSpecialMeal); },
     getLateWindow: function (q) { return getLateWindow(q); },
     pwMigrateAll: function (q) { return pwMigrateAll(Object.assign({ requesterEmail: '' }, q)); }, // 3.7.0 superadmin only
+    sendWeeklyReportNow: function (q) { return r37SendWeeklyReport(Object.assign({ requesterEmail: '' }, q)); }, // 3.7.0 admin: test send
+    runBackupNow: function (q) { var r = getRequester(q); if (!r || !isSuperPerm(r)) return { success: false, error: 'Superadmin only' }; return { success: true, data: r37NightlyBackup() }; },
     pwStatus: function (q) { var r = getRequester(q); if (!r || !isSuperPerm(r)) return { success: false, error: 'Superadmin only' }; return { success: true, data: { plainLeft: pwPlainCount() } }; },
     placeOrderOnBehalf: function (q) { return withIdempotency('placeOrderOnBehalf', q, placeOrderOnBehalf); },
     requestLateOnBehalf: function (q) { return withIdempotency('requestLateOnBehalf', q, requestLateOnBehalf); },

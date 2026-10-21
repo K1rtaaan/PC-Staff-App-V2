@@ -14,7 +14,7 @@ let pass = 0, fail = 0; const check = (n, c, x) => { c ? pass++ : fail++; consol
     await p.waitForFunction(() => typeof state !== 'undefined' && state.user, null, { timeout: 30000 }); await p.waitForTimeout(2500);
   };
   await login('hod');
-  check('TEST runs 3.6.0', await p.evaluate(() => APP_VERSION) === '3.6.0');
+  check('TEST runs 3.6.0', await p.evaluate(() => APP_VERSION) === '3.7.0');
   const w = await p.evaluate(() => api('getLateWindow', {})); check('getLateWindow ok', w && w.success, JSON.stringify(w));
   const d = w.data || {}; const sd = d.behalfServiceDate;
   console.log('window', JSON.stringify({ open: d.open, pick: d.pick, sd: d.serviceDate, behalfOpen: d.behalfOpen, people: (d.people || []).length, myDept: d.myDept }));
