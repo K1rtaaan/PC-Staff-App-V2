@@ -17,7 +17,7 @@ let pass = 0, fail = 0; const check = (n, c, x) => { c ? pass++ : fail++; consol
   const tabs = () => p.evaluate(() => [...document.querySelectorAll('#home-role-actions [data-tab]')].map(e => e.dataset.tab));
   await login('kitchen@paradisecoveresortfiji.com');
   const t = await tabs();
-  check('chef: My roles = Kitchen Admin + Order for someone', t.join(',') === 'mealbehalf,kitchenadmin', t.join(','));
+  check('chef: My roles = Kitchen Admin + Order for someone', t.join(',') === 'mealbehalf,sharecount,kitchenadmin', t.join(','));
   check('chef: Order for someone once on Home', await p.evaluate(() => (document.getElementById('main-content').innerText.match(/Order on behalf/g) || []).length) === 1);
   for (const w of [390, 320]) {
     await p.setViewportSize({ width: w, height: 844 }); await p.waitForTimeout(300);
