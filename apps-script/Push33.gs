@@ -263,6 +263,7 @@ function a33CutoffReminders() {
 }
 /** Time trigger (every 10 minutes): cutoff reminders, clean-up, send. */
 function pushTick() {
+  if (typeof r371ImportOnce === 'function') { try { r371ImportOnce(); } catch (e371) {} } // 3.7.1 one-off (before the tick lock: the upload takes its own locks)
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(5000)) return { busy: true };
   var out = {};

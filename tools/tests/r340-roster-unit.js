@@ -26,7 +26,7 @@ store = {
 let FAKE_NOW = '2026-10-02T09:00:00Z'; // Fiji wall clock, Fri 2 Oct 2026 09:00
 const ctx = {
   console: { log() {}, warn() {}, error() {} }, Date, JSON, Math, String: String,
-  Utilities: { getUuid: () => crypto.randomUUID(), formatDate: (d) => d.toISOString(),
+  Utilities: { computeDigest: (a, v) => Array.from(crypto.createHash('sha256').update(String(v)).digest()), DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' }, getUuid: () => crypto.randomUUID(), formatDate: (d) => d.toISOString(),
     computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', k).update(v).digest()),
     base64EncodeWebSafe: (v) => Buffer.from(typeof v === 'string' ? Buffer.from(v, 'utf8') : Buffer.from(v.map(b => b & 255))).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
     base64DecodeWebSafe: (s) => Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
@@ -72,7 +72,7 @@ settings.schedule_link_required = 'false'; // the 3.4.0 lock is tested in its ow
 const T = { super: login('super@x.com', 'pw-Delai'), admin: login('admin@x.com', 'pw-Nicola'), hod: login('hod@x.com', 'pw-Praneel'), ahod: login('ahod@x.com', 'pw-Mere'),
   ana: login('ana@x.com', 'pw-Ana'), sami: login('sami@x.com', 'pw-Sami'), khod: login('khod@x.com', 'pw-Vicky') };
 check('logins work', Object.values(T).every(Boolean), JSON.stringify(T));
-check('APP_VERSION 3.6.0', R('APP_VERSION') === '3.7.0');
+check('APP_VERSION 3.6.0', R('APP_VERSION') === '3.7.1');
 
 // ---------- parsing ----------
 const P = (c) => run('r34ParseCell', c, run('r34Codes'));
@@ -468,9 +468,10 @@ check('department staff: plain staff refused', api('getDeptRosterStaff', { sessi
 const s34mails = []; ctx.sendAppMail = (to, subj, body, kind) => { s34mails.push({ to, subj, body, kind }); return { sent: true, via: 'test' }; };
 let s34rg = api('registerStaff', { sessionToken: T.hod, firstName: 'Litia', lastName: 'Naco', email: 'Litia@x.com', department: 'Kitchen', employeeCode: 'GL790' });
 check('HOD registers staff (always in their own department)', s34rg.success && s34rg.data.department === 'Housekeeping' && s34rg.data.code === 'GL790' && s34rg.data.emailed, JSON.stringify(s34rg));
-const s34nu = store.Users.find(x => x.email === 'litia@x.com'); const s34temp = s34nu && s34nu.password;
+const s34nu = store.Users.find(x => x.email === 'litia@x.com'); const s34temp = (s34mails[0] && (s34mails[0].body.match(/password[^:\n]*:\s*([A-Za-z0-9]{6,})/i) || [])[1]) || ''; // 3.7.0: stored password is hashed
 check('new account active, must change password, code saved', s34nu && s34nu.active === true && s34nu.mustChangePassword === 'TRUE' && s34nu.employeeCode === 'GL790');
-check('login email carries the one-time password (response never does)', s34mails.length === 1 && s34mails[0].body.indexOf(s34nu.password) >= 0 && JSON.stringify(s34rg).indexOf(s34nu.password) < 0);
+check('login email carries the one-time password (response never does)', s34mails.length === 1 && s34temp && /^h1\$/.test(s34nu.password) && JSON.stringify(s34rg).indexOf(s34temp) < 0);
+if (s34nu) s34nu.tempPasswordAt = ''; // harness clock (FAKE_NOW) is in the past vs Date.now(); expiry itself is checked elsewhere
 check('duplicate email refused', api('registerStaff', { sessionToken: T.admin, firstName: 'X', lastName: 'Y', email: 'litia@x.com', department: 'Kitchen' }).success === false);
 check('plain staff cannot register', api('registerStaff', { sessionToken: T.ana, firstName: 'X', lastName: 'Y', email: 'zz@x.com', department: 'Kitchen' }).success === false);
 let s34lg = api('login', { email: 'litia@x.com', password: s34temp });
@@ -517,6 +518,25 @@ check('Sunday again: nothing repeated', run('r34PlanReminders', s34remCtx('2026-
 const s34pl = run('r34PlanCodes', [{ code: 'GL601', name: 'Sami Lal', department: 'PENSION' }, { code: 'GL602', name: 'Vicky Singh', department: 'Kitchen' }], store.Users.filter(u => u.active !== false).map(u => Object.assign({}, u, { employeeCode: '' })));
 check('import: unknown listing department → "check" (never filled automatically)', s34pl.rows[0].status === 'check' && s34pl.rows[1].status === 'match', JSON.stringify(s34pl.rows.map(r => r.status + ':' + r.why)));
 settings.schedule_link_required = 'false';
+
+// ---- 3.7.1: one-off live import (system actor) + leaders-only notices ----
+(function () {
+  const props = {}; ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: k => props[k] || null, setProperty: (k, v) => { props[k] = String(v); } }) };
+  const ppl = store.Users.filter(u => u.active !== false && u.firstName && u.lastName && u.department && !/^merged\./.test(u.email));
+  const lead = ppl.find(u => R('isDeptLead')(u) && !R('isAdminPerm')(u)); const staffU = ppl.find(u => u !== lead && u.department === (lead && lead.department) && !R('isDeptLead')(u) && !R('isAdminPerm')(u));
+  const mon = R('r34Add')(R('r34Monday')(R('r34Today')()), 7);
+  const rows = [lead, staffU].filter(Boolean).map(u => ({ rawName: u.firstName + ' ' + u.lastName, department: u.department, date: mon, start: '08:00', end: '16:00', sheet: 'X' }));
+  let trashed = false; ctx.DriveApp = { getFileById: () => ({ getBlob: () => ({ getDataAsString: () => JSON.stringify({ periodKey: mon, fileName: 'T.xlsx', rows }) }), setTrashed: () => { trashed = true; } }) };
+  if (!store.Users.find(u => u.email === R('SUPERADMIN_EMAIL'))) { const a = store.Users.find(u => R('isAdminPerm')(u)); store.Users.push(Object.assign({}, a, { id: 'sa371', email: R('SUPERADMIN_EMAIL'), firstName: 'IT', lastName: 'Admin' })); R("typeof scInvalidateSheet==='function'&&scInvalidateSheet('Users')"); }
+  const before = (store.Notifications || []).length;
+  const r = R('r371ImportOnce')();
+  const notes = (store.Notifications || []).slice(before).map(n => String(n.userEmail).toLowerCase());
+  check('3.7.1 one-off imports as system', !r.error && r.shifts >= 1 && trashed, JSON.stringify(r));
+  check('3.7.1 flags: schedule on, leaders only, meal block off', R("getSetting('feature_my_schedule')") === 'true' && R("getSetting('feature_schedule_leaders')") === 'true' && R("getSetting('meal_roster_block')") === 'false');
+  check('3.7.1 leaders-only: HOD notified, staff not', lead && staffU ? notes.indexOf(lead.email.toLowerCase()) >= 0 && notes.indexOf(staffU.email.toLowerCase()) < 0 : true, JSON.stringify({ notes, lead: lead && lead.email, staff: staffU && staffU.email }));
+  check('3.7.1 one-off runs once', JSON.stringify(R('r371ImportOnce')()) === '{"done":true}');
+  check('3.7.1 r34Need restored', R('r34Need').toString().indexOf('v3Requester') >= 0);
+})();
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

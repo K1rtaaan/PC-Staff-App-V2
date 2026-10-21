@@ -4289,7 +4289,7 @@ function renderMore(){
   if (v3IsSuper()) {
     html += group('me', 'Me', inbox + reports) + a31SuperNoteHtml();
   } else {
-    const leaveRow = (state._flagsKnown && !featureOn('feature_my_schedule')) ? v3Row(v3Nav('leave'),'fa-plane-departure','Leave','Request, track or cancel') : ''; // only when Schedule is off (after the flags load)
+    const leaveRow = (state._flagsKnown && !r34On()) ? v3Row(v3Nav('leave'),'fa-plane-departure','Leave','Request, track or cancel') : ''; // only when Schedule is off (after the flags load)
     html += group('me', 'Me', inbox + v3Row(v3Nav('history'),'fa-clock-rotate-left','My history','Orders, boats, leave, requests, feedback') + reports + leaveRow);
     const btns = v3Buttons(u), ap = v3Row(v3Nav('approvals'),'fa-inbox','Approvals','Leave · meals · resort boat · GL links', v35ApCount());
     let apShown = false;

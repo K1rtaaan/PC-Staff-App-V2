@@ -26,7 +26,7 @@ store = {
 let FAKE_NOW = '2026-10-02T09:00:00Z'; // Fiji wall clock, Fri 2 Oct 2026 09:00
 const ctx = {
   console: { log() {}, warn() {}, error() {} }, Date, JSON, Math, String: String,
-  Utilities: { getUuid: () => crypto.randomUUID(), formatDate: (d) => d.toISOString(),
+  Utilities: { computeDigest: (a, v) => Array.from(crypto.createHash('sha256').update(String(v)).digest()), DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' }, getUuid: () => crypto.randomUUID(), formatDate: (d) => d.toISOString(),
     computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', k).update(v).digest()),
     base64EncodeWebSafe: (v) => Buffer.from(typeof v === 'string' ? Buffer.from(v, 'utf8') : Buffer.from(v.map(b => b & 255))).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
     base64DecodeWebSafe: (s) => Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
@@ -72,7 +72,7 @@ settings.schedule_link_required = 'false'; // the 3.4.0 lock is tested in its ow
 const T = { super: login('super@x.com', 'pw-Delai'), admin: login('admin@x.com', 'pw-Nicola'), hod: login('hod@x.com', 'pw-Praneel'), ahod: login('ahod@x.com', 'pw-Mere'),
   ana: login('ana@x.com', 'pw-Ana'), sami: login('sami@x.com', 'pw-Sami'), khod: login('khod@x.com', 'pw-Vicky') };
 check('logins work', Object.values(T).every(Boolean), JSON.stringify(T));
-check('APP_VERSION 3.6.0', R('APP_VERSION') === '3.7.0');
+check('APP_VERSION 3.6.0', R('APP_VERSION') === '3.7.1');
 let r;
 // extra people for GL linking
 store.Users.push(U('mele@x.com', 'Mele', 'Naqa', 'Housekeeping', 'staff'), U('tevita@x.com', 'Tevita', 'Ravu', 'Kitchen', 'staff'), U('hrp@x.com', 'Seini', 'Waqa', '', 'staff'));

@@ -663,6 +663,7 @@ function rosterUploadFinish(p) {
     updateRowById(R34.UPLOADS, up.id, { notes: dups.length ? ('possible duplicate of ' + dups.map(function (d) { return d.label; }).join(', ')).substring(0, 200) : String(up.notes || ''), status: 'active', finalizedAt: nowIso(), rowCount: newRows.length, matchedCount: Object.keys(people).length,
       unmatchedCount: openList.length, changedCount: changed.length, unmatchedJson: JSON.stringify(openList.map(function (u) { return u.rawName; }).slice(0, 100)) });
     var lbl = r34PeriodLabel(kind, key);
+    if (isFeatureEnabled('feature_schedule_leaders')) changed = changed.filter(function (c) { var cu = findUserByEmail(c.email); return cu && (isSuperPerm(cu) || isAdminPerm(cu) || isDeptLead(cu)); }); // 3.7.1: only people who can open Schedule
     var notes = changed.map(function (c) {
       return { id: uid('ntf'), userEmail: c.email, title: c.first ? 'Your roster for the ' + lbl + ' is in the app' : 'Your roster changed (' + lbl + ')',
         body: (c.first ? 'Open Schedule to see your shifts. ' : '') + c.diffs.slice(0, 3).join(' · ') + (c.diffs.length > 3 ? ' (+' + (c.diffs.length - 3) + ' more)' : ''),
@@ -1215,6 +1216,7 @@ function r34Tick() {
   var users = sheetToObjects('Users').map(function (u) {
     return { email: r34Lower(u.email), department: u.department || '', active: truthy(u.active), isSuper: isSuperPerm(u), isAdmin: isAdminPerm(u), isLead: isDeptLead(u) };
   }).filter(function (u) { return u.email.indexOf('@') > 0; });
+  if (isFeatureEnabled('feature_schedule_leaders')) users = users.filter(function (u) { return u.isSuper || u.isAdmin || u.isLead; }); // 3.7.1: leaders-only Schedule → no staff roster reminders
   var uploads = r34Uploads(), active = r34ActiveIds(uploads);
   var idx = staffWindow ? r34Index(r34AllRows(false), active, today, r34Add(today, 1)) : {};
   var leaveBy = {};
