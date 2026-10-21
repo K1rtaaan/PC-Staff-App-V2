@@ -2518,6 +2518,10 @@ function getDinnerMenus(p) {
   var tomorrowWd = fijiWeekday(addFijiDays(getFijiNow(), 1));
   var resolvedServiceWd = serviceWd !== null ? serviceWd : tomorrowWd;
   var resolvedPrevWd = prevWd !== null ? prevWd : ((resolvedServiceWd + 6) % 7);
+  if (truthy(p.slim)) { // 3.7.0: phone Meals page needs only today's list (≈⅓ of the full payload)
+    return { success: true, data: { items: items.map(function (it) { return { id: it.id, itemName: it.itemName, weekday: it.weekday, sortOrder: it.sortOrder, menuGroup: it.menuGroup, description: it.description || '' }; }),
+      serviceWeekday: resolvedServiceWd, serviceDate: p.serviceDate || info.serviceDate, slim: true } };
+  }
   return {
     success: true,
     data: {

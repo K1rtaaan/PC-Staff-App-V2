@@ -1255,10 +1255,9 @@ async function v3FetchMeal(meal, force){
 async function v3FetchMenu(force, date){
   const sd = date || dinnerCutoffInfo().serviceDate, key = 'dinnerMenus:'+sd;
   if (!force && cacheGet(key)) return cachePeek(key);
-  const m = await api('getDinnerMenus', { serviceDate: sd, includePreviousDay:false });
-  const pack = (m && m.data) || {};
-  cacheSet(key, pack);
-  return pack;
+  const load = async function(){ const m = await api('getDinnerMenus', { serviceDate: sd, includePreviousDay:false, slim:1 }); const pack = (m && m.data) || {}; if (m && m.success) cacheSet(key, pack); return pack; };
+  if (!force && cachePeek(key)) { load().catch(function(){}); return cachePeek(key); } // 3.7.0: saved menu now, refresh in the background
+  return load();
 }
 function v3MenuItems(pack, date){
   pack = pack || cachePeek('dinnerMenus:'+(date || dinnerCutoffInfo().serviceDate)) || {};

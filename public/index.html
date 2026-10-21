@@ -2690,8 +2690,12 @@ function featureOn(key){
   return false;
 }
 async function refreshFeatureFlags(){
+  try { // 3.7.0: last known flags/settings instantly, then the network copy
+    if (!state._flagsKnown) { const c = JSON.parse(localStorage.getItem('pcr_v37_settings') || 'null'); if (c && c.features) { applyFlags(c); } }
+  } catch (e) {}
   try {
     const r = await api('getAppSettings');
+    if (r && r.success && r.data) { try { localStorage.setItem('pcr_v37_settings', JSON.stringify({ features: r.data.features || {}, settings: r.data.settings || {} })); } catch (e) {} }
     if (r && r.success && r.data) {
       const f = r.data.features || {};
       state.featureFlags = {
@@ -2801,7 +2805,7 @@ function cacheInvalidate(keys){
 /** Logout: forget this user's saved screens (memory + disk). */
 function clearUserDataCache(email){
   clearDataCacheMem();
-  try { if (email) localStorage.removeItem(pcacheKey(email)); } catch(e){}
+  try { if (email) localStorage.removeItem(pcacheKey(email)); localStorage.removeItem('pcr_v37_settings'); } catch(e){}
   try { Object.keys(localStorage).forEach(function(k){ if (k.indexOf(PCACHE_PREFIX) === 0 && k !== pcacheKey(email) && !email) localStorage.removeItem(k); }); } catch(e){}
   dataCacheOwner = '';
 }
