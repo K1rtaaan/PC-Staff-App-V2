@@ -33,6 +33,7 @@ const ctx = {
   console: { log() {}, warn() {}, error() {} }, Date, JSON, Math,
   Utilities: {
     getUuid: () => crypto.randomUUID(),
+    computeDigest: (a, v) => Array.from(crypto.createHash('sha256').update(String(v)).digest()), DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
     computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', k).update(v).digest()),
     base64EncodeWebSafe: (v) => Buffer.from(typeof v === 'string' ? Buffer.from(v, 'utf8') : Buffer.from(v.map(b => b & 255))).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
     base64DecodeWebSafe: (s) => Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),

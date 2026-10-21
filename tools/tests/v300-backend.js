@@ -33,6 +33,7 @@ const ctx = {
   console: { log() {}, warn() {}, error() {} }, Date, JSON, Math,
   Utilities: {
     getUuid: () => crypto.randomUUID(),
+    computeDigest: (a, v) => Array.from(crypto.createHash('sha256').update(String(v)).digest()), DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
     computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', k).update(v).digest()),
     base64EncodeWebSafe: (v) => Buffer.from(typeof v === 'string' ? Buffer.from(v, 'utf8') : Buffer.from(v.map(b => b & 255))).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
     base64DecodeWebSafe: (s) => Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
@@ -110,7 +111,13 @@ check('tampered token → sessionExpired', r.success === false && r.sessionExpir
 const tStaff = login('staff1@x.com', 'pw-Ana');
 r = api('getSuperDashboard', { sessionToken: tStaff });
 check('staff token cannot open superadmin dashboard', r.success === false);
-check('superadmin password NOT reset by login / ensureSuperAdmin', (run('ensureSuperAdmin'), store.Users[0].password === 'demo-super') && (store.Users[0].password = 'changed', run('ensureSuperAdmin'), store.Users[0].password === 'changed'));
+check('3.7.0: superadmin password stored hashed after login', /^h1\$/.test(store.Users[0].password));
+check('3.7.0: pwHash salted (two hashes differ) and verifies', run('pwHash', 'x1') !== run('pwHash', 'x1') && run('pwCheck', run('pwHash', 'x1'), 'x1') && !run('pwCheck', run('pwHash', 'x1'), 'x2'));
+check('3.7.0: legacy plain text still verifies', run('pwCheck', 'plainpw', 'plainpw') && !run('pwCheck', 'plainpw', 'nope'));
+store.Users.forEach(u => { if (u.password && !/^h1\$/.test(u.password)) {} });
+r = run('pwMigrateAll'); check('3.7.0: pwMigrateAll leaves no plain text', r.success && store.Users.every(u => !u.password || /^h1\$/.test(u.password)), JSON.stringify(r));
+check('3.7.0: staff signs in after migration', !!login('staff1@x.com', 'pw-Ana'));
+check('superadmin password NOT reset by login / ensureSuperAdmin', (run('ensureSuperAdmin'), run('pwCheck', store.Users[0].password, 'demo-super')) && (store.Users[0].password = 'changed', run('ensureSuperAdmin'), store.Users[0].password === 'changed'));
 store.Users[0].password = 'demo-super';
 const tSuper2 = login('it@paradisecoveresortfiji.com', 'demo-super');
 check('code 2025 / 2026 alone never grant access', throws(() => run('requirePasscode', { passcode: '2026' }, 'super')) && throws(() => run('requirePasscode', { passcode: '2025' }, 'admin')));

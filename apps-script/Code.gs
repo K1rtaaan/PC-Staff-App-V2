@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.6.0';
+var APP_VERSION = '3.7.0';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -989,7 +989,7 @@ function ensureSuperAdmin() {
     appendRow('Users', {
       id: uid('usr'),
       email: SUPERADMIN_EMAIL,
-      password: SUPERADMIN_PASSWORD,
+      password: pwHash(SUPERADMIN_PASSWORD),
       firstName: 'IT',
       lastName: 'Admin',
       department: 'IT',
@@ -1256,7 +1256,8 @@ function login(p) {
   if (email === SUPERADMIN_EMAIL) ensureSuperAdmin();
   var u = findUserByEmail(email);
   if (!u) return { success: false, error: 'Invalid email or password' };
-  if (String(u.password) !== password) return { success: false, error: 'Invalid email or password' };
+  if (!pwCheck(u.password, password)) return { success: false, error: 'Invalid email or password' };
+  pwUpgradeOnLogin_(u, password); // 3.7.0
 
   var isSuper = email === SUPERADMIN_EMAIL;
 
@@ -1344,7 +1345,7 @@ function register(p) {
   var row = {
     id: uid('usr'),
     email: email,
-    password: password,
+    password: pwHash(password),
     firstName: firstName,
     lastName: lastName,
     department: department,
@@ -1550,7 +1551,7 @@ function resetPassword(p) {
     return { success: false, error: 'Code expired' };
   }
   markCodeUsed(match);
-  updateRowById('Users', u.id, { password: newPassword });
+  updateRowById('Users', u.id, { password: pwHash(newPassword) });
   return { success: true, data: { message: 'Password updated — sign in with your new password', email: email } };
 }
 
@@ -1712,7 +1713,7 @@ function addUser(p) {
   var row = {
     id: uid('usr'),
     email: email,
-    password: String(p.password),
+    password: pwHash(String(p.password)),
     firstName: p.firstName || '',
     lastName: p.lastName || '',
     department: p.department || '',
@@ -1825,9 +1826,9 @@ function updateUser(p) {
       patch.permissions = permissionsToString(parsePermissions(synced.join(','), p.role));
     }
     if (p.active !== undefined) patch.active = p.active === true || p.active === 'true' || p.active === 'TRUE';
-    if (p.password) patch.password = p.password;
+    if (p.password) patch.password = pwHash(p.password);
   } else if (selfUpdate && p.password) {
-    patch.password = p.password;
+    patch.password = pwHash(p.password);
   }
 
   var updated = updateRowById('Users', u.id, patch);
@@ -1865,7 +1866,7 @@ function importUsersCSV(p) {
     var row = {
       id: uid('usr'),
       email: email,
-      password: password,
+      password: pwHash(password),
       firstName: parts[2] || '',
       lastName: parts[3] || '',
       department: parts[4] || '',

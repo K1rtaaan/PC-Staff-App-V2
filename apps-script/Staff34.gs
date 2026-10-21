@@ -209,7 +209,7 @@ function registerStaff(p) {
   if (p.employeeCode && !code) return { success: false, error: 'An employee number looks like GL018' };
   if (code && !s34CodeFree(code, email)) return { success: false, error: code + ' is already on another account' };
   var temp = s34TempPassword(), now = nowIso();
-  appendRow('Users', { id: uid('usr'), email: email, password: temp, firstName: first, lastName: last, department: dept, contact: '', role: 'staff', permissions: 'staff',
+  appendRow('Users', { id: uid('usr'), email: email, password: pwHash(temp), firstName: first, lastName: last, department: dept, contact: '', role: 'staff', permissions: 'staff',
     roster: '', village: '', active: true, createdAt: now, verified: true, deptStatus: 'approved', employeeCode: code, mustChangePassword: 'TRUE', tempPasswordAt: now },
     ['id', 'email', 'password', 'firstName', 'lastName', 'department', 'contact', 'role', 'permissions', 'roster', 'village', 'active', 'createdAt', 'verified', 'deptStatus', 'employeeCode', 'mustChangePassword', 'tempPasswordAt']);
   scInvalidateSheet('Users');
@@ -230,11 +230,11 @@ function registerStaff(p) {
 function setFirstPassword(p) {
   var email = s34Lower(p.email), temp = String(p.password || ''), np = String(p.newPassword || '');
   var u = findUserByEmail(email);
-  if (!u || !truthy(u.mustChangePassword) || String(u.password) !== temp) return { success: false, error: 'Invalid email or one-time password' };
+  if (!u || !truthy(u.mustChangePassword) || !pwCheck(u.password, temp)) return { success: false, error: 'Invalid email or one-time password' };
   if (s34TempExpired(u)) return { success: false, error: 'This one-time password has expired — ask your HOD to register you again.' };
   if (np.length < 6) return { success: false, error: 'Choose a password with at least 6 characters' };
   if (np === temp) return { success: false, error: 'Choose a new password (not the one-time password)' };
-  updateRowById('Users', u.id, { password: np, mustChangePassword: '', tempPasswordAt: '' });
+  updateRowById('Users', u.id, { password: pwHash(np), mustChangePassword: '', tempPasswordAt: '' });
   scInvalidateSheet('Users');
   return login({ email: email, password: np });
 }
