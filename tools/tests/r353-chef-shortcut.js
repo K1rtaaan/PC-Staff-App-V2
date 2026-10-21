@@ -22,7 +22,7 @@ let pass = 0, fail = 0; const check = (n, c, x) => { c ? pass++ : fail++; consol
   for (const w of [390, 320]) {
     await p.setViewportSize({ width: w, height: 844 }); await p.waitForTimeout(300);
     check(w + 'px: no sideways scroll', await p.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1));
-    check(w + 'px: role tiles side by side, inside the screen', await p.evaluate(() => { const r = [...document.querySelectorAll('#home-role-actions [data-tab]')].map(e => e.getBoundingClientRect()); return r.length === 2 && Math.abs(r[0].top - r[1].top) < 2 && r.every(x => x.left >= 0 && x.right <= innerWidth + 1); }));
+    check(w + 'px: role tiles side by side, inside the screen', await p.evaluate(() => { const r = [...document.querySelectorAll('#home-role-actions [data-tab]')].map(e => e.getBoundingClientRect()); return r.length === 3 && Math.abs(r[0].top - r[1].top) < 2 && r.every(x => x.left >= 0 && x.right <= innerWidth + 1); }));
     if (SHOTS) { await p.evaluate(() => document.getElementById('home-role-actions').scrollIntoView({ block: 'center' })); await p.waitForTimeout(200); await p.screenshot({ path: `${SHOTS}/chef-home-${w}.png` }); }
   }
   await p.setViewportSize({ width: 390, height: 844 });

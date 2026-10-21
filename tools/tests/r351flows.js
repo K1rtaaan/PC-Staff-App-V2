@@ -58,7 +58,7 @@ const cap = (id, where, n, c, x) => { checklist.push({ id, where, feature: n, ok
       if (SHOTS) await page.screenshot({ path: `${SHOTS}/${role}-home-${w}.png`, fullPage: true });
     }
     await page.setViewportSize({ width: 390, height: 844 });
-    for (const t of rs) { await ev(t => document.querySelector('#home-role-actions [data-tab="' + t + '"]').click(), t); await page.waitForTimeout(1200);
+    for (const t of rs.filter(x => x !== 'sharecount')) { await ev(t => document.querySelector('#home-role-actions [data-tab="' + t + '"]').click(), t); await page.waitForTimeout(1200);
       check('shortcut ' + t + ' opens its page', await ev(() => state.tab) === t, await ev(() => state.tab)); await nav('home', 1200); }
     if (role === 'staff') {
       await ev(() => document.querySelector('#home-dothisnow .v3-tile').click()); await page.waitForTimeout(2500);
