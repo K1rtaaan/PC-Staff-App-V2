@@ -6,7 +6,7 @@
  * - NEVER caches API responses: script.google.com / googleusercontent.com always go to the network
  *   (the app keeps its own per-user data cache).
  */
-const VERSION = '3.7.1';
+const VERSION = '3.8.0';
 const CACHE = 'pcr-staff-v' + VERSION;
 const SHELL = [
   './',
@@ -17,6 +17,7 @@ const SHELL = [
   './assets/v3.js?v=' + VERSION,
   './assets/r360.js?v=' + VERSION,
   './assets/r370.js?v=' + VERSION,
+  './assets/r380.js?v=' + VERSION,
   './assets/fa/fa-solid-900.woff2',
   './assets/fa/fa-regular-400.woff2',
   './assets/golden-logo.jpg',
