@@ -20,7 +20,7 @@
  */
 
 var SHEET_ID = '1ToLFeO3-jL7-7gBQnd-kkSe-1BpLcUxLacDaPW6YidM'; // PCR Staff App V2 (not V1)
-var APP_VERSION = '3.8.0';
+var APP_VERSION = '3.8.1';
 var SUPER_PASS = '2026'; // superadmin code (kept from 2.x — role gates first, code accepted if sent)
 var ADMIN_PASS = '2025'; // admin code (kept from 2.x)
 var SUPERADMIN_EMAIL = 'it@paradisecoveresortfiji.com';
@@ -598,6 +598,7 @@ function sheetToObjects(sheetName) {
     return REQ_MEMO[sheetName].map(function (o) { return Object.assign({}, o); });
   }
   var rows = sheetToObjectsRaw(sheetName);
+  if (typeof ORDER_DEDUPE_SHEETS !== 'undefined' && ORDER_DEDUPE_SHEETS[sheetName]) rows = dedupeMealOrders(rows); // 3.8.1 one order per person+date
   if (REQ_MEMO) REQ_MEMO[sheetName] = rows.map(function (o) { return Object.assign({}, o); });
   return rows;
 }

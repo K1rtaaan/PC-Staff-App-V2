@@ -1,0 +1,25 @@
+// 3.8.1: dedupeMealOrders unit checks (VM, no network)
+const vm = require('vm'), fs = require('fs');
+const ctx = { Utilities: { formatDate: d => d.toISOString().slice(0, 10) }, LockService: {}, SpreadsheetApp: {} };
+vm.createContext(ctx); vm.runInContext(fs.readFileSync(__dirname + '/../../apps-script/Dedupe381.gs', 'utf8'), ctx);
+let pass = 0, fail = 0; const ok = (n, c, d) => { c ? pass++ : fail++; console.log((c ? 'PASS ' : 'FAIL ') + n + (c ? '' : ' ' + JSON.stringify(d))); };
+const D = ctx.dedupeMealOrders, r = (id, o) => Object.assign({ id, serviceDate: "'2026-10-23", status: 'approved' }, o);
+let out = D([r(1, { userEmail: 'a@x' }), r(2, { userEmail: 'A@x' })]);
+ok('same user+date → latest only', out.length === 1 && out[0].id === 2, out);
+out = D([r(1, { userEmail: 'a@x' }), r(2, { userEmail: 'b@x', orderType: 'behalf' }), r(3, { userEmail: 'c@x', orderType: 'behalf' })]);
+ok('behalf for different people kept', out.length === 3, out);
+out = D([r(1, { userEmail: 'a@x' }), r(2, { userEmail: 'a@x', serviceDate: '2026-10-24' })]);
+ok('different dates kept', out.length === 2, out);
+out = D([r(1, { userName: 'Joe Contractor', department: 'Dive' }), r(2, { userName: 'joe  contractor', department: 'dive' }), r(3, { userName: 'Joe Contractor', department: 'Spa' })]);
+ok('no email: by name+dept', out.length === 2 && out.map(o => o.id).join() === '2,3', out);
+out = D([r(1, { userEmail: 'a@x' }), r(2, { userEmail: 'a@x', status: 'cancelled' })]);
+ok('cancel of latest hides older active copy', out.length === 1 && out[0].id === 2, out);
+out = D([r(1, { userEmail: 'a@x' }), r(2, { userEmail: 'a@x', status: 'cancelled' }), r(3, { userEmail: 'a@x' })]);
+ok('re-order after cancel shows new order', out.filter(o => o.status !== 'cancelled').map(o => o.id).join() === '3', out);
+out = D([r(1, { userEmail: 'a@x' }), r(2, { userEmail: 'a@x', status: 'rejected' })]);
+ok('later rejected late request does not hide the order', out.length === 2, out);
+out = D([r(1, { userEmail: 'a@x' }), r(2, { userEmail: 'a@x' }), r(3, { userEmail: 'a@x' })]);
+ok('triple → one', out.length === 1 && out[0].id === 3, out);
+out = D([r(1, {}), r(2, {})]);
+ok('rows with no email and no name never hidden', out.length === 2, out);
+console.log(pass + ' passed, ' + fail + ' failed'); process.exit(fail ? 1 : 0);

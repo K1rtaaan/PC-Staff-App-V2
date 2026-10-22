@@ -1,6 +1,13 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.5.4** (live; UI + API 3.5.4). Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.8.1** (live; UI + API 3.8.1). Revert any item later by asking for its ID (e.g. “revert C7”).
+
+## 3.8.1 — One meal order per person per date (2026-10-22, LIVE)
+
+| ID | Change |
+|----|--------|
+| C207 | **Duplicate names on the prep list fixed** (Delai: staff on weak Digicel signal tapped Order twice → two rows). Backend: all meal-order writes (dinner / lunch / breakfast, order on behalf, late + special requests, cancel) now run one at a time under a lock (`mealWriteLocked`, Dedupe381.gs), so a second tap or retry finds the first order and **updates** it instead of appending. Same `clientRequestId` → same stored result (already in 2.10.0; the offline-queue copy keeps the id of the original submit). Reads: `dedupeMealOrders` (in `sheetToObjects`) shows only the **latest** active row per person + date per meal everywhere (prep list, summaries, PDF, counts, My orders); orders on behalf for different people stay; rows without an email (contractors / guests) are matched by name + department. Older duplicate rows stay in the sheet untouched (28 dinner, 3 lunch, 7 breakfast groups since 1 Oct; 3 for today 22 Oct — see backups/live-pre-3.8.1-2026-10-22/DUPLICATES.md). Frontend: Order button disabled + "Sending…" while a submit is in flight; Order on behalf sends a request id; a newer offline order for the same meal + date replaces the older waiting one. SW cache `pcr-staff-v3.8.1`. Tests: `tools/tests/r381-dedupe-unit.js`, `tools/test-env/r381-test-env.js`. Rollback: tag `rollback-pre-3.8.1` (= 3.8.0, 8c53a2a), backend @50. |
+
 
 ## 3.5.4 — Superadmin password out of the code (2026-10-13, LIVE)
 

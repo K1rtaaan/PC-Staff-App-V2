@@ -96,7 +96,7 @@ const ctx = {
   SpreadsheetApp: { create: (name) => { const id = 'TEST-' + crypto.randomBytes(8).toString('hex'); const nb = new Book(id, name); nb.sheets.push(new Sheet(nb, 'Sheet1')); books[id] = nb; return bookApi(nb); }, openById: (id) => { const b = books[id]; if (!b) throw new Error('Unexpected error while getting the method or property openById on object SpreadsheetApp. (no such sheet ' + id + ')'); return bookApi(b); }, getActiveSpreadsheet: () => null, flush: () => {} },
   PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); }, deleteProperty: k => { delete props[k]; }, getProperties: () => Object.assign({}, props) }) },
   CacheService: { getScriptCache: () => cacheApi },
-  LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {}, hasLock: () => true }) },
+  LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {}, hasLock: () => true }), getUserLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {}, hasLock: () => true }) },
   Utilities: {
     getUuid: () => crypto.randomUUID(), formatDate, sleep: () => {},
     computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', Buffer.from(k, 'utf8')).update(Buffer.from(v, 'utf8')).digest()).map(b => b > 127 ? b - 256 : b),

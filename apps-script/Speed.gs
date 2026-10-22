@@ -312,7 +312,9 @@ function queuedCutoffCheck(action, p) {
  * Wrap a staff write. Same clientRequestId → same stored result, never a second write.
  * A short script lock guards the check-and-claim; the write itself runs outside the lock.
  */
-function withIdempotency(action, p, fn) {
+function withIdempotency(action, p, fn0) {
+  var fn = (typeof MEAL_WRITE_ACTIONS !== 'undefined' && MEAL_WRITE_ACTIONS[action])
+    ? function (q) { return mealWriteLocked(fn0, q); } : fn0; // 3.8.1: meal writes one at a time
   var crid = cleanRequestId(p && p.clientRequestId);
   if (!crid) return fn(p);
   var email = String(p.requesterEmail || p.userEmail || '').toLowerCase();

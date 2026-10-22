@@ -31,8 +31,8 @@ async function r36RenderBehalf(){
     '<label class="block text-xs text-slate-300">Note for the chef (optional)<input id="r36-note" maxlength="120" class="mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 p-2 text-sm"></label>'+
     '<button type="button" id="r36-go" class="btn-primary w-full rounded-xl py-2.5 text-sm font-semibold text-white"><i class="fa-solid fa-check mr-1"></i>Place order</button>';
   r36BindPerson();
-  $('#r36-go').onclick = async function(){ const b = this; b.disabled = true;
-    const d = await v3Call('placeOrderOnBehalf', Object.assign(r36PersonPayload(), { mealChoice: $('#r36-dish').value, specialNote: $('#r36-note').value }), 'Dinner ordered');
+  $('#r36-go').onclick = async function(){ const b = this; if (b.disabled) return; b.disabled = true;
+    const d = await v3Call('placeOrderOnBehalf', Object.assign(r36PersonPayload(), { mealChoice: $('#r36-dish').value, specialNote: $('#r36-note').value, clientRequestId: newRequestId() }), 'Dinner ordered'); // 3.8.1 idempotent
     b.disabled = false; if (d) r36RenderBehalf(); };
 }
 async function r36RenderLate(){

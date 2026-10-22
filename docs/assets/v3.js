@@ -1451,12 +1451,22 @@ function v3BindMealCards(){
   V3_MEALS.forEach(function(meal){
     const info = v3Info(meal);
     const label = V3_MEAL_LABEL[meal]+' ('+info.serviceDate+')';
+    let inFlight = false;
     const place = async function(){
+      // 3.8.1: ignore extra taps while a submit is still going (poor reception → people tap again)
+      if (inFlight) return;
+      inFlight = true;
+      const btn = $('#btn-'+meal), btnHtml = btn ? btn.innerHTML : '';
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Sending…'; }
+      try { await placeOnce(); }
+      finally { inFlight = false; const b2 = $('#btn-'+meal); if (b2 && b2 === btn) { b2.disabled = false; b2.innerHTML = btnHtml; } }
+    };
+    const placeOnce = async function(){
       const payload = {};
       const nid = meal === 'dinner' ? 'dinner-notes' : (meal === 'breakfast' ? 'bf-note' : 'lu-note');
       const nv = mealNoteValue(nid); if (nv !== undefined) { payload.specialNote = nv; payload.notes = nv; }
       if (meal === 'dinner') payload.mealChoice = $('#dinner-choice').value;
-      const r = await sendOrQueue(V3_ORDER_ACTION[meal], payload, { label: label, serviceDate: info.serviceDate });
+      const r = await sendOrQueue(V3_ORDER_ACTION[meal], payload, { label: label, serviceDate: info.serviceDate, requestId: newRequestId() });
       if (!r.success && (r.notOnMenu || r.offMenu) && meal === 'dinner') {
         // 2.10.2 / 3.0.0: dish not on the dinner date's menu — reload that menu and ask again
         toast('That dish isn\'t on '+WEEKDAY_NAMES[new Date(info.serviceDate+'T12:00:00Z').getUTCDay()]+'\'s menu – please pick again','error');
