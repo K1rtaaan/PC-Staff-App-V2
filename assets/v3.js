@@ -2068,7 +2068,7 @@ function a34AboutUrl(){ const s = state.appSettings || {}; return String(s.about
 function a34CreditHtml(withVer){
   return '<div class="pcr-credit-wrap no-print" id="pcr-credit">'+
     (withVer ? '<p class="text-[10px] text-slate-500 text-center">PCR Staff App '+esc(APP_VERSION)+(state.backendVersion ? ' · API '+esc(state.backendVersion) : '')+(state.demo ? ' · demo' : '')+'</p>' : '')+
-    '<button type="button" class="pcr-about-btn" onclick="a34OpenAbout()" aria-label="About"><span class="pcr-rasta"><i class="fa-solid fa-circle-info mr-1"></i>About</span></button></div>'; // 3.2.1: Made-by pill removed
+    '</div>'; // 3.8.2 (C208): About button removed from the page bottom (version line kept)
 }
 function a34OpenAbout(){
   openModal('<div class="space-y-3 min-w-0" id="about-modal"><h3 class="font-semibold text-slate-100"><i class="fa-solid fa-circle-info text-teal-400 mr-2"></i>About</h3>'+
