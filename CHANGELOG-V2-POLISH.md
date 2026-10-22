@@ -1,6 +1,12 @@
 # PCR Staff App V2 Polish — Changelog
 
-Version **3.8.1** (live; UI + API 3.8.1). Revert any item later by asking for its ID (e.g. “revert C7”).
+Version **3.8.2** (live; UI 3.8.2 + API 3.8.1). Revert any item later by asking for its ID (e.g. “revert C7”).
+
+## 3.8.2 — About button removed from the page bottom (2026-10-23, LIVE)
+
+| ID | Change |
+|----|--------|
+| C208 | **About removed** (Pranav, urgent: Nick now has access). The see-through “About” button at the bottom of every page (and under the sign-in form) is gone, so the About poster / “Made by …” popup can no longer be opened. The small version line at the page bottom stays (“PCR Staff App 3.8.2 · API 3.8.1”). Frontend only (`index.html`, `assets/v3.js`, `sw.js` cache bump to 3.8.2); backend unchanged at 3.8.1. Revert: restore tag `rollback-gh-pages-pre-3.8.2` on gh-pages. |
 
 ## 3.8.1 — One meal order per person per date (2026-10-22, LIVE)
 
